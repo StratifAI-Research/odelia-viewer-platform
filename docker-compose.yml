@@ -149,13 +149,13 @@ services:
       - odelia-network
     ports:
       - '5557:5557'
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: 1
+#              capabilities: [gpu]
 
   # Chat Middleware - WebSocket-based chat for DICOM study analysis
   # Supports two backends: Ollama (default) and llama.cpp (optional).

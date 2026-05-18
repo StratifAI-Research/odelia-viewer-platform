@@ -276,7 +276,7 @@ dicom_folder, series_uid = strategy.retrieve()
 Create a new directory for your model under `MLIntegration/`:
 
 ```bash
-cd custom/deploy/orthanc-routing-example/MLIntegration
+cd custom/deploy/orthanc/MLIntegration
 mkdir your-model-name
 cd your-model-name
 ```
@@ -644,7 +644,7 @@ Edit `custom/deploy/docker-compose.yml` and add your model service:
   # Your Custom Model
   your-model-name:
     build:
-      context: ./orthanc-routing-example/MLIntegration
+      context: ./orthanc/MLIntegration
       dockerfile: your-model-name/Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-your-model-name:${TAG:-latest}
     container_name: odelia-your-model-name
@@ -665,7 +665,7 @@ If you want a dedicated router for your model, add:
   # Orthanc Router for Your Model
   orthanc-router-yourmodel:
     build:
-      context: ./orthanc-routing-example/orthanc-router
+      context: ./orthanc/router
       dockerfile: Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
     hostname: orthanc-router-yourmodel
@@ -673,7 +673,7 @@ If you want a dedicated router for your model, add:
     volumes:
       - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
       - ./volumes/orthanc-router-yourmodel-db/:/var/lib/orthanc/db/
-      - ./orthanc-routing-example/orthanc-router/server.py:/python/server.py
+      - ./orthanc/router/server.py:/python/server.py
     restart: unless-stopped
     networks:
       - odelia-network
@@ -745,7 +745,7 @@ All files shown in Step 2-4 above constitute a complete minimal example. The mod
 1. **Build the Docker image:**
 
 ```bash
-cd custom/deploy/orthanc-routing-example/MLIntegration
+cd custom/deploy/orthanc/MLIntegration
 docker build -f your-model-name/Dockerfile -t your-model-name .
 ```
 

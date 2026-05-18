@@ -20,9 +20,9 @@ Follow these steps for a complete local deployment:
 <details>
 <summary>View Quick Start Steps</summary>
 
-1.  **Clone the Repository** (with submodules for AI models):
+1.  **Clone the Repository:**
     ```bash
-    git clone --recurse-submodules https://github.com/StratifAI-Research/odelia-deployment
+    git clone https://github.com/StratifAI-Research/odelia-deployment
     cd odelia-deployment
     ```
 
@@ -145,19 +145,7 @@ git pull origin main
 
 Replace `main` with the branch you are tracking if different.
 
-#### 4. Update Submodules
-
-The deployment uses **nested submodules** (two levels deep), so the `--recursive` flag is required:
-
-```bash
-git submodule update --init --recursive
-```
-
-This updates:
-- `orthanc-routing-example/` — Orthanc router and viewer configurations
-- `orthanc-routing-example/MLIntegration/` — all AI model services (breast-cancer-classification, MST, MedGemma, chat-middleware)
-
-#### 5. Review Configuration Changes
+#### 4. Review Configuration Changes
 
 If you have customized any configuration files, check for upstream changes before restarting:
 
@@ -173,7 +161,7 @@ Files to watch for changes:
 
 > **Important:** Re-apply any custom settings (e.g., `HF_TOKEN`, production domain URLs) after pulling, as they may be overwritten by the update.
 
-#### 6. Rebuild Docker Images
+#### 5. Rebuild Docker Images
 
 Rebuild all images that are built from source:
 
@@ -195,7 +183,7 @@ docker compose build <service-name>
 docker compose pull viewer grafana keycloak postgres
 ```
 
-#### 7. Update Ollama Model (if applicable)
+#### 6. Update Ollama Model (if applicable)
 
 If you use the Chat AI feature, update the Ollama model on the host machine:
 
@@ -203,13 +191,13 @@ If you use the Chat AI feature, update the Ollama model on the host machine:
 ollama pull thiagomoraes/medgemma-1.5-4b-it:F16
 ```
 
-#### 8. Start Services
+#### 7. Start Services
 
 ```bash
 docker compose up -d
 ```
 
-#### 9. Verify Deployment
+#### 8. Verify Deployment
 
 ```bash
 # Check all containers are running
@@ -231,7 +219,6 @@ For experienced users, here is the condensed update sequence:
 ```bash
 docker compose down
 git pull origin main
-git submodule update --init --recursive
 docker compose build --no-cache
 docker compose up -d
 docker compose ps
@@ -562,13 +549,13 @@ A benchmark script is included to compare performance between backends:
 pip install requests
 
 # Run against both backends (requires both to be running)
-python orthanc-routing-example/MLIntegration/chat-middleware/benchmark.py \
+python orthanc/MLIntegration/chat-middleware/benchmark.py \
   --ollama http://localhost:11434 \
   --llamacpp http://localhost:8090 \
   --show-responses
 
 # With real DICOM images from Orthanc
-python orthanc-routing-example/MLIntegration/chat-middleware/benchmark.py \
+python orthanc/MLIntegration/chat-middleware/benchmark.py \
   --ollama http://localhost:11434 \
   --llamacpp http://localhost:8090 \
   --series-uid <SeriesInstanceUID> \

@@ -1,0 +1,56 @@
+{
+  "model_id": "mst-breast-v1",
+  "model_name": "MST Breast Cancer Classification",
+  "version": "1.0.0",
+  "input_configurations": [
+    {
+      "id": "multiphase",
+      "name": "Multi-phase",
+      "description": "Single multi-phase series; subtraction is computed from 1st and 2nd temporal phases",
+      "inputs": [
+        {
+          "key": "multiphase",
+          "label": "Multi-phase Series",
+          "required": true,
+          "modality": "MR",
+          "auto_detect_patterns": ["(?i)multi.*phase", "(?i)dyn", "(?i)dynamic"]
+        }
+      ]
+    },
+    {
+      "id": "pre_post",
+      "name": "Pre + Post Contrast",
+      "description": "Two separate series: pre-contrast and first post-contrast",
+      "inputs": [
+        {
+          "key": "pre",
+          "label": "Pre-Contrast",
+          "required": true,
+          "modality": "MR",
+          "auto_detect_patterns": ["(?i)pre.*contrast", "(?i)pre"]
+        },
+        {
+          "key": "post",
+          "label": "Post-Contrast (1st phase)",
+          "required": true,
+          "modality": "MR",
+          "auto_detect_patterns": ["(?i)post.*contrast", "(?i)post", "(?i)dyn.*1"]
+        }
+      ]
+    },
+    {
+      "id": "subtraction",
+      "name": "Subtraction",
+      "description": "Pre-computed subtraction volume",
+      "inputs": [
+        {
+          "key": "sub",
+          "label": "Subtraction Series",
+          "required": true,
+          "modality": "MR",
+          "auto_detect_patterns": ["(?i)sub", "(?i)subtract"]
+        }
+      ]
+    }
+  ]
+}

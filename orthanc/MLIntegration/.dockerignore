@@ -1,0 +1,65 @@
+# Docker ignore file for MLIntegration
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!README_REFACTORED.md
+
+# Git
+.git/
+.gitignore
+
+# Model files (download at runtime)
+MST-classification/mst_model/
+breast-cancer-classification/models/
+
+# Downloaded images
+MST-classification/images/
+breast-cancer-classification/images/
+
+# Original/backup files
+*_original.py
+app.py
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

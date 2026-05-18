@@ -1,0 +1,10 @@
+Flask
+Flask-Cors
+torch
+torchio
+monai
+requests
+dicomweb-client>=0.59.0
+numpy
+pydicom
+pandas

@@ -27,17 +27,17 @@ services:
   # Orthanc Viewer service (for OHIF to connect to)
   orthanc-viewer:
     build:
-      context: ./orthanc-routing-example/orthanc-viewer
+      context: ./orthanc/viewer
       dockerfile: Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-viewer:${TAG:-latest}
     hostname: orthanc-viewer
     container_name: odelia-orthanc-viewer
     volumes:
-      - ./orthanc-routing-example/orthanc-viewer/orthanc.json:/etc/orthanc/orthanc.json:ro
-      - ./orthanc-routing-example/orthanc-viewer/router.py:/python/router.py:ro
-      - ./orthanc-routing-example/orthanc-viewer/feedback_routes.py:/python/feedback_routes.py:ro
-      - ./orthanc-routing-example/orthanc-viewer/feedback_db.py:/python/feedback_db.py:ro
-      - ./orthanc-routing-example/orthanc-viewer/ups:/python/ups:ro
+      - ./orthanc/viewer/orthanc.json:/etc/orthanc/orthanc.json:ro
+      - ./orthanc/viewer/router.py:/python/router.py:ro
+      - ./orthanc/viewer/feedback_routes.py:/python/feedback_routes.py:ro
+      - ./orthanc/viewer/feedback_db.py:/python/feedback_db.py:ro
+      - ./orthanc/viewer/ups:/python/ups:ro
       - ./volumes/orthanc-viewer-db/:/var/lib/orthanc/db/
       - ./volumes/feedback-db/:/var/lib/odelia-feedback/
     restart: unless-stopped
@@ -60,7 +60,7 @@ services:
   # Orthanc Router service for MST AI model
   orthanc-router-mst:
     build:
-      context: ./orthanc-routing-example/orthanc-router
+      context: ./orthanc/router
       dockerfile: Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
     hostname: orthanc-router-mst
@@ -68,8 +68,8 @@ services:
     volumes:
       - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
       - ./volumes/orthanc-router-mst-db/:/var/lib/orthanc/db/
-      - ./orthanc-routing-example/orthanc-router/server.py:/python/server.py
-      - ./orthanc-routing-example/MLIntegration/MST-classification/manifest.json:/etc/orthanc/manifest.json:ro
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/MST-classification/manifest.json:/etc/orthanc/manifest.json:ro
     restart: unless-stopped
     networks:
       - odelia-network
@@ -89,7 +89,7 @@ services:
   # MST Classification Model
   mst-classifier:
     build:
-      context: ./orthanc-routing-example/MLIntegration
+      context: ./orthanc/MLIntegration
       dockerfile: MST-classification/Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-mst-classifier:${TAG:-latest}
     container_name: odelia-mst-classifier
@@ -105,7 +105,7 @@ services:
   # Orthanc Router service for MedGemma AI model
   orthanc-router-medgemma:
     build:
-      context: ./orthanc-routing-example/orthanc-router
+      context: ./orthanc/router
       dockerfile: Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
     hostname: orthanc-router-medgemma
@@ -113,7 +113,7 @@ services:
     volumes:
       - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
       - ./volumes/orthanc-router-medgemma-db/:/var/lib/orthanc/db/
-      - ./orthanc-routing-example/orthanc-router/server.py:/python/server.py
+      - ./orthanc/router/server.py:/python/server.py
     restart: unless-stopped
     networks:
       - odelia-network
@@ -134,7 +134,7 @@ services:
   # MedGemma MRI Classification Model
   medgemma-mri:
     build:
-      context: ./orthanc-routing-example/MLIntegration
+      context: ./orthanc/MLIntegration
       dockerfile: medgemma-mri/Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-medgemma-mri:${TAG:-latest}
     container_name: odelia-medgemma-mri
@@ -162,7 +162,7 @@ services:
   # Override via .env or shell: BACKEND_TYPE=llamacpp OLLAMA_URL=http://llamacpp-server:8090
   chat-middleware:
     build:
-      context: ./orthanc-routing-example/MLIntegration
+      context: ./orthanc/MLIntegration
       dockerfile: chat-middleware/Dockerfile
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat-middleware:${TAG:-latest}
     container_name: odelia-chat-middleware

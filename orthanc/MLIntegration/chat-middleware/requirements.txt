@@ -1,0 +1,19 @@
+# FastAPI and server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+
+# HTTP client for Ollama
+aiohttp>=3.9.0
+
+# Data validation
+pydantic>=2.5.0
+
+# DICOM processing
+pydicom>=2.4.3
+SimpleITK>=2.3.1
+dicomweb-client>=0.59.0
+
+# Image processing
+Pillow>=10.1.0
+numpy>=1.24.3

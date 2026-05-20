@@ -9,6 +9,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from shared.config import StorageConfig
+from shared.security_banner import print_security_banner
 from config import MedGemmaConfig
 from model_service import MedGemmaModelService
 from exceptions import ModelNotLoadedError, ModelAuthenticationError, InferenceError, ResponseParsingError
@@ -125,6 +126,8 @@ def analyze_mri():
 
 
 if __name__ == "__main__":
+    print_security_banner("medgemma-mri")
+
     # Initialize service before starting server
     initialize_service()
 

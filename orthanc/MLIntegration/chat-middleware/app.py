@@ -24,6 +24,7 @@ from image_cache import get_image_cache
 from ollama_client import get_ollama_client
 from websocket_handler import handle_websocket
 from debug_routes import router as debug_router
+from shared.security_banner import print_security_banner
 
 
 @asynccontextmanager
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
     Application lifespan handler for startup and shutdown events.
     """
     # Startup
+    print_security_banner("chat-middleware")
     logger.info("=" * 60)
     logger.info("Chat Middleware Service - Starting")
     logger.info("=" * 60)

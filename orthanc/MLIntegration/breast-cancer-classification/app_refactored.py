@@ -9,6 +9,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from shared.config import StorageConfig
+from shared.security_banner import print_security_banner
 from config import BreastCancerConfig
 from model_service import BreastCancerModelService
 from exceptions import ModelNotLoadedError, InferenceError
@@ -105,6 +106,8 @@ def analyze_mri():
 
 
 if __name__ == "__main__":
+    print_security_banner("breast-cancer-classification")
+
     # Initialize service before starting server
     initialize_service()
 

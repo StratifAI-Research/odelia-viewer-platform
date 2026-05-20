@@ -10,6 +10,16 @@ The Odelia Viewer is a cutting-edge medical imaging platform developed under the
 ## Installation and Setup 🚀
 This section guides you through the process of getting the Odelia Viewer up and running on your local machine using Docker.
 
+> **⚠️ Research / demo defaults — not for production.**
+> The default configuration is optimized for `docker compose up` on a
+> trusted local network and is **insecure by design** (LAN-bound ports,
+> hardcoded admin passwords, Keycloak `start-dev`, permissive Orthanc auth,
+> open CORS, debug API on). Before exposing any part of this stack beyond
+> a network you control, work through
+> [`docs/production-hardening.md`](docs/production-hardening.md) — and see
+> [`docs/restrict-to-localhost.md`](docs/restrict-to-localhost.md) if you
+> just need to keep colleagues off your VPS / cloud VM.
+
 ### Prerequisites
 1.  **Git:** Installed to clone the repository.
 2.  **Docker:** Installed on your computer (includes Docker Compose).

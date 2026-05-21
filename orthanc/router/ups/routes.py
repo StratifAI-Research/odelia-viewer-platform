@@ -12,6 +12,15 @@ from ups.workitem import UPSWorkitem
 from ups.storage import ups_storage
 from ups.processor import process_workitem
 
+# Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). When
+# unset/empty, host_is_allowed() returns True — preserves current research
+# behaviour. See docs/production-hardening.md.
+try:
+    from host_allowlist import host_is_allowed  # type: ignore
+except Exception:
+    def host_is_allowed(_url: str) -> bool:
+        return True
+
 MANIFEST_PATH = os.environ.get("AI_MANIFEST_PATH", "/etc/orthanc/manifest.json")
 
 
@@ -47,6 +56,11 @@ def CreateWorkitem(output, uri, **request):
 
         if not study_uid:
             output.SendHttpStatus(400, "Missing study_uid in request body")
+            return
+
+        if not host_is_allowed(wado_rs_base):
+            print(f"CreateWorkitem: wado_rs_base host not in ROUTER_HOST_ALLOWLIST: {wado_rs_base}")
+            output.SendHttpStatus(403, "wado_rs_base host not allowed")
             return
 
         # Build WADO-RS retrieval URLs
@@ -278,6 +292,11 @@ def SubscribeToWorkitem(output, uri, **request):
 
         if not subscriber_url:
             output.SendHttpStatus(400, "Missing subscriber_url in request body")
+            return
+
+        if not host_is_allowed(subscriber_url):
+            print(f"SubscribeToWorkitem: subscriber_url host not in ROUTER_HOST_ALLOWLIST: {subscriber_url}")
+            output.SendHttpStatus(403, "subscriber_url host not allowed")
             return
 
         # Verify workitem exists

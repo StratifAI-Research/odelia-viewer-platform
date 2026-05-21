@@ -16,6 +16,14 @@ from pydicom.uid import generate_uid
 from ups.storage import ups_storage
 from wado_utils import retrieve_series_metadata_sorted
 
+# Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). Empty /
+# unset preserves current research behaviour. See docs/production-hardening.md.
+try:
+    from host_allowlist import host_is_allowed  # type: ignore
+except Exception:
+    def host_is_allowed(_url: str) -> bool:
+        return True
+
 
 # Get MODEL_BACKEND_URL from environment (configured per router instance in docker-compose)
 MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://breast-cancer-classification:5555")
@@ -32,6 +40,12 @@ def notify_subscriber(workitem, subscriber_url):
         workitem: UPSWorkitem instance
         subscriber_url: Subscriber's callback URL
     """
+    if not host_is_allowed(subscriber_url):
+        # Defense in depth: subscriber URLs are also validated at intake
+        # (SubscribeToWorkitem), but check again on egress in case the
+        # subscription store was populated by some other path.
+        print(f"notify_subscriber: subscriber_url host not in ROUTER_HOST_ALLOWLIST, skipping: {subscriber_url}")
+        return
     try:
         response = requests.post(
             f"{subscriber_url}/ups-rs/workitems/{workitem.workitem_uid}",

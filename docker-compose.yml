@@ -2,6 +2,10 @@ version: '3.8'
 
 services:
   # OHIF Viewer service (main viewer)
+  # ${BIND_HOST:-} prefix lets operators restrict every published port to
+  # localhost by setting BIND_HOST=127.0.0.1: (note trailing colon) in .env
+  # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
+  # See docs/restrict-to-localhost.md.
   viewer:
     build:
       context: ../../
@@ -13,7 +17,7 @@ services:
       - ./config/app-config.js:/usr/share/nginx/html/app-config.js
  #     - ./logs/nginx:/var/log/nginx
     ports:
-      - '8081:8081'
+      - '${BIND_HOST:-}8081:8081'
     depends_on:
       - orthanc-viewer
       - keycloak
@@ -37,6 +41,7 @@ services:
       - ./orthanc/viewer/router.py:/python/router.py:ro
       - ./orthanc/viewer/feedback_routes.py:/python/feedback_routes.py:ro
       - ./orthanc/viewer/feedback_db.py:/python/feedback_db.py:ro
+      - ./orthanc/viewer/host_allowlist.py:/python/host_allowlist.py:ro
       - ./orthanc/viewer/ups:/python/ups:ro
       - ./volumes/orthanc-viewer-db/:/var/lib/orthanc/db/
       - ./volumes/feedback-db/:/var/lib/odelia-feedback/
@@ -46,8 +51,8 @@ services:
     networks:
       - odelia-network
     ports:
-      - '8000:8042' # HTTP port
-      - '2000:4242' # DICOM port
+      - '${BIND_HOST:-}8000:8042' # HTTP port
+      - '${BIND_HOST:-}2000:4242' # DICOM port
     environment:
       - ORTHANC__NAME=orthanc-viewer
       - VERBOSE_ENABLED=true
@@ -74,8 +79,8 @@ services:
     networks:
       - odelia-network
     ports:
-      - '4243:4242' # DICOM port (avoid conflict)
-      - '8043:8042' # HTTP port (avoid conflict)
+      - '${BIND_HOST:-}4243:4242' # DICOM port (avoid conflict)
+      - '${BIND_HOST:-}8043:8042' # HTTP port (avoid conflict)
     environment:
       - ORTHANC__NAME=orthanc-router-mst
       - VERBOSE_ENABLED=true
@@ -100,7 +105,7 @@ services:
     networks:
       - odelia-network
     ports:
-      - '5556:5556'
+      - '${BIND_HOST:-}5556:5556'
 
   # Orthanc Router service for MedGemma AI model
   orthanc-router-medgemma:
@@ -118,8 +123,8 @@ services:
     networks:
       - odelia-network
     ports:
-      - '4244:4242' # DICOM port (avoid conflict)
-      - '8044:8042' # HTTP port (avoid conflict)
+      - '${BIND_HOST:-}4244:4242' # DICOM port (avoid conflict)
+      - '${BIND_HOST:-}8044:8042' # HTTP port (avoid conflict)
     environment:
       - ORTHANC__NAME=orthanc-router-medgemma
       - VERBOSE_ENABLED=true
@@ -148,7 +153,7 @@ services:
     networks:
       - odelia-network
     ports:
-      - '5557:5557'
+      - '${BIND_HOST:-}5557:5557'
 #    deploy:
 #      resources:
 #        reservations:
@@ -177,7 +182,7 @@ services:
     networks:
       - odelia-network
     ports:
-      - '5560:5560'
+      - '${BIND_HOST:-}5560:5560'
     depends_on:
       - orthanc-viewer
     # Enable host.docker.internal on Linux
@@ -195,7 +200,7 @@ services:
     volumes:
       - ./volumes/models:/models:ro
     ports:
-      - '8090:8090'
+      - '${BIND_HOST:-}8090:8090'
     networks:
       - odelia-network
     restart: unless-stopped
@@ -225,7 +230,7 @@ services:
     image: grafana/grafana:11.1.0
     container_name: odelia-grafana
     ports:
-      - '3000:3000'
+      - '${BIND_HOST:-}3000:3000'
     user: "0:0"                          # run as root
     environment:
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
@@ -271,7 +276,7 @@ services:
       # added later
       PROXY_ADDRESS_FORWARDING: "true"
     ports:
-      - 8080:8080
+      - '${BIND_HOST:-}8080:8080'
     depends_on:
       - postgres
     restart: unless-stopped

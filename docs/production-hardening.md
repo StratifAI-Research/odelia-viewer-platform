@@ -138,21 +138,14 @@ down the same way if they will be reachable from a browser.
 
 ## Should-do for any hosted deployment
 
-### 8. Treat researcher-supplied `user_id` as untrusted
-
-The feedback endpoint accepts `user_id` straight from the request
-body. That is fine for low-friction annotation by trusted research
-users; in production, derive it from a validated Keycloak JWT
-(`Authorization: Bearer ...`) instead.
-
-### 9. Replace verbose error messages with correlation IDs
+### 8. Replace verbose error messages with correlation IDs
 
 Several Flask handlers return `str(e)` in JSON error responses. The
 exposure is low (exception messages, not stack traces) but a hosted
 deployment should swap to a generic error message and log the real
 exception against a correlation ID returned to the client.
 
-### 10. Bump container images on a schedule
+### 9. Bump container images on a schedule
 
 Some images are pinned to older versions for reproducible demos
 (notably `grafana/grafana:11.1.0` and
@@ -161,7 +154,7 @@ should track upstream releases and rebuild periodically to pick up
 security fixes. Keep the pinned tag in the repo, but document the
 expected refresh cadence for your deployment.
 
-### 11. Remove TLS-verify bypass when wiring HTTPS
+### 10. Remove TLS-verify bypass when wiring HTTPS
 
 `orthanc/MLIntegration/breast-cancer-classification/app.py` (legacy)
 calls Orthanc with `verify=False`. This is a no-op today because

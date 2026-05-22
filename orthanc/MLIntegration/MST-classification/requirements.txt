@@ -1,23 +1,26 @@
-Flask>=3.0.0
-Flask-Cors>=4.0.0
+# NOTE: `--extra-index-url` cannot be expressed in pyproject.toml; this file
+# is the canonical install path when an index URL matters. python-pin-check
+# skips `-`-prefixed lines, so the version pins below are still enforced.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.5.0
-torchvision>=0.21.0
-transformers==5.3.0
-huggingface_hub>=0.26.0
-pydicom>=2.4.3
-nibabel>=5.2.0
-numpy>=1.24.3
-requests>=2.31.0
-dicomweb-client>=0.59.0
-Pillow>=10.1.0
-matplotlib>=3.8.2
-opencv-python-headless>=4.8.1.78
-scipy>=1.11.4
-torchio>=0.19.6
-einops>=0.7.0
-x-transformers>=1.27.0
-SimpleITK>=2.3.1
-timm>=0.9.12
-fvcore>=0.1.5.post20221221
-omegaconf>=2.3.0
+Flask==3.1.3
+Flask-Cors==6.0.2
+torch==2.12.0
+torchvision==0.27.0
+transformers @ git+https://github.com/huggingface/transformers.git@52b82b299171721fbe7b04fe056187f7aed2e2cc
+huggingface-hub==1.15.0
+pydicom==3.0.2
+nibabel==5.4.2
+numpy==2.2.6
+requests==2.34.2
+dicomweb-client==0.61.0
+Pillow==12.2.0
+matplotlib==3.10.9
+opencv-python-headless==4.13.0.92
+scipy==1.15.3
+torchio==1.2.0
+einops==0.8.2
+x-transformers==2.19.6
+SimpleITK==2.5.5
+timm==1.0.27
+fvcore==0.1.5.post20221221
+omegaconf==2.3.0

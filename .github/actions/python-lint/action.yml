@@ -1,0 +1,64 @@
+name: Python lint
+description: Ruff check + ruff format + mypy across the platform's Python services
+inputs:
+  working-directory:
+    description: 'Directory containing pyproject.toml + requirements-dev.txt and service subdirs'
+    required: true
+  python-version:
+    default: '3.12'
+  fail-on-error:
+    description: 'When true (default), render_summary.py exits 1 if any tool reports violations and the job goes red. Set to false for warn-only runs where violations are surfaced but do not block.'
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dev tools
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pip install -r requirements-dev.txt
+
+    - name: Prepare outputs dir
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: mkdir -p outputs
+
+    - name: Ruff check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      continue-on-error: true
+      run: |
+        set +e
+        ruff check . \
+          --output-format=json \
+          --exclude .venv,__pycache__,.pytest_cache,tests,sample_data,screenshots \
+          > outputs/ruff.json
+        echo $? > outputs/ruff.exit
+
+    - name: Ruff format --check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      continue-on-error: true
+      run: |
+        set +e
+        ruff format --check . > outputs/ruff-format.txt 2>&1
+        echo $? > outputs/ruff-format.exit
+
+    - name: mypy
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      continue-on-error: true
+      run: |
+        set +e
+        mypy --explicit-package-bases viewer router MLIntegration/shared > outputs/mypy.txt 2>&1
+        echo $? > outputs/mypy.exit
+
+    - name: Render summary
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PYTHON_LINT_WARN_ONLY: ${{ inputs.fail-on-error == 'false' && 'true' || 'false' }}
+      run: python3 ${{ github.action_path }}/render_summary.py

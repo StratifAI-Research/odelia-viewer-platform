@@ -1,0 +1,17 @@
+name: Python pin check
+description: Verify every direct dep in pyproject.toml and requirements.txt is fully pinned, and the two agree
+inputs:
+  working-directory:
+    description: 'Directory containing service subdirs'
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Verify per-service pin consistency
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: python3 ${{ github.action_path }}/check.py

@@ -1,0 +1,45 @@
+name: Python lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-py:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/python-lint
+        with:
+          working-directory: orthanc
+
+      - name: Upload artifact (main push only)
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-py-${{ github.sha }}
+          path: orthanc/outputs/
+          retention-days: 90
+
+  python-pin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/python-pin-check
+        with:
+          working-directory: orthanc

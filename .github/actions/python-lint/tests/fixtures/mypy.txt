@@ -1,0 +1,3 @@
+viewer/feedback_db.py:32: error: Function is missing a return type annotation  [no-untyped-def]
+viewer/router.py:35: error: Function is missing a return type annotation  [no-untyped-def]
+Found 2 errors in 2 files (checked 18 source files)

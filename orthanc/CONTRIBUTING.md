@@ -56,11 +56,8 @@ When changing a service's Python floor, update its Dockerfile base image in lock
 1. The platform-side workflow lives at `custom/deploy/.github/workflows/python-lint.yml` (subtree-internal path). The viewer's own CI runs from `.github/workflows/lint.yml` at the repo root and doesn't pick up the subtree workflow.
 2. Edits to `custom/deploy/**` made in this repo must be subtree-split and pushed back to `odelia-deployment` — otherwise the next pull from upstream will overwrite them. If you fix something here that also exists on the platform side, fix it on platform first or be prepared to push the subtree.
 
-## `lint-py` is currently red on purpose
+## `lint-py` is currently yellow (warn-only)
 
-The `lint-py` job is gating (`fail-on-error: true` by default) but the codebase still has 888 ruff + 64 format + 172 mypy violations as of this PR landing. They're tracked in ODV-199, ODV-195, and ODV-198 and will be cleared in follow-up PRs. Until then, the job will go red on every push — that's expected, not a regression you introduced.
+The `lint-py` job runs in warn-only mode (`fail-on-error: false`) — violations are reported in the step summary but don't block the PR. The codebase still has ~888 ruff + 64 format + 172 mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (`fail-on-error: true`).
 
-Two escape hatches if you need to ship something orthogonal:
-
-- Pass `fail-on-error: false` (or set `PYTHON_LINT_WARN_ONLY=true`) to switch the action to warn-only mode — violations are reported but the job stays green.
-- A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.
+A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.

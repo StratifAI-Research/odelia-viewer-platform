@@ -58,6 +58,6 @@ When changing a service's Python floor, update its Dockerfile base image in lock
 
 ## `lint-py` is currently yellow (warn-only)
 
-The `lint-py` job runs in warn-only mode (`fail-on-error: false`) — violations are reported in the step summary but don't block the PR. The codebase still has ~888 ruff + 64 format + 172 mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (`fail-on-error: true`).
+The `lint-py` job runs in warn-only mode (`continue-on-error: true` at job level) — violations are reported in the step summary but don't block the PR. The codebase still has ~888 ruff + 64 format + 172 mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (remove `continue-on-error: true` from the job).
 
 A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.

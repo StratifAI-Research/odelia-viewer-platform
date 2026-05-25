@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mlintegration"
 version = "2.0.0"
 description = "ML Integration package wrapper — exposes the `shared` module for service Dockerfiles"
-readme = "README_REFACTORED.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 

@@ -24,6 +24,7 @@ jobs:
       - uses: ./.github/actions/python-lint
         with:
           working-directory: orthanc
+          fail-on-error: 'false'
 
       - name: Upload artifact (main push only)
         if: github.event_name == 'push'

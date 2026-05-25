@@ -1,9 +1,7 @@
 FROM docker.io/orthancteam/orthanc:25.12.0
 
-RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
-RUN pip3 install pydicom --break-system-packages
-RUN pip3 install dicomweb-client --break-system-packages
-RUN pip3 install matplotlib numpy opencv-python Pillow requests --break-system-packages
+RUN apt-get update && apt-get install -y ffmpeg libsm6 libxext6
 
 RUN mkdir /python
 COPY . /python/
+RUN pip3 install --break-system-packages -r /python/requirements.txt

@@ -181,7 +181,7 @@ def main() -> None:
 
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary:
-        with open(step_summary, "a") as f:
+        with open(step_summary, "a", encoding="utf-8") as f:
             f.write(body)
 
     # --- Exit-code logic ---

@@ -6,6 +6,8 @@ Flask==3.1.3
 Flask-Cors==6.0.2
 torch==2.12.0
 torchvision==0.27.0
+# Pinned to git SHA — MST weight loading depends on internal class layout.
+# Bump by updating the SHA here and in pyproject.toml in lockstep.
 transformers @ git+https://github.com/huggingface/transformers.git@52b82b299171721fbe7b04fe056187f7aed2e2cc
 huggingface-hub==1.15.0
 pydicom==3.0.2

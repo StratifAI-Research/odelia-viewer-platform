@@ -38,12 +38,3 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["viewer.*", "router.*", "MLIntegration.shared.*"]
 strict = true
-
-[[tool.mypy.overrides]]
-module = [
-  "MLIntegration.medgemma_mri.*",
-  "MLIntegration.MST_classification.*",
-  "MLIntegration.chat_middleware.*",
-  "MLIntegration.breast_cancer_classification.*",
-]
-ignore_errors = true

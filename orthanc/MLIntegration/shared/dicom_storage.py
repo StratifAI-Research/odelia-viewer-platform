@@ -3,6 +3,7 @@ DICOM file storage utilities
 Single Responsibility: File system operations for DICOM data
 """
 import os
+import re
 import shutil
 import logging
 from pathlib import Path
@@ -12,6 +13,29 @@ from pydicom.dataset import Dataset
 from .config import StorageConfig
 
 logger = logging.getLogger(__name__)
+
+
+# DICOM PS3.5 §9.1: a UID is a sequence of non-empty numeric components
+# separated by '.', max 64 chars total. Anchored fullmatch — blocks path
+# traversal ('..', '/etc', 'foo/../bar') and any other attacker-controlled
+# filename smuggled in via series_uid.
+_SERIES_UID_RE = re.compile(r"[0-9]+(?:\.[0-9]+)*")
+
+
+def validate_series_uid(series_uid: str) -> str:
+    """
+    Validate a DICOM SeriesInstanceUID before using it as a filesystem path
+    component. Returns the input on success; raises ValueError otherwise.
+
+    Blocks path-traversal payloads such as '..', '/etc', and 'foo/../bar'.
+    """
+    if (
+        not isinstance(series_uid, str)
+        or len(series_uid) > 64
+        or not _SERIES_UID_RE.fullmatch(series_uid)
+    ):
+        raise ValueError(f"invalid series_uid: {series_uid!r}")
+    return series_uid
 
 
 def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: bool = True) -> Path:
@@ -26,6 +50,7 @@ def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: 
     Returns:
         Path to created series folder
     """
+    validate_series_uid(series_uid)
     series_folder = Path(storage_config.image_folder) / series_uid
 
     # Clean up if exists and clean=True

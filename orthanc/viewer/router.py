@@ -21,6 +21,15 @@ try:
 except Exception:
     register_feedback_endpoints = None
 
+# Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var).
+# When unset/empty, host_is_allowed() returns True for any input — preserves
+# the current research behaviour. See docs/production-hardening.md.
+try:
+    from host_allowlist import host_is_allowed  # type: ignore
+except Exception:
+    def host_is_allowed(_url: str) -> bool:  # fallback: allow all
+        return True
+
 # UPS storage for workitem persistence
 try:
     from ups.storage import UPSStorage
@@ -156,6 +165,11 @@ def SendToAiDicom(output, uri, **request):
 
         if not study_id or not target:
             output.SendHttpStatus(400, "Missing study_id or target in request body")
+            return
+
+        if target_url and not host_is_allowed(target_url):
+            print(f"SendToAiDicom: target_url host not in ROUTER_HOST_ALLOWLIST: {target_url}")
+            output.SendHttpStatus(403, "target_url host not allowed")
             return
 
         # If series_uids not provided, check if study has processable content
@@ -376,6 +390,11 @@ def SendToAiDicomWeb(output, uri, **request):
         if not target_url:
             print("SendToAiDicomWeb: Missing target_url parameter")
             output.SendHttpStatus(400, "Missing target_url in request body")
+            return
+
+        if not host_is_allowed(target_url):
+            print(f"SendToAiDicomWeb: target_url host not in ROUTER_HOST_ALLOWLIST: {target_url}")
+            output.SendHttpStatus(403, "target_url host not allowed")
             return
 
         # Verify study_id exists in Orthanc
@@ -714,6 +733,11 @@ def GetAIManifest(output, uri, **request):
 
         if not target_url:
             output.SendHttpStatus(400, "Missing target_url query parameter")
+            return
+
+        if not host_is_allowed(target_url):
+            print(f"GetAIManifest: target_url host not in ROUTER_HOST_ALLOWLIST: {target_url}")
+            output.SendHttpStatus(403, "target_url host not allowed")
             return
 
         router_base_url = target_url.replace("/dicom-web", "").rstrip("/")

@@ -8,7 +8,7 @@ addopts = "-q"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-extend-exclude = ["__pycache__", ".pytest_cache", "tests", "sample_data", "screenshots", "*.ipynb"]
+extend-exclude = ["__pycache__", ".pytest_cache", ".venv", "tests", "sample_data", "screenshots", "*.ipynb"]
 
 [tool.ruff.lint]
 # ODV-199 acceptance criteria

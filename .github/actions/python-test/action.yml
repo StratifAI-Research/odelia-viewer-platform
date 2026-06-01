@@ -1,0 +1,68 @@
+name: Python test
+description: Run pytest with coverage gating and render a GitHub step summary
+inputs:
+  working-directory:
+    description: 'Directory containing tests/ and requirements-tests.txt'
+    required: true
+  python-version:
+    default: '3.12'
+  pytest-cov-version:
+    default: '7.1.0'
+  coverage-version:
+    default: '7.6.10'
+  test-marker:
+    description: 'pytest -m expression'
+    default: 'unit'
+  cov-fail-under:
+    description: 'Minimum coverage % to pass'
+    default: '50'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install test dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        pip install -r requirements-tests.txt
+        pip install \
+          "pytest-cov==${{ inputs.pytest-cov-version }}" \
+          "coverage==${{ inputs.coverage-version }}"
+
+    - name: Prepare outputs dir
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: mkdir -p outputs
+
+    - name: Run pytest (${{ inputs.test-marker }}) with coverage gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        pytest tests \
+          -m "${{ inputs.test-marker }}" \
+          --cov=. \
+          --cov-config=${{ github.action_path }}/coverage.cfg \
+          --cov-report=xml:outputs/pytest-coverage.xml \
+          --cov-fail-under=${{ inputs.cov-fail-under }} \
+          --junitxml=outputs/pytest.xml
+
+    - name: Run action test suites
+      if: always()
+      shell: bash
+      run: |
+        action_root="${{ github.action_path }}/.."
+        test_dirs=$(find "$action_root" -path "*/tests/test_*.py" -exec dirname {} \; | sort -u)
+        rc=0
+        for d in $test_dirs; do
+          pytest "$d" -v --tb=short || rc=$?
+        done
+        exit $rc
+
+    - name: Render summary (fails if no tests ran)
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: python3 ${{ github.action_path }}/render_summary.py

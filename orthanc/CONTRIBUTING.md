@@ -64,3 +64,28 @@ Two escape hatches if you need to ship something orthogonal:
 
 - Pass `fail-on-error: false` (or set `PYTHON_LINT_WARN_ONLY=true`) to switch the action to warn-only mode — violations are reported but the job stays green.
 - A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.
+
+## Python testing
+
+Tests live under `tests/`:
+
+- `tests/unit/` — fast tests, no external services. CI’s default `pytest -m unit` runs only these.
+- `tests/integration/` — tests requiring a live Orthanc viewer. Marked `@pytest.mark.integration`; skip themselves when no viewer is reachable. Not run by default in CI.
+
+Markers are auto-applied by location — no `@pytest.mark.unit` on each unit test needed. The top-level `tests/conftest.py` applies the marker based on file path.
+
+Tests outside `tests/unit/` and `tests/integration/` are rejected at collection time unless they carry an explicit marker.
+
+### Running locally
+
+    cd custom/deploy/orthanc
+    pip install -r requirements-tests.txt
+    pytest tests -m unit                    # unit only
+    pytest tests -m integration             # integration (needs running orthanc-viewer)
+    pytest tests                            # both
+
+### Coverage gate
+
+CI enforces `--cov-fail-under=50` via the `python-test` composite action (same pattern as `python-lint`).
+
+**Currently red by design.** This PR (ODV-192) ships only two seed tests covering shared/config.py and shared/timing_utils.py — total coverage is well below the 50% floor. The CI gate exists; the test mass to clear it lives in ODV-133, which rebases onto post-192 main. Same shape as `lint-py` red-by-design until ODV-199/195/198 land. Don’t mis-diagnose `test-py` red on your PR as your regression — check the rollup against this baseline.

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==82.0.1", "wheel==0.47.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odelia-viewer-service"
+version = "0.1.0"
+description = "Orthanc Python plugin: feedback API + UPS routes"
+requires-python = ">=3.11"
+dependencies = [
+  # Dockerfile explicitly installs these two:
+  "pydicom==3.0.2",
+  "dicomweb-client==0.61.0",
+  # requests is a transitive of dicomweb-client but directly imported
+  # in router.py -- kept explicit so the intent is clear.
+  "requests==2.34.2",
+]
+
+[tool.setuptools.packages.find]
+include = []  # not a distributable; pyproject is for dep declaration only

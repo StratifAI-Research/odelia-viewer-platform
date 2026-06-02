@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools==82.0.1", "wheel==0.47.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlintegration-chat-middleware"
+version = "0.1.0"
+description = "Chat middleware service for Odelia ML Integration"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.136.1",
+  "uvicorn[standard]==0.47.0",
+  "websockets==16.0",
+  "aiohttp==3.13.5",
+  "pydantic==2.13.4",
+  "pydicom==3.0.2",
+  "SimpleITK==2.5.5",
+  "dicomweb-client==0.61.0",
+  "Pillow==12.2.0",
+  "numpy==2.4.6",
+]
+
+[tool.setuptools.packages.find]
+include = []

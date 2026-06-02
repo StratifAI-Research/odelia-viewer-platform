@@ -1,0 +1,4 @@
+# Dev/CI tools — single source of truth for ruff/mypy versions.
+# Bump in this file only; CI's composite action installs from here.
+ruff==0.8.4
+mypy==1.13.0

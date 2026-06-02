@@ -1,0 +1,14 @@
+[
+  {
+    "code": "E501",
+    "filename": "viewer/router.py",
+    "location": {"row": 368, "column": 1},
+    "message": "Line too long (95 > 88)"
+  },
+  {
+    "code": "F401",
+    "filename": "MLIntegration/MST-classification/preprocessing.py",
+    "location": {"row": 6, "column": 1},
+    "message": "`os` imported but unused"
+  }
+]

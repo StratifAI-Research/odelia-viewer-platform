@@ -84,8 +84,7 @@ def CreateWorkitem(output, uri, **request):
 
         print(f"Created workitem {workitem.workitem_uid} for study {study_uid}")
 
-        # Process workitem immediately in background thread
-        # (similar to OnStableStudy pattern - immediate execution, not polling)
+        # Process workitem immediately in a daemon background thread (no polling)
         def process_in_background():
             try:
                 process_workitem(workitem)

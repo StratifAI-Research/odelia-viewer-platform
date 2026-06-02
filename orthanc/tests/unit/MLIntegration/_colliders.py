@@ -13,5 +13,5 @@ ML_SERVICE_COLLIDERS = (
     'ollama_client', 'preprocessing', 'prompt_builder',
     'prompt_templates', 'response_builder', 'response_parser',
     'retrieval_strategy', 'runtime_config', 'session_manager',
-    'wado_helper', 'websocket_handler',
+    'websocket_handler',
 )

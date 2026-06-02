@@ -6,18 +6,28 @@ imports it. Provides FakeOutput, opt-in REST/DICOM fakes, and per-test reset.
 import os
 import sys
 import tempfile
-from pathlib import Path
 from types import ModuleType
+from typing import Any, Iterator
 import pytest
 
 # Allow feedback_db to initialize its SQLite store in a writable temp location.
 # PYTEST_ODV133_FEEDBACK_DIR lets a caller pin a specific directory; otherwise
 # we create a fresh per-process tmp dir so parallel test runs on the same host
 # don't share SQLite state.
-os.environ.setdefault(
-    "ORTHANC_FEEDBACK_DB_DIR",
-    os.environ.get("PYTEST_ODV133_FEEDBACK_DIR") or tempfile.mkdtemp(prefix="odv133_fb_"),
-)
+_FB_DIR_CREATED_BY_US = False
+if not os.environ.get("ORTHANC_FEEDBACK_DB_DIR"):
+    _pinned = os.environ.get("PYTEST_ODV133_FEEDBACK_DIR")
+    if _pinned:
+        os.environ["ORTHANC_FEEDBACK_DB_DIR"] = _pinned
+    else:
+        os.environ["ORTHANC_FEEDBACK_DB_DIR"] = tempfile.mkdtemp(prefix="odv133_fb_")
+        _FB_DIR_CREATED_BY_US = True
+
+if _FB_DIR_CREATED_BY_US:
+    import atexit
+    import shutil
+    _FB_DIR_TO_CLEAN = os.environ["ORTHANC_FEEDBACK_DB_DIR"]
+    atexit.register(lambda: shutil.rmtree(_FB_DIR_TO_CLEAN, ignore_errors=True))
 
 
 def _no_orthanc_handler(*a, **kw):
@@ -59,7 +69,13 @@ def _install_orthanc_stub():
     m._kv = {}  # {(bucket, key): bytes}
 
     def _put(bucket, key, value):
-        m._kv[(bucket, key)] = value if isinstance(value, bytes) else str(value).encode()
+        # Mirror real Orthanc: StoreKeyValue requires bytes. Silent coercion would
+        # mask type bugs (e.g. accidentally passing a dict or unencoded str).
+        if not isinstance(value, (bytes, bytearray)):
+            raise TypeError(
+                f"StoreKeyValue requires bytes; got {type(value).__name__}"
+            )
+        m._kv[(bucket, key)] = bytes(value)
     def _get(bucket, key):
         return m._kv.get((bucket, key))
     def _del(bucket, key):
@@ -92,7 +108,10 @@ def _install_orthanc_stub():
             return self._items[self._idx][1]
 
     def _iter(bucket):
-        items = [(k, v) for (b, k), v in sorted(m._kv.items()) if b == bucket]
+        # Real Orthanc's CreateKeysValuesIterator order is unspecified. Yielding
+        # reverse-sorted (rather than ascending) deterministically surfaces tests
+        # that depend on alphabetical/ascending iteration.
+        items = [(k, v) for (b, k), v in sorted(m._kv.items(), reverse=True) if b == bucket]
         return _KVIterator(items)
 
     m.StoreKeyValue = _put
@@ -104,8 +123,15 @@ def _install_orthanc_stub():
     m.RestApiGet = m.RestApiPost = m.RestApiPut = m.RestApiDelete = _no_orthanc_handler
     m.GetDicomForInstance = _no_orthanc_handler
 
-    # ---- Logging: no-op ----
-    m.LogInfo = m.LogWarning = m.LogError = lambda msg: None
+    # ---- Logging: capture into m._log_calls so tests can assert on log-only side effects ----
+    m._log_calls = []  # list of (level, msg) tuples; cleared by _reset_orthanc_state
+    def _make_logger(level):
+        def _log(msg):
+            m._log_calls.append((level, msg))
+        return _log
+    m.LogInfo = _make_logger("info")
+    m.LogWarning = _make_logger("warning")
+    m.LogError = _make_logger("error")
 
     sys.modules['orthanc'] = m
 
@@ -113,7 +139,8 @@ def _install_orthanc_stub():
 _install_orthanc_stub()
 
 # Make the orthanc/ directory importable for sibling-module tests at this level
-_ORTHANC_DIR = str(Path(__file__).resolve().parents[2])
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ORTHANC_DIR = os.path.abspath(os.path.join(_HERE, "..", ".."))
 if _ORTHANC_DIR not in sys.path:
     sys.path.insert(0, _ORTHANC_DIR)
 
@@ -141,35 +168,34 @@ class FakeOutput:
 
 
 @pytest.fixture
-def out():
+def out() -> FakeOutput:
     return FakeOutput()
 
 
 @pytest.fixture(autouse=True)
-def _reset_orthanc_state():
-    """Clear KV store + captured callbacks + REST/DICOM stubs after each test.
-
-    Initial state is clean because _install_orthanc_stub() seeds empty containers
-    and default _no_orthanc_handler raisers; teardown brings the module back to
-    that baseline so the next test starts identically.
-    """
-    yield
+def _reset_orthanc_state() -> Iterator[None]:
+    """Clear KV store + captured callbacks + REST/DICOM stubs between tests."""
     import orthanc
     orthanc._kv.clear()
     orthanc._rest_callbacks.clear()
     orthanc._onchange_callbacks.clear()
-    # restore default raisers in case the test bound a fake
+    orthanc._log_calls.clear()
+    # restore default raisers in case a prior test bound a fake
     orthanc.RestApiGet = orthanc.RestApiPost = orthanc.RestApiPut = orthanc.RestApiDelete = _no_orthanc_handler
     orthanc.GetDicomForInstance = _no_orthanc_handler
-    # Drop ALL `ups`-prefixed entries — both viewer/ups and router/ups land in
-    # sys.modules under the bare `ups` name once their side imports first; evict
-    # between tests so the next test's side imports cleanly.
-    for key in [k for k in sys.modules if k == 'ups' or k.startswith('ups.')]:
-        del sys.modules[key]
+    # Evict modules that load under the same bare name from both viewer/ and router/
+    # subtrees. Without this, the second side imports a stale module reference from
+    # the first side's path. Includes top-level service modules (server, router,
+    # feedback_db, feedback_routes, wado_utils) in addition to the `ups` package.
+    _EVICT_NAMES = ('ups', 'server', 'router', 'feedback_db', 'feedback_routes', 'wado_utils')
+    for key in list(sys.modules):
+        if key in _EVICT_NAMES or any(key.startswith(n + '.') for n in _EVICT_NAMES):
+            del sys.modules[key]
+    yield
 
 
 @pytest.fixture
-def rest_fake(monkeypatch):
+def rest_fake() -> Any:
     """Records orthanc.RestApi* calls and lets tests bind responses.
 
     Usage:
@@ -190,16 +216,16 @@ def rest_fake(monkeypatch):
         v = responses[key]
         return v(body) if callable(v) else v
 
-    monkeypatch.setattr(orthanc, "RestApiGet", lambda uri: _dispatch("GET", uri))
-    monkeypatch.setattr(orthanc, "RestApiPost", lambda uri, body=b"": _dispatch("POST", uri, body))
-    monkeypatch.setattr(orthanc, "RestApiPut", lambda uri, body=b"": _dispatch("PUT", uri, body))
-    monkeypatch.setattr(orthanc, "RestApiDelete", lambda uri: _dispatch("DELETE", uri))
+    orthanc.RestApiGet = lambda uri: _dispatch('GET', uri)
+    orthanc.RestApiPost = lambda uri, body=b'': _dispatch('POST', uri, body)
+    orthanc.RestApiPut = lambda uri, body=b'': _dispatch('PUT', uri, body)
+    orthanc.RestApiDelete = lambda uri: _dispatch('DELETE', uri)
 
     return type('RestFake', (), {'calls': calls, 'responses': responses})()
 
 
 @pytest.fixture
-def dicom_fake(monkeypatch):
+def dicom_fake() -> dict[str, Any]:
     """Bind {instance_id: bytes} for orthanc.GetDicomForInstance calls."""
     import orthanc
     store = {}
@@ -209,5 +235,70 @@ def dicom_fake(monkeypatch):
             raise KeyError(f'dicom_fake: no fixture for instance_id={instance_id!r}')
         return store[instance_id]
 
-    monkeypatch.setattr(orthanc, "GetDicomForInstance", _get)
+    orthanc.GetDicomForInstance = _get
     return store
+
+# ---------------------------------------------------------------------------
+# WADO-RS fake — opt-in fixture covering both shared.wado_retrieval and
+# router.wado_utils. Lives here (root unit conftest) so tests in either subtree
+# can request it; the two `setattr` calls are individually guarded so the
+# fixture works whether the patch target's module is on sys.path or not.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def wado_fake(monkeypatch) -> Any:
+    """Fake DICOMwebClient injected into shared.wado_retrieval and router.wado_utils.
+
+    Usage:
+        def test_x(wado_fake):
+            wado_fake.series_responses[("1.2.100", "1.2.200")] = [make_dataset()]
+            # call code that uses retrieve_via_wado_rs(...) or retrieve_series_metadata
+            assert wado_fake.calls == [("retrieve_series", "1.2.100", "1.2.200")]
+    """
+    calls = []
+    series_responses = {}
+    metadata_responses = {}
+    # MDR H5: tests can bind concrete exception classes (HTTPError, Timeout,
+    # InvalidDicomError, etc.) to specific (study, series) keys so production'''s
+    # wrap-as-DicomRetrievalError contract is exercised against the real exception surface.
+    series_exceptions = {}      # {(study, series): Exception instance}
+    metadata_exceptions = {}    # same
+
+    class FakeDICOMwebClient:
+        def __init__(self, url=""):
+            self.url = url
+
+        def retrieve_series(self, study_instance_uid="", series_instance_uid=""):
+            key = (study_instance_uid, series_instance_uid)
+            calls.append(("retrieve_series", *key))
+            if key in series_exceptions:
+                raise series_exceptions[key]
+            if key not in series_responses:
+                raise ConnectionError(f"wado_fake: no series response for {key}")
+            return series_responses[key]
+
+        def retrieve_series_metadata(self, study_instance_uid="", series_instance_uid=""):
+            key = (study_instance_uid, series_instance_uid)
+            calls.append(("retrieve_series_metadata", *key))
+            if key in metadata_exceptions:
+                raise metadata_exceptions[key]
+            if key not in metadata_responses:
+                raise ConnectionError(f"wado_fake: no metadata response for {key}")
+            return metadata_responses[key]
+
+    # Each setattr is independently guarded — the target module is only loaded
+    # if the test (or its conftest tree) has put it on sys.path.
+    for target in ("shared.wado_retrieval.DICOMwebClient", "wado_utils.DICOMwebClient"):
+        try:
+            monkeypatch.setattr(target, FakeDICOMwebClient)
+        except (ImportError, AttributeError):
+            pass
+
+    return type("WadoFake", (), {
+        "calls": calls,
+        "series_responses": series_responses,
+        "metadata_responses": metadata_responses,
+        "series_exceptions": series_exceptions,
+        "metadata_exceptions": metadata_exceptions,
+    })()

@@ -647,6 +647,9 @@ def UPSUpdateWorkitem(output, uri, **request):
         print(f"Received workitem update: {workitem_uid}, state: {state}")
 
         output.AnswerBuffer(json.dumps({"status": "updated"}), "application/json")
+    except json.JSONDecodeError as e:
+        print(f"Error updating workitem: malformed JSON: {str(e)}")
+        output.SendHttpStatus(400, f"Malformed JSON: {str(e)}")
     except Exception as e:
         print(f"Error updating workitem: {str(e)}")
         output.SendHttpStatus(500, str(e))

@@ -103,7 +103,8 @@ def _read_temporal_group(file_metadata_list: list) -> sitk.Image:
 
 def _compute_subtraction_array(pre_image: sitk.Image, post_image: sitk.Image) -> np.ndarray:
     """
-    Compute subtraction volume: (post - pre), floored to 0, cast to uint16.
+    Compute subtraction volume: (post - pre), shifted to non-negative origin
+    (sub - sub.min()), cast to uint16.
     """
     dyn0 = sitk.GetArrayFromImage(pre_image)
     dyn1 = sitk.GetArrayFromImage(post_image)

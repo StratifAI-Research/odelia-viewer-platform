@@ -2,6 +2,7 @@
 from pathlib import Path
 
 
+
 def test_storage_config_stores_image_folder():
     from shared.config import StorageConfig
     cfg = StorageConfig(image_folder=Path('/tmp/dicom'))

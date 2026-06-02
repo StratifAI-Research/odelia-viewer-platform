@@ -9,7 +9,7 @@ inputs:
   pytest-cov-version:
     default: '7.1.0'
   coverage-version:
-    default: '7.6.10'
+    default: '7.10.6'
   test-marker:
     description: 'pytest -m expression'
     default: 'unit'

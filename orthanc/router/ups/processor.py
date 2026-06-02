@@ -70,7 +70,7 @@ def notify_all_subscribers(workitem):
 
 def process_workitem(workitem):
     """
-    Process a UPS workitem immediately (similar to OnStableStudy pattern)
+    Process a UPS workitem immediately (no polling).
 
     Args:
         workitem: UPSWorkitem instance

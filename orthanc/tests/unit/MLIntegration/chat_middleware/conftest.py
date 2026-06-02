@@ -5,14 +5,37 @@ ollama_client, config, etc. are importable by tests in this package.
 
 Provides ollama_fake — a FakeOllamaClient injected via monkeypatch.
 """
+import os
 import sys
-from pathlib import Path
+from typing import Iterator
 
 import pytest
 
-_CHAT_DIR = str(Path(__file__).resolve().parents[4] / "MLIntegration" / "chat-middleware")
+from _colliders import ML_SERVICE_COLLIDERS
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CHAT_DIR = os.path.abspath(
+    os.path.join(_HERE, "..", "..", "..", "..", "MLIntegration", "chat-middleware")
+)
 if _CHAT_DIR not in sys.path:
     sys.path.insert(0, _CHAT_DIR)
+
+
+@pytest.fixture(autouse=True)
+def _force_chat_path() -> Iterator[None]:
+    """Ensure chat-middleware dir is at sys.path[0] and evict colliding sibling names."""
+    saved = list(sys.path)
+    if _CHAT_DIR in sys.path:
+        sys.path.remove(_CHAT_DIR)
+    sys.path.insert(0, _CHAT_DIR)
+    for k in list(sys.modules):
+        top = k.split(".", 1)[0]
+        if top in ML_SERVICE_COLLIDERS:
+            del sys.modules[k]
+    try:
+        yield
+    finally:
+        sys.path[:] = saved
 
 
 class FakeOllamaClient:
@@ -37,7 +60,7 @@ class FakeOllamaClient:
 
 
 @pytest.fixture
-def ollama_fake(monkeypatch):
+def ollama_fake(monkeypatch) -> Iterator[FakeOllamaClient]:
     """Provide a FakeOllamaClient and wire it into the ollama_client singleton.
 
     Usage:

@@ -1,1 +1,13 @@
 volumes
+
+# Python
+__pycache__/
+*.py[cod]
+.coverage
+.coverage.*
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+outputs/

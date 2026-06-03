@@ -1,8 +1,11 @@
 [tool.pytest.ini_options]
-testpaths = [
-  "tests"
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+asyncio_mode = "auto"
+markers = [
+  "unit: fast tests with no external services; default CI run",
+  "integration: tests requiring a live Orthanc instance (skipped automatically if unreachable)",
 ]
-addopts = "-q"
 
 
 [tool.ruff]

@@ -1,41 +1,30 @@
-import os
-import time
-from typing import Dict
+"""Auto-mark tests by location; fail loudly on orphan tests.
 
+Tests under tests/unit/   -> @pytest.mark.unit
+Tests under tests/integration/ -> @pytest.mark.integration
+Tests anywhere else that do not carry an explicit marker -> collection error.
+
+Rationale: orphan tests would silently skip under `-m unit`, hiding regressions.
+"""
 import pytest
-import requests
 
 
-@pytest.fixture(scope="session")
-def base_url() -> str:
-    return os.environ.get("ORTHANC_VIEWER_BASE_URL", "http://localhost:8000")
-
-
-@pytest.fixture(scope="session", autouse=True)
-def wait_for_orthanc(base_url: str):
-    # Wait up to 30s for health endpoint
-    deadline = time.time() + 30
-    last_error = None
-    while time.time() < deadline:
-        try:
-            r = requests.get(f"{base_url}/feedback/health", timeout=2)
-            if r.status_code == 200:
-                return
-            last_error = f"HTTP {r.status_code}"
-        except Exception as e:
-            last_error = str(e)
-        time.sleep(1)
-    pytest.skip(f"orthanc-viewer not ready at {base_url}: {last_error}")
-
-
-@pytest.fixture()
-def unique_payload() -> Dict[str, str]:
-    # Use time-based unique values
-    ts = int(time.time() * 1000)
-    return {
-        "study_uid": f"1.2.826.0.1.3680043.2.1125.{ts}",
-        "model_name": "TumorSeg",
-        "model_version": "1.4.0",
-        "result_ts": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-        "user_id": f"user-{ts}",
-    }
+def pytest_collection_modifyitems(config, items):
+    orphans = []
+    for item in items:
+        p = str(item.path).replace("\\", "/")
+        marks = {m.name for m in item.iter_markers()}
+        if "unit" in marks or "integration" in marks:
+            continue
+        if "/tests/unit/" in p:
+            item.add_marker(pytest.mark.unit)
+        elif "/tests/integration/" in p:
+            item.add_marker(pytest.mark.integration)
+        else:
+            orphans.append(p)
+    if orphans:
+        raise pytest.UsageError(
+            "Tests outside tests/unit/ and tests/integration/ must carry an explicit "
+            "@pytest.mark.unit or @pytest.mark.integration. Offenders:\n  "
+            + "\n  ".join(orphans)
+        )

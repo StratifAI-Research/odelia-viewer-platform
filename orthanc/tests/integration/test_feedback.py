@@ -1,8 +1,10 @@
 import json
 
+import pytest
 import requests
 
 
+@pytest.mark.integration
 def test_health(base_url):
     r = requests.get(f"{base_url}/feedback/health")
     assert r.status_code == 200
@@ -11,6 +13,7 @@ def test_health(base_url):
     assert "sqlite_version" in j
 
 
+@pytest.mark.integration
 def test_register_and_submit_flow(base_url, unique_payload):
     # 1) register-result idempotent
     reg1 = requests.post(
@@ -99,6 +102,7 @@ def test_register_and_submit_flow(base_url, unique_payload):
     assert csv.text.splitlines()[0].startswith("study_uid,model_name,model_version")
 
 
+@pytest.mark.integration
 def test_edit_flow_and_exports(base_url, unique_payload):
     # Initial submit
     sub1 = requests.post(

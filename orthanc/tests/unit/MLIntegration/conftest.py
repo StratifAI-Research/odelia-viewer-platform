@@ -7,15 +7,16 @@ Per-service conftests further prepend their specific dir.
 Also adds this directory to sys.path so that _colliders.py is importable as
 `from _colliders import ML_SERVICE_COLLIDERS` in any sub-package conftest.
 """
+import os
 import sys
 import types
-from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
 
-_HERE = str(Path(__file__).resolve().parent)
-_MLI_DIR = str(Path(__file__).resolve().parents[3] / 'MLIntegration')
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_MLI_DIR = os.path.abspath(os.path.join(_HERE, '..', '..', '..', 'MLIntegration'))
 
 if _MLI_DIR not in sys.path:
     sys.path.insert(0, _MLI_DIR)
@@ -24,7 +25,6 @@ if _MLI_DIR not in sys.path:
 if _HERE not in sys.path:
     sys.path.append(_HERE)
 
-from _colliders import ML_SERVICE_COLLIDERS  # noqa: E402 — after sys.path setup
 
 
 # ---------------------------------------------------------------------------
@@ -92,12 +92,22 @@ def build_torchio_stub():
 
     # Real base classes required by BC preprocessing subclassing
     class _ZNormalizationBase:
-        """Minimal torchio.ZNormalization stand-in."""
+        """Minimal torchio.ZNormalization stand-in.
+
+        znorm() raises NotImplementedError so tests that need real normalization
+        cannot silently pass with identity-substitution data. Tests that need the
+        real math must opt out of the torchio_stub fixture and import the real
+        torchio (the BC integration tests under test_dicom2nfti_onthefly_integration.py
+        and test_preprocessing.py's real-torch block do this).
+        """
         def __init__(self, masking_method=None, **kwargs):
             self.masking_method = masking_method
 
         def znorm(self, image_data, mask):
-            return image_data
+            raise NotImplementedError(
+                "torchio_stub._ZNormalizationBase.znorm() is not implemented; "
+                "use the real torchio fixture for tests that exercise normalization"
+            )
 
     class _CropOrPadBase:
         """Minimal torchio.CropOrPad stand-in."""
@@ -129,7 +139,7 @@ def build_torchio_stub():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def torch_stub(monkeypatch):
+def torch_stub(monkeypatch) -> ModuleType:
     """Inject a fake torch into sys.modules for the duration of this test."""
     stub = build_torch_stub()
     monkeypatch.setitem(sys.modules, 'torch', stub)
@@ -138,7 +148,7 @@ def torch_stub(monkeypatch):
 
 
 @pytest.fixture
-def sitk_stub(monkeypatch):
+def sitk_stub(monkeypatch) -> ModuleType:
     """Inject a fake SimpleITK into sys.modules for the duration of this test."""
     stub = build_sitk_stub()
     monkeypatch.setitem(sys.modules, 'SimpleITK', stub)
@@ -146,56 +156,10 @@ def sitk_stub(monkeypatch):
 
 
 @pytest.fixture
-def torchio_stub(monkeypatch):
+def torchio_stub(monkeypatch) -> ModuleType:
     """Inject a fake torchio into sys.modules for the duration of this test."""
     stub = build_torchio_stub()
     monkeypatch.setitem(sys.modules, 'torchio', stub)
     monkeypatch.setitem(sys.modules, 'torchio.transforms', stub.transforms)
     monkeypatch.setitem(sys.modules, 'torchio.transforms.transform', stub.transforms.transform)
     return stub
-
-
-# ---------------------------------------------------------------------------
-# WADO-RS fake — opt-in fixture for tests that call retrieve_via_wado_rs
-# or DICOMwebClient directly.
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def wado_fake(monkeypatch):
-    """Fake DICOMwebClient injected into shared.wado_retrieval.
-
-    Usage:
-        def test_x(wado_fake):
-            wado_fake.series_responses[("1.2.100", "1.2.200")] = [make_dataset()]
-            # call code that uses retrieve_via_wado_rs(...)
-            assert wado_fake.calls == [("retrieve_series", "1.2.100", "1.2.200")]
-    """
-    calls = []
-    series_responses = {}
-    metadata_responses = {}
-
-    class FakeDICOMwebClient:
-        def __init__(self, url=""):
-            self.url = url
-
-        def retrieve_series(self, study_instance_uid="", series_instance_uid=""):
-            key = (study_instance_uid, series_instance_uid)
-            calls.append(("retrieve_series", *key))
-            if key not in series_responses:
-                raise ConnectionError(f"wado_fake: no series response for {key}")
-            return series_responses[key]
-
-        def retrieve_series_metadata(self, study_instance_uid="", series_instance_uid=""):
-            key = (study_instance_uid, series_instance_uid)
-            calls.append(("retrieve_series_metadata", *key))
-            if key not in metadata_responses:
-                raise ConnectionError(f"wado_fake: no metadata response for {key}")
-            return metadata_responses[key]
-
-    monkeypatch.setattr("shared.wado_retrieval.DICOMwebClient", FakeDICOMwebClient)
-
-    return type("WadoFake", (), {
-        "calls": calls,
-        "series_responses": series_responses,
-        "metadata_responses": metadata_responses,
-    })()

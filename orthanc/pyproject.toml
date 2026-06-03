@@ -13,11 +13,9 @@ extend-exclude = ["__pycache__", ".pytest_cache", ".venv", "tests", "sample_data
 [tool.ruff.lint]
 # ODV-199 acceptance criteria
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "C4", "RET", "PTH", "RUF"]
-# ODV-195 acceptance criteria
-extend-select = ["UP006", "UP007", "ANN"]
+extend-select = ["ANN"]
 ignore = [
   "ANN401",  # Any-typed allowed during ODV-195 migration; remove this after
-  "E501",    # line length enforced by formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]

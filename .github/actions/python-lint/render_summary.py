@@ -26,7 +26,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -171,7 +171,7 @@ def main() -> None:
         "sha": sha,
         "ref": os.environ.get("GITHUB_REF", ""),
         "event": event,
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "tool": "python-lint-suite",
         "ruff_version": _tool_version("ruff"),
         "mypy_version": _tool_version("mypy"),

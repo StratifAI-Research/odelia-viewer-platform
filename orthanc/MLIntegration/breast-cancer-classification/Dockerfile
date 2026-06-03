@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install shared package
 COPY shared/ ./shared/
-COPY setup.py pyproject.toml ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
 # Copy breast cancer service code

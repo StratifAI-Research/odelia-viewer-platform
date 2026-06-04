@@ -30,7 +30,7 @@ def test_save_datasets_to_folder_creates_files(tmp_path):
     cfg = StorageConfig(image_folder=tmp_path)
     datasets = [_make_fake_dataset(i) for i in range(3)]
 
-    result_folder = save_datasets_to_folder(datasets, 'series-001', cfg)
+    result_folder = save_datasets_to_folder(datasets, '1.2.840.1', cfg)
 
     assert result_folder.is_dir()
     dcm_files = list(result_folder.glob('*.dcm'))
@@ -44,10 +44,10 @@ def test_save_datasets_to_folder_returns_path_inside_image_folder(tmp_path):
     cfg = StorageConfig(image_folder=tmp_path)
     datasets = [_make_fake_dataset(0)]
 
-    result = save_datasets_to_folder(datasets, 'series-xyz', cfg)
+    result = save_datasets_to_folder(datasets, '1.2.840.2', cfg)
 
     assert str(tmp_path) in str(result)
-    assert 'series-xyz' in str(result)
+    assert '1.2.840.2' in str(result)
 
 
 def test_save_datasets_to_folder_roundtrip(tmp_path):
@@ -57,9 +57,9 @@ def test_save_datasets_to_folder_roundtrip(tmp_path):
 
     cfg = StorageConfig(image_folder=tmp_path)
     original = _make_fake_dataset(99)
-    save_datasets_to_folder([original], 'roundtrip-series', cfg)
+    save_datasets_to_folder([original], '1.2.840.3', cfg)
 
-    saved_files = list((tmp_path / 'roundtrip-series').glob('*.dcm'))
+    saved_files = list((tmp_path / '1.2.840.3').glob('*.dcm'))
     assert len(saved_files) == 1
 
     loaded = pydicom.dcmread(str(saved_files[0]), force=True)
@@ -82,7 +82,7 @@ def test_save_datasets_naming_convention(tmp_path):
 
     cfg = StorageConfig(image_folder=tmp_path)
     datasets = [_make_fake_dataset(i) for i in range(2)]
-    folder = save_datasets_to_folder(datasets, 'naming-test', cfg)
+    folder = save_datasets_to_folder(datasets, '1.2.840.4', cfg)
 
     names = {f.name for f in folder.glob('*.dcm')}
     assert 'instance_0000.dcm' in names
@@ -96,10 +96,10 @@ def test_save_datasets_cleans_existing_folder(tmp_path):
 
     cfg = StorageConfig(image_folder=tmp_path)
     first = [_make_fake_dataset(i) for i in range(5)]
-    save_datasets_to_folder(first, 'clean-series', cfg)
+    save_datasets_to_folder(first, '1.2.840.5', cfg)
 
     second = [_make_fake_dataset(0)]
-    folder = save_datasets_to_folder(second, 'clean-series', cfg)
+    folder = save_datasets_to_folder(second, '1.2.840.5', cfg)
 
     assert len(list(folder.glob('*.dcm'))) == 1
 
@@ -114,7 +114,7 @@ def test_save_dicom_bytes_to_folder_creates_files(tmp_path):
     pydicom.dcmwrite(buf, ds, write_like_original=False)
     raw = buf.getvalue()
 
-    folder = save_dicom_bytes_to_folder([raw, raw], 'bytes-series', cfg)
+    folder = save_dicom_bytes_to_folder([raw, raw], '1.2.840.6', cfg)
     assert len(list(folder.glob('*.dcm'))) == 2
 
 
@@ -137,12 +137,12 @@ def test_create_series_folder_propagates_rmtree_permission_error(tmp_path, monke
     from shared.config import StorageConfig
     cfg = StorageConfig(image_folder=str(tmp_path))
     # Pre-create the target dir so the clean branch is taken.
-    (tmp_path / "series.uid").mkdir()
+    (tmp_path / "1.2.840.7").mkdir()
     import shutil as _shutil
     monkeypatch.setattr(_shutil, "rmtree",
                          lambda *a, **kw: (_ for _ in ()).throw(PermissionError("denied")))
     with pytest.raises(PermissionError, match="denied"):
-        create_series_folder("series.uid", cfg, clean=True)
+        create_series_folder("1.2.840.7", cfg, clean=True)
 
 
 def test_create_series_folder_propagates_makedirs_error(tmp_path, monkeypatch):
@@ -154,7 +154,7 @@ def test_create_series_folder_propagates_makedirs_error(tmp_path, monkeypatch):
     monkeypatch.setattr(_os, "makedirs",
                          lambda *a, **kw: (_ for _ in ()).throw(OSError("read-only filesystem")))
     with pytest.raises(OSError, match="read-only"):
-        create_series_folder("series.uid", cfg, clean=False)
+        create_series_folder("1.2.840.7", cfg, clean=False)
 
 
 def test_save_dicom_bytes_to_folder_propagates_open_error(tmp_path, monkeypatch):
@@ -172,4 +172,4 @@ def test_save_dicom_bytes_to_folder_propagates_open_error(tmp_path, monkeypatch)
     monkeypatch.setattr(builtins, "open", _raising_open)
 
     with pytest.raises(OSError, match="No space left"):
-        save_dicom_bytes_to_folder([b"DCMP"], "series.uid", cfg)
+        save_dicom_bytes_to_folder([b"DCMP"], "1.2.840.7", cfg)

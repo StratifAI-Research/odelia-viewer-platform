@@ -93,8 +93,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: MST-classification/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-mst-classifier:${TAG:-latest}
-    container_name: odelia-mst-classifier
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-mst:${TAG:-latest}
+    container_name: odelia-model-mst
     environment:
       ORTHANC_URL: "http://orthanc-router-mst:8042"
       IMAGE_FOLDER: "/app/mst-service/images"
@@ -138,8 +138,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: medgemma-mri/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-medgemma-mri:${TAG:-latest}
-    container_name: odelia-medgemma-mri
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-medgemma:${TAG:-latest}
+    container_name: odelia-model-medgemma
     environment:
       ORTHANC_URL: "http://orthanc-router-medgemma:8042"
       IMAGE_FOLDER: "/app/medgemma-service/images"
@@ -166,8 +166,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: chat-middleware/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat-middleware:${TAG:-latest}
-    container_name: odelia-chat-middleware
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat:${TAG:-latest}
+    container_name: odelia-chat
     environment:
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"

@@ -28,13 +28,13 @@ jobs:
           - image: odelia-orthanc-router
             context: ./orthanc/router
             dockerfile: ./orthanc/router/Dockerfile
-          - image: odelia-mst-classifier
+          - image: odelia-model-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
-          - image: odelia-medgemma-mri
+          - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
-          - image: odelia-chat-middleware
+          - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
     steps:

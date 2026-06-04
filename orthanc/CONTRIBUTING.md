@@ -58,6 +58,27 @@ When changing a service's Python floor, update its Dockerfile base image in lock
 
 ## `lint-py` is currently yellow (warn-only)
 
-The `lint-py` job runs in warn-only mode (`continue-on-error: true` at job level) — violations are reported in the step summary but don't block the PR. The codebase still has ~888 ruff + 64 format + 172 mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (remove `continue-on-error: true` from the job).
+The `lint-py` job runs in warn-only mode (`continue-on-error: true` at job level) — violations are reported in the step summary but don’t block the PR. The codebase still has ruff + format + mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (remove `continue-on-error: true` from the job).
 
 A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.
+
+## Python testing
+
+Tests live under `tests/`:
+
+- `tests/unit/` — fast tests, no external services. CI’s default `pytest -m unit` runs only these.
+- `tests/integration/` — tests requiring a live Orthanc viewer. Marked `@pytest.mark.integration`; skip themselves when no viewer is reachable. Not run by default in CI.
+
+Markers are auto-applied by location — no `@pytest.mark.unit` on each unit test needed. The top-level `tests/conftest.py` applies the marker based on file path. Tests outside `tests/unit/` and `tests/integration/` are rejected at collection time unless they carry an explicit marker.
+
+### Running locally
+
+    cd orthanc
+    pip install -r requirements-tests.txt
+    pytest tests -m unit                    # unit only
+    pytest tests -m integration             # integration (needs running orthanc-viewer)
+    pytest tests                            # both
+
+### Coverage gate
+
+CI enforces `--cov-fail-under=50` via the `python-test` composite action. The ODV-133 unit suite clears this (~80% as of this PR).

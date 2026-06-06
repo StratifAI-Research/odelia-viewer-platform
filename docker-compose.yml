@@ -143,7 +143,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-medgemma:8042"
       IMAGE_FOLDER: "/app/medgemma-service/images"
-      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN: "HF_TOKEN"
       NUM_SLICES: "100"
       MAX_NEW_TOKENS: "500"
       TORCH_DTYPE: "bfloat16"

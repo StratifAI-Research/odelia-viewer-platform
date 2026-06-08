@@ -1,5 +1,4 @@
 """Self-tests for the ollama_fake fixture."""
-import pytest
 
 
 async def test_ollama_fake_chat_stream_yields_configured_chunks(ollama_fake):

@@ -53,6 +53,8 @@ runs:
       if: always()
       shell: bash
       run: |
+        # Action-internal test suites only (this action's own unit tests),
+        # NOT project tests. Discovers */tests/test_*.py under the action root.
         action_root="${{ github.action_path }}/.."
         test_dirs=$(find "$action_root" -path "*/tests/test_*.py" -exec dirname {} \; | sort -u)
         rc=0

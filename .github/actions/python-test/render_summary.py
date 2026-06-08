@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import hashlib
 import json
 import os
@@ -73,12 +74,13 @@ def main() -> None:
     file_covs.sort(key=lambda x: x[1])
     lowest = file_covs[:10]
 
-    # Keep in sync with coverage.cfg `omit` — divergence silently changes scope_checksum.
-    excludes = [
-        "tests", "MLIntegration/tests", "sample_data", "screenshots",
-        ".venv", "__pycache__", ".pytest_cache",
-    ]
-    scope_str = "|".join(["**/*.py"] + ["!" + e for e in sorted(excludes)])
+    # Derive the scope checksum straight from coverage.cfg's `omit` list so it
+    # can never silently drift from the actual coverage scope.
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coverage.cfg")
+    cfg = configparser.ConfigParser()
+    cfg.read(cfg_path)
+    omit = [ln.strip() for ln in cfg.get("run", "omit", fallback="").splitlines() if ln.strip()]
+    scope_str = "|".join(["**/*.py"] + ["!" + e for e in sorted(omit)])
     metadata = {
         "sha": os.environ.get("GITHUB_SHA", ""),
         "ref": os.environ.get("GITHUB_REF", ""),

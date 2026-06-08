@@ -32,7 +32,7 @@ if _HERE not in sys.path:
 # sys.modules (typically via monkeypatch.setitem inside a fixture below).
 # ---------------------------------------------------------------------------
 
-def build_torch_stub(cuda_available=False):
+def build_torch_stub(cuda_available: bool = False) -> ModuleType:
     """Return a fake torch module with cuda.is_available()."""
     m = types.ModuleType('torch')
     m.cuda = types.ModuleType('torch.cuda')
@@ -44,7 +44,7 @@ def build_torch_stub(cuda_available=False):
     return m
 
 
-def build_sitk_stub():
+def build_sitk_stub() -> ModuleType:
     """Return a fake SimpleITK module covering the surface used by MST tests."""
     import numpy as np
 
@@ -77,7 +77,7 @@ def build_sitk_stub():
     return m
 
 
-def build_torchio_stub():
+def build_torchio_stub() -> ModuleType:
     """Return a fake torchio module.
 
     Phase 7 extension: adds ZNormalization, CropOrPad, and Compose as real

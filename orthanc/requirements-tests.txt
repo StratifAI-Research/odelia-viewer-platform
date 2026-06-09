@@ -1,4 +1,4 @@
-pytest==9.0.2
+pytest==9.0.3
 pytest-asyncio==1.4.0
 requests==2.34.2
 jq==1.6.0
@@ -14,7 +14,7 @@ Flask-Cors==6.0.2
 fastapi==0.136.1
 httpx==0.28.1
 pydantic==2.13.4
-aiohttp==3.13.5
+aiohttp==3.14.0
 # Real torch / torchio / SimpleITK for MLI service unit tests (BC + MST + medgemma)
 # CPU-only wheels keep CI install size manageable.
 --extra-index-url https://download.pytorch.org/whl/cpu

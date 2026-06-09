@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import orthanc
-import requests  # type: ignore[import-untyped]
+import requests
 
 # Ensure the directory of this script is importable for sibling modules
 try:

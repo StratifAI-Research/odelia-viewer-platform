@@ -27,8 +27,8 @@ AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
 def add_text_overlay(
-    pixel_array: np.ndarray, text: str = "PROCESSED BY AI", color: str = "red"
-) -> np.ndarray:
+    pixel_array: np.ndarray[Any, np.dtype[Any]], text: str = "PROCESSED BY AI", color: str = "red"
+) -> np.ndarray[Any, np.dtype[Any]]:
     """
     **Deprecated** — slated for removal with its only remaining caller (create_text_overlay_sc). Do not add new callers.
 
@@ -466,12 +466,13 @@ def create_mst_sr(
     classification = model_results.get("classification", {})
 
     # File meta info
-    file_meta = Dataset()
+    file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = ComprehensiveSRStorage
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
 
-    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+    # pydicom accepts filename_or_obj=None for in-memory datasets; the stub omits None.
+    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification
     ds.PatientName = original_ds.PatientName
@@ -580,12 +581,13 @@ def create_bilateral_sr(
 ) -> tuple[bytes, str, str, str]:
     """Create DICOM Structured Report (SR) for bilateral classification model results in memory"""
     # File meta info
-    file_meta = Dataset()
+    file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = ComprehensiveSRStorage
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
 
-    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+    # pydicom accepts filename_or_obj=None for in-memory datasets; the stub omits None.
+    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification (link to original study)
     ds.PatientName = original_ds.PatientName

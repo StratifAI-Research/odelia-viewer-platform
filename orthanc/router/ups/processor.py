@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime
 
-import requests  # type: ignore[import-untyped]
+import requests
 from wado_utils import retrieve_series_metadata_sorted
 
 from ups.storage import ups_storage

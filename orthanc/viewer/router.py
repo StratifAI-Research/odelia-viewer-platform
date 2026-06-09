@@ -534,7 +534,7 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
                         subscribe_url = (
                             f"{router_base_url}/ups-rs/workitems/{workitem_uid}/subscribers"
                         )
-                        subscribe_body = {
+                        subscribe_body: dict[str, Any] = {
                             "subscriber_url": "http://orthanc-viewer:8042",
                             "deletion_lock": False,
                         }

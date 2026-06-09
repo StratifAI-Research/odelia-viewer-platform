@@ -43,6 +43,7 @@ def add_text_overlay(
             draw = ImageDraw.Draw(im)
 
             # Load font
+            font: ImageFont.FreeTypeFont | ImageFont.ImageFont
             try:
                 font = ImageFont.truetype("arial.ttf", size=50)
             except OSError:

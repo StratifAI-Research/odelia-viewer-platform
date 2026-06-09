@@ -56,11 +56,11 @@ When changing a service's Python floor, update its Dockerfile base image in lock
 1. The platform-side workflow lives at `custom/deploy/.github/workflows/python-lint.yml` (subtree-internal path). The viewer's own CI runs from `.github/workflows/lint.yml` at the repo root and doesn't pick up the subtree workflow.
 2. Edits to `custom/deploy/**` made in this repo must be subtree-split and pushed back to `odelia-deployment` — otherwise the next pull from upstream will overwrite them. If you fix something here that also exists on the platform side, fix it on platform first or be prepared to push the subtree.
 
-## `lint-py` is gating
+## `lint-py` is currently yellow (warn-only)
 
-The `lint-py` job fails the build on any ruff, format, or mypy violation. The ODV-195 / ODV-198 / ODV-199 cleanup brought the codebase to zero violations; the job now enforces that — new violations block the PR.
+The `lint-py` job runs in warn-only mode (`continue-on-error: true` at job level) — violations are reported in the step summary but don’t block the PR. The codebase still has ruff + format + mypy violations tracked in ODV-199, ODV-195, and ODV-198. Once those land, the job will be flipped to gating mode (remove `continue-on-error: true` from the job).
 
-A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) is distinguished from normal violations in the step summary, and also fails the job.
+A *tool crash* (non-zero exit with zero parsed violations — e.g. ruff config error, mypy import failure) always fails the job, even in warn-only mode. Warn-only is for accepting existing debt, not for hiding broken tooling.
 
 ## Python testing
 

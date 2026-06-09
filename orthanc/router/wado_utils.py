@@ -35,7 +35,7 @@ def retrieve_series_metadata_sorted(
 
     # Extract instances with required tags
     # Tags: 00200032=ImagePositionPatient, 00200013=InstanceNumber, 00200100=TemporalPositionIdentifier
-    instance_data = []
+    instance_data: list[dict[str, Any]] = []
     for inst_meta in instances_metadata:
         ipp_tag = inst_meta.get("00200032")  # ImagePositionPatient
         instance_num_tag = inst_meta.get("00200013")  # InstanceNumber

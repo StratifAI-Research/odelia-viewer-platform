@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class MedGemmaModelService:
     """Service for MedGemma MRI inference"""
 
-    def __init__(self, config: MedGemmaConfig, storage_config: StorageConfig):
+    def __init__(self, config: MedGemmaConfig, storage_config: StorageConfig) -> None:
         """
         Initialize MedGemma model service
 
@@ -153,9 +153,7 @@ class MedGemmaModelService:
                 parsed_result = parse_bilateral_response(generated_text)
 
             # Step 6: Build final response
-            response = build_bilateral_response(parsed_result, self.model_info)
-
-            return response
+            return build_bilateral_response(parsed_result, self.model_info)
 
         except Exception as e:
             logger.error(f"Error during MRI analysis: {e}")
@@ -219,9 +217,7 @@ class MedGemmaModelService:
         # Step 3: Decode output (detokenization)
         with time_operation("decode_output", logger):
             generated_tokens = outputs[0][input_len:]
-            generated_text = self.processor.decode(generated_tokens, skip_special_tokens=True)
-
-        return generated_text
+            return self.processor.decode(generated_tokens, skip_special_tokens=True)
 
     def get_health_status(self) -> dict:
         """

@@ -6,6 +6,7 @@ Single Responsibility: Model orchestration and inference
 import logging
 
 import torch
+import torchio as tio
 from config import BreastCancerConfig
 from dicom_converter import convert_to_unilateral_nifti
 from exceptions import InferenceError, ModelNotLoadedError
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class BreastCancerModelService:
     """Service for breast cancer model inference"""
 
-    def __init__(self, bc_config: BreastCancerConfig, storage_config: StorageConfig):
+    def __init__(self, bc_config: BreastCancerConfig, storage_config: StorageConfig) -> None:
         """
         Initialize breast cancer model service
 
@@ -112,9 +113,7 @@ class BreastCancerModelService:
                     results[side] = {"error": f"Processing error for {side} side: {e!s}"}
 
             # Step 5: Build response
-            response = build_bilateral_classification(results["left"], results["right"])
-
-            return response
+            return build_bilateral_classification(results["left"], results["right"])
 
         except Exception as e:
             logger.error(f"Error during MRI analysis: {e}")
@@ -142,7 +141,9 @@ class BreastCancerModelService:
 
         return WadoRSRetrieval(wado_rs_retrieval, self.storage_config)
 
-    def _process_side(self, side: str, nifties: dict, transform) -> dict:
+    def _process_side(
+        self, side: str, nifties: dict[str, tio.ScalarImage], transform: tio.Compose
+    ) -> dict[str, object]:
         """
         Process one side (left or right) breast
 
@@ -173,9 +174,8 @@ class BreastCancerModelService:
             model_input = preprocess_for_side(pre, post, transform, self.bc_config.device)
 
         # Run inference
-        with time_operation(f"{side}_inference", logger):
-            with torch.inference_mode():
-                prob = torch.sigmoid(self.model(model_input)).item()
+        with time_operation(f"{side}_inference", logger), torch.inference_mode():
+            prob = torch.sigmoid(self.model(model_input)).item()
 
         logger.info(f"  {side}: Model output probability={prob:.4f}")
 

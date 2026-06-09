@@ -1,13 +1,13 @@
 import base64
-import datetime
 import io
 import os
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from pydicom import Dataset, FileDataset
-from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.dataset import FileMetaDataset
 from pydicom.sequence import Sequence
 from pydicom.uid import (
     ComprehensiveSRStorage,
@@ -26,7 +26,9 @@ AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
-def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
+def add_text_overlay(
+    pixel_array: np.ndarray, text: str = "PROCESSED BY AI", color: str = "red"
+) -> np.ndarray:
     """
     **Deprecated** — slated for removal with its only remaining caller (create_text_overlay_sc). Do not add new callers.
 
@@ -82,14 +84,14 @@ def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
 
 
 def create_multiframe_attention_sc(
-    original_dicom,
-    attention_maps,
-    creation_date=None,
-    creation_time=None,
-    sr_sop_instance_uid=None,
-    slice_spacing=1.0,
-    positions_list=None,
-):
+    original_dicom: Dataset,
+    attention_maps: dict[str, Any],
+    creation_date: str | None = None,
+    creation_time: str | None = None,
+    sr_sop_instance_uid: str | None = None,
+    slice_spacing: float = 1.0,
+    positions_list: list[list[float]] | None = None,
+) -> bytes:
     """
     Create multi-frame DICOM Secondary Capture for complete attention heatmap volume
 
@@ -166,7 +168,10 @@ def create_multiframe_attention_sc(
 
     # Decode base64 RGB overlay data from MST model (already uint8, already blended)
     overlay_b64 = attention_maps.get("data")
-    overlay_shape = tuple(attention_maps.get("shape"))  # [num_frames, rows, cols, 3]
+    overlay_shape_raw = attention_maps.get("shape")
+    assert overlay_b64 is not None, "attention_maps must contain 'data'"
+    assert overlay_shape_raw is not None, "attention_maps must contain 'shape'"
+    overlay_shape = tuple(overlay_shape_raw)  # [num_frames, rows, cols, 3]
 
     print(f"Decoding base64 overlay data with shape: {overlay_shape}")
 
@@ -228,12 +233,15 @@ def create_multiframe_attention_sc(
             plane_position = Dataset()
 
             # Use actual position from positions_list if available, otherwise calculate
+            position: list[float]
             if positions_list and frame_idx < len(positions_list):
                 position = positions_list[frame_idx]
             else:
                 # Fallback: calculate position using spacing and normal vector
-                position = np.array(original_position) + (frame_idx * slice_spacing * slice_normal)
-                position = position.tolist()
+                calculated = np.array(original_position) + (
+                    frame_idx * slice_spacing * slice_normal
+                )
+                position = calculated.tolist()
 
             plane_position.ImagePositionPatient = position
 
@@ -304,14 +312,14 @@ def create_multiframe_attention_sc(
 
 
 def create_text_overlay_sc(
-    original_dicom,
-    text="PROCESSED BY AI",
-    color="red",
-    creation_date=None,
-    creation_time=None,
-    model_results=None,
-    sr_sop_instance_uid=None,
-):
+    original_dicom: Dataset,
+    text: str = "PROCESSED BY AI",
+    color: str = "red",
+    creation_date: str | None = None,
+    creation_time: str | None = None,
+    model_results: dict[str, Any] | None = None,
+    sr_sop_instance_uid: str | None = None,
+) -> bytes:
     """Creates DICOM SC with text overlay for bilateral classification results"""
     ds = Dataset()
     meta = FileMetaDataset()
@@ -420,7 +428,7 @@ def create_text_overlay_sc(
     return buffer.getvalue()
 
 
-def create_code_sequence(code_value, coding_scheme, code_meaning):
+def create_code_sequence(code_value: str, coding_scheme: str, code_meaning: str) -> Dataset:
     """Helper to create coded entries"""
     code_seq = Dataset()
     code_seq.CodeValue = code_value
@@ -429,7 +437,7 @@ def create_code_sequence(code_value, coding_scheme, code_meaning):
     return code_seq
 
 
-def create_measurement(value, unit, code_value, coding_scheme):
+def create_measurement(value: float, unit: str, code_value: str, coding_scheme: str) -> Dataset:
     """Helper for numeric measurements"""
     measurement = Dataset()
     measurement.NumericValue = value
@@ -439,7 +447,9 @@ def create_measurement(value, unit, code_value, coding_scheme):
     return measurement
 
 
-def create_mst_sr(original_ds, model_results):
+def create_mst_sr(
+    original_ds: Dataset, model_results: dict[str, Any]
+) -> tuple[bytes, str, str, str]:
     """
     Create DICOM Structured Report (SR) for MST model results
 
@@ -564,7 +574,9 @@ def create_mst_sr(original_ds, model_results):
     return buffer.getvalue(), current_date, current_time, ds.SOPInstanceUID
 
 
-def create_bilateral_sr(original_ds, model_results):
+def create_bilateral_sr(
+    original_ds: Dataset, model_results: dict[str, Any]
+) -> tuple[bytes, str, str, str]:
     """Create DICOM Structured Report (SR) for bilateral classification model results in memory"""
     # File meta info
     file_meta = Dataset()
@@ -714,7 +726,7 @@ def create_bilateral_sr(original_ds, model_results):
     return buffer.getvalue(), current_date, current_time, ds.SOPInstanceUID
 
 
-def detect_response_format(model_results):
+def detect_response_format(model_results: dict[str, Any]) -> str:
     """
     Detect the format of AI model response
 

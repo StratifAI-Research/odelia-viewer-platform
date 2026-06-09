@@ -76,6 +76,4 @@ def build_messages(slices: list[Image.Image]) -> list[dict]:
     """
     content = build_message_content(slices)
 
-    messages = [{"role": "user", "content": content}]
-
-    return messages
+    return [{"role": "user", "content": content}]

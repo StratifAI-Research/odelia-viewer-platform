@@ -26,7 +26,7 @@ class ImageCache:
     Global across all sessions to avoid redundant preprocessing.
     """
 
-    def __init__(self, max_entries: int = 100):
+    def __init__(self, max_entries: int = 100) -> None:
         """
         Initialize the image cache.
 

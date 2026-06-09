@@ -5,24 +5,24 @@ import orthanc
 
 # Import sibling module when this file is loaded as a top-level module
 try:
-    import feedback_db  # type: ignore
+    import feedback_db
 except Exception as _e:
     raise
 
 
-def _json(output, obj: dict[str, Any], status_ok: bool = True):
+def _json(output: Any, obj: dict[str, Any], status_ok: bool = True) -> str | None:
     body = json.dumps(obj)
     if status_ok:
         output.AnswerBuffer(body, "application/json")
-    else:
-        # For non-200 (e.g., 201/409), SendHttpStatus is the only way to set code.
-        # Content-Type may be text/plain, but body is JSON string.
-        # Callers should still be able to parse.
-        # The caller must set the exact status via output.SendHttpStatus before returning.
-        return body
+        return None
+    # For non-200 (e.g., 201/409), SendHttpStatus is the only way to set code.
+    # Content-Type may be text/plain, but body is JSON string.
+    # Callers should still be able to parse.
+    # The caller must set the exact status via output.SendHttpStatus before returning.
+    return body
 
 
-def _bad_request(output, message: str):
+def _bad_request(output: Any, message: str) -> None:
     output.SendHttpStatus(400, message)
 
 
@@ -40,19 +40,19 @@ def _validate_submit_payload(p: dict[str, Any]) -> str:
     if missing:
         return f"Missing fields: {', '.join(missing)}"
     try:
-        vL = int(p["verdict_L"])
-        vR = int(p["verdict_R"])
+        v_left = int(p["verdict_L"])
+        v_right = int(p["verdict_R"])
     except Exception:
         return "verdict_L and verdict_R must be integers in (-1,0,1)"
-    if vL not in (-1, 0, 1) or vR not in (-1, 0, 1):
+    if v_left not in (-1, 0, 1) or v_right not in (-1, 0, 1):
         return "verdict_L and verdict_R must be in (-1,0,1)"
     # optional edited flag must be boolean if present
-    if "edited" in p and not isinstance(p["edited"], (bool, int)):
+    if "edited" in p and not isinstance(p["edited"], bool | int):
         return "edited must be boolean if provided"
     return ""
 
 
-def FeedbackSubmit(output, uri, **request):
+def FeedbackSubmit(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
         return
@@ -79,7 +79,7 @@ def FeedbackSubmit(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def FeedbackRead(output, uri, **request):
+def FeedbackRead(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "GET":
         output.SendMethodNotAllowed("GET")
         return
@@ -114,7 +114,7 @@ def FeedbackRead(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def FeedbackRegisterResult(output, uri, **request):
+def FeedbackRegisterResult(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
         return
@@ -141,7 +141,7 @@ def FeedbackRegisterResult(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def FeedbackExportNdjson(output, uri, **request):
+def FeedbackExportNdjson(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "GET":
         output.SendMethodNotAllowed("GET")
         return
@@ -161,7 +161,7 @@ def FeedbackExportNdjson(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def FeedbackExportCsv(output, uri, **request):
+def FeedbackExportCsv(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "GET":
         output.SendMethodNotAllowed("GET")
         return
@@ -196,7 +196,7 @@ def FeedbackExportCsv(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def FeedbackHealth(output, uri, **request):
+def FeedbackHealth(output: Any, uri: str, **request: Any) -> None:
     if request["method"] != "GET":
         output.SendMethodNotAllowed("GET")
         return
@@ -207,7 +207,7 @@ def FeedbackHealth(output, uri, **request):
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 
 
-def register_feedback_endpoints():
+def register_feedback_endpoints() -> None:
     orthanc.RegisterRestCallback("/feedback/submit", FeedbackSubmit)
     orthanc.RegisterRestCallback("/feedback", FeedbackRead)
     orthanc.RegisterRestCallback("/feedback/register-result", FeedbackRegisterResult)

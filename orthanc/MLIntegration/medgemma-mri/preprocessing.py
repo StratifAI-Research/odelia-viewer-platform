@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-import SimpleITK as sitk
+import SimpleITK as sitk  # noqa: N813
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -160,9 +160,7 @@ def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
 
     # Clip and normalize to 0-255
     normalized = np.clip(slice_array, p_low, p_high)
-    normalized = ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
-
-    return normalized
+    return ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
 
 
 def extract_central_slices(dicom_folder: Path, num_slices: int = 5) -> list[Image.Image]:

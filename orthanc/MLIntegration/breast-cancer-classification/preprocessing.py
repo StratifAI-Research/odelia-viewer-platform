@@ -4,6 +4,7 @@ Single Responsibility: Data preprocessing and transforms for ResNet model
 """
 
 import logging
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -17,11 +18,11 @@ logger = logging.getLogger(__name__)
 class ImageToTensor:
     """Convert TorchIO Image to tensor"""
 
-    def __call__(self, image: Image):
+    def __call__(self, image: Image) -> torch.Tensor:
         return image.data.swapaxes(1, -1)
 
 
-def parse_per_channel(per_channel, channels):
+def parse_per_channel(per_channel: bool, channels: int) -> list[tuple[int, ...]]:
     """Parse per-channel configuration"""
     return [(ch,) for ch in range(channels)] if per_channel else [tuple(range(channels))]
 
@@ -32,10 +33,10 @@ class ZNormalization(tio.ZNormalization):
     def __init__(
         self,
         percentiles: float | tuple[float, float] = (0, 100),
-        per_channel=True,
+        per_channel: bool = True,
         masking_method: TypeMaskingMethod = None,
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
         super().__init__(masking_method=masking_method, **kwargs)
         self.percentiles = percentiles
         self.per_channel = per_channel
@@ -52,7 +53,13 @@ class ZNormalization(tio.ZNormalization):
             )
         )
 
-    def _znorm(self, image_data, mask, image_name, image_path):
+    def _znorm(
+        self,
+        image_data: torch.Tensor,
+        mask: torch.Tensor,
+        image_name: str,
+        image_path: str | Path,
+    ) -> torch.Tensor:
         cutoff = torch.quantile(
             image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0
         )
@@ -69,7 +76,7 @@ class RandomCropOrPad(tio.CropOrPad):
     """Random crop or pad transform"""
 
     @staticmethod
-    def _get_six_bounds_parameters(parameters: np.ndarray):
+    def _get_six_bounds_parameters(parameters: np.ndarray) -> tuple[int, ...]:
         return tuple(np.random.randint(0, size + 1) for size in parameters for _ in (0, 1))
 
 

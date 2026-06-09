@@ -80,7 +80,7 @@ class RuntimeConfig:
     Default values are initialized from static config (env vars).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Import here to avoid circular imports
         from config import get_config
 

@@ -13,7 +13,7 @@ from .exceptions import DicomRetrievalError
 logger = logging.getLogger(__name__)
 
 
-def retrieve_via_wado_rs(wado_rs_retrieval: list[dict]) -> list[Dataset]:
+def retrieve_via_wado_rs(wado_rs_retrieval: list[dict[str, str]]) -> list[Dataset]:
     """
     Retrieve DICOM instances via WADO-RS using dicomweb-client
 

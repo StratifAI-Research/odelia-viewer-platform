@@ -1,13 +1,14 @@
 import json
-import os
 import sys
+from pathlib import Path
+from typing import Any, cast
 
 import orthanc
-import requests
+import requests  # type: ignore[import-untyped]
 
 # Ensure the directory of this script is importable for sibling modules
 try:
-    current_dir = os.path.dirname(__file__)
+    current_dir = str(Path(__file__).parent)
     if current_dir and current_dir not in sys.path:
         sys.path.insert(0, current_dir)
 except Exception:
@@ -15,7 +16,7 @@ except Exception:
 
 # Feedback endpoints
 try:
-    import feedback_routes  # type: ignore
+    import feedback_routes
 
     register_feedback_endpoints = feedback_routes.register_feedback_endpoints
 except Exception:
@@ -25,7 +26,7 @@ except Exception:
 # When unset/empty, host_is_allowed() returns True for any input — preserves
 # the current research behaviour. See docs/production-hardening.md.
 try:
-    from host_allowlist import host_is_allowed  # type: ignore
+    from host_allowlist import host_is_allowed
 except Exception:
 
     def host_is_allowed(_url: str) -> bool:  # fallback: allow all
@@ -43,7 +44,7 @@ except Exception as e:
     ups_storage = None
 
 
-def FilterAIResultSeries(study_id):
+def FilterAIResultSeries(study_id: str) -> list[str]:
     """
     Get all non-AI series from a study for AI processing.
     Returns a list of series IDs that should be sent to AI models.
@@ -107,7 +108,7 @@ def FilterAIResultSeries(study_id):
         return []
 
 
-def HasProcessableContent(study_id):
+def HasProcessableContent(study_id: str) -> bool:
     """
     Check if study has any non-AI series that can be processed.
     Returns True if there are original series available for AI processing.
@@ -116,7 +117,7 @@ def HasProcessableContent(study_id):
     return len(original_series) > 0
 
 
-def GetStudyInstanceUID(study_id):
+def GetStudyInstanceUID(study_id: str) -> str | None:
     """Get the DICOM StudyInstanceUID from an Orthanc study ID"""
     try:
         # Get the study information
@@ -127,13 +128,13 @@ def GetStudyInstanceUID(study_id):
         if not study_instance_uid:
             print(f"Warning: StudyInstanceUID not found for study {study_id}")
             return None
-        return study_instance_uid
+        return cast("str | None", study_instance_uid)
     except Exception as e:
         print(f"Error getting StudyInstanceUID: {e!s}")
         return None
 
 
-def ListModalities():
+def ListModalities() -> list[str]:
     """List all configured DICOM modalities"""
     try:
         modalities = json.loads(orthanc.RestApiGet("/modalities"))
@@ -143,13 +144,13 @@ def ListModalities():
             print(
                 f"  - {modality}: {modality_info.get('Host', 'unknown')}:{modality_info.get('Port', 'unknown')} (AET: {modality_info.get('AET', 'unknown')})"
             )
-        return modalities
+        return cast("list[str]", modalities)
     except Exception as e:
         print(f"Error listing modalities: {e!s}")
         return []
 
 
-def SendToAiDicom(output, uri, **request):
+def SendToAiDicom(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOM protocol"""
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
@@ -199,7 +200,7 @@ def SendToAiDicom(output, uri, **request):
                     # Delete the existing modality to ensure a clean configuration
                     orthanc.RestApiDelete(f"/modalities/{target}")
                     print(f"Deleted existing modality {target}")
-                except:
+                except Exception:
                     # Modality doesn't exist, which is fine
                     pass
 
@@ -340,7 +341,7 @@ def SendToAiDicom(output, uri, **request):
         output.AnswerBuffer(json.dumps(error_response), "application/json")
 
 
-def SendToAiDicomWeb(output, uri, **request):
+def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOMweb protocol"""
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
@@ -598,7 +599,7 @@ def SendToAiDicomWeb(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def SendToAi(output, uri, **request):
+def SendToAi(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOMWeb protocol"""
     # This is now just a wrapper around SendToAiDicomWeb for backward compatibility
     print("giving control to SendToAiDicomWeb")
@@ -606,7 +607,7 @@ def SendToAi(output, uri, **request):
 
 
 # UPS-RS endpoints for receiving workitem updates from router
-def UPSUpdateWorkitem(output, uri, **request):
+def UPSUpdateWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems/{uid}
     Receive workitem state updates from router
@@ -640,7 +641,7 @@ def UPSUpdateWorkitem(output, uri, **request):
         output.SendHttpStatus(500, str(e))
 
 
-def UPSGetWorkitem(output, uri, **request):
+def UPSGetWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems/{uid}
     Retrieve workitem from local storage (updated via router notifications)
@@ -672,7 +673,7 @@ def UPSGetWorkitem(output, uri, **request):
         output.SendHttpStatus(500, str(e))
 
 
-def UPSWorkitemHandler(output, uri, **request):
+def UPSWorkitemHandler(output: Any, uri: str, **request: Any) -> None:
     """
     Unified handler for UPS-RS workitem endpoints
     Routes to appropriate handler based on HTTP method
@@ -685,7 +686,7 @@ def UPSWorkitemHandler(output, uri, **request):
         output.SendMethodNotAllowed("GET, POST")
 
 
-def GetAIManifest(output, uri, **request):
+def GetAIManifest(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ai-manifest?target_url=http://orthanc-router:8042/dicom-web
     Proxy the model input manifest from the target router.

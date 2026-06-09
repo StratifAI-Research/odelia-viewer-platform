@@ -18,11 +18,11 @@ import argparse
 import csv
 import json
 import logging
-import os
 import sys
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 class TimingProfiler:
     """Tracks timing measurements for the AI routing pipeline"""
 
-    def __init__(self, trace_id: str, output_dir: str = "./profiling_results"):
+    def __init__(self, trace_id: str, output_dir: str = "./profiling_results") -> None:
         self.trace_id = trace_id
         self.output_dir = output_dir
         self.measurements: list[dict] = []
@@ -48,11 +48,11 @@ class TimingProfiler:
         self.start_datetime = datetime.now()  # For log filtering
 
         # Create output directory
-        os.makedirs(output_dir, exist_ok=True)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         # CSV file path
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.csv_path = os.path.join(output_dir, f"timing_profile_{timestamp}_{trace_id[:8]}.csv")
+        self.csv_path = str(Path(output_dir) / f"timing_profile_{timestamp}_{trace_id[:8]}.csv")
 
         logger.info("=" * 80)
         logger.info("Profiling Session Started")
@@ -62,7 +62,7 @@ class TimingProfiler:
 
     def record(
         self, component: str, operation: str, duration_ms: float, metadata: dict | None = None
-    ):
+    ) -> None:
         """Record a timing measurement"""
         measurement = {
             "trace_id": self.trace_id,
@@ -80,7 +80,7 @@ class TimingProfiler:
             + (f" | {metadata}" if metadata else "")
         )
 
-    def save_results(self):
+    def save_results(self) -> None:
         """Save all measurements to CSV"""
         if not self.measurements:
             logger.warning("No measurements to save")
@@ -89,7 +89,7 @@ class TimingProfiler:
         # Write to CSV
         fieldnames = ["trace_id", "timestamp", "component", "operation", "duration_ms", "metadata"]
 
-        with open(self.csv_path, "w", newline="") as csvfile:
+        with Path(self.csv_path).open("w", newline="") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(self.measurements)
@@ -98,7 +98,7 @@ class TimingProfiler:
         total_duration = (time.time() - self.start_time) * 1000
         self._print_summary(total_duration)
 
-    def _print_summary(self, total_duration: float):
+    def _print_summary(self, total_duration: float) -> None:
         """Print a summary of all timings"""
         logger.info("=" * 80)
         logger.info("PROFILING SUMMARY")
@@ -178,7 +178,7 @@ def get_study_info(orthanc_url: str, study_id: str) -> dict:
             study_id = orthanc_study_id
 
         except requests.exceptions.HTTPException as e:
-            raise ValueError(f"Failed to lookup StudyInstanceUID: {e}")
+            raise ValueError(f"Failed to lookup StudyInstanceUID: {e}") from e
 
     response = requests.get(f"{orthanc_url}/studies/{study_id}")
     response.raise_for_status()
@@ -338,7 +338,7 @@ def wait_for_ai_results(
             study_info = get_study_info(orthanc_viewer_url, study_id)
             current_series_count = len(study_info.get("Series", []))
 
-            poll_duration = (time.time() - poll_start) * 1000
+            (time.time() - poll_start) * 1000
 
             if current_series_count > initial_series_count:
                 total_wait = (time.time() - start) * 1000
@@ -379,7 +379,7 @@ def wait_for_ai_results(
     return False
 
 
-def fetch_component_logs(profiler: TimingProfiler, containers: list[str]):
+def fetch_component_logs(profiler: TimingProfiler, containers: list[str]) -> None:
     """
     Fetch and parse timing logs from Docker containers
 
@@ -397,7 +397,7 @@ def fetch_component_logs(profiler: TimingProfiler, containers: list[str]):
             # Use --timestamps to get timestamps for filtering
             docker_cmd = ["docker", "logs", "--timestamps", "--since", "10m", container]
             if os.geteuid() != 0:  # Not running as root
-                docker_cmd = ["sudo"] + docker_cmd
+                docker_cmd = ["sudo", *docker_cmd]
 
             result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=10)
 
@@ -417,7 +417,7 @@ def fetch_component_logs(profiler: TimingProfiler, containers: list[str]):
             logger.warning(f"Error getting logs from {container}: {e}")
 
 
-def parse_timing_logs(profiler: TimingProfiler, container: str, logs: str):
+def parse_timing_logs(profiler: TimingProfiler, container: str, logs: str) -> None:
     """
     Parse timing information from container logs
 
@@ -502,7 +502,7 @@ def parse_timing_logs(profiler: TimingProfiler, container: str, logs: str):
                             meta_str = duration_str.split("[")[1].split("]")[0]
                             try:
                                 metadata = json.loads("{" + meta_str + "}")
-                            except:
+                            except Exception:
                                 metadata = {"raw": meta_str}
 
                         profiler.record(
@@ -515,7 +515,7 @@ def parse_timing_logs(profiler: TimingProfiler, container: str, logs: str):
                 logger.debug(f"Could not parse timing line: {line_content[:100]} - {e}")
 
 
-def main():
+def main() -> int | None:
     parser = argparse.ArgumentParser(
         description="Profile AI routing pipeline timings",
         formatter_class=argparse.RawDescriptionHelpFormatter,

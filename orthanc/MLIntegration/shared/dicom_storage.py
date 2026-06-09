@@ -4,7 +4,6 @@ Single Responsibility: File system operations for DICOM data
 """
 
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
@@ -61,7 +60,7 @@ def create_series_folder(
         logger.info(f"Removing existing series folder: {series_folder}")
         shutil.rmtree(series_folder)
 
-    os.makedirs(series_folder, exist_ok=True)
+    series_folder.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created series folder: {series_folder}")
 
     return series_folder
@@ -119,7 +118,7 @@ def save_dicom_bytes_to_folder(
     # Save each DICOM file
     for idx, dicom_data in enumerate(dicom_files):
         dicom_path = series_folder / f"instance_{idx:04d}.dcm"
-        with open(dicom_path, "wb") as f:
+        with dicom_path.open("wb") as f:
             f.write(dicom_data)
 
     logger.info(f"Saved {len(dicom_files)} DICOM files to {series_folder}")

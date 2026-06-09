@@ -3,6 +3,8 @@ UPS Subscription storage using Orthanc Key-Value Store
 Implements RAD-86 subscription registry
 """
 
+from __future__ import annotations
+
 import json
 
 import orthanc
@@ -18,7 +20,9 @@ class UPSSubscriptionStorage:
     KEY_PREFIX = "subscription:"  # Format: subscription:{workitem_uid}:{subscriber_url}
     GLOBAL_KEY = "global_subscriptions"  # List of global subscribers
 
-    def add_subscription(self, workitem_uid, subscriber_url, deletion_lock=False):
+    def add_subscription(
+        self, workitem_uid: str, subscriber_url: str, deletion_lock: bool = False
+    ) -> None:
         """
         Add a subscription for a specific workitem
 
@@ -36,7 +40,7 @@ class UPSSubscriptionStorage:
         orthanc.StoreKeyValue(self.BUCKET, key, json.dumps(subscription_data).encode("utf-8"))
         print(f"Added subscription: {subscriber_url} -> workitem {workitem_uid}")
 
-    def remove_subscription(self, workitem_uid, subscriber_url):
+    def remove_subscription(self, workitem_uid: str, subscriber_url: str) -> None:
         """Remove a subscription"""
         key = f"{self.KEY_PREFIX}{workitem_uid}:{subscriber_url}"
         try:
@@ -45,14 +49,14 @@ class UPSSubscriptionStorage:
         except Exception as e:
             print(f"Error removing subscription: {e!s}")
 
-    def get_subscribers(self, workitem_uid):
+    def get_subscribers(self, workitem_uid: str) -> list[str]:
         """
         Get all subscriber URLs for a workitem
 
         Returns:
             List of subscriber URL strings
         """
-        subscribers = []
+        subscribers: list[str] = []
 
         # Use iterator to find all subscriptions for this workitem
         try:
@@ -73,18 +77,18 @@ class UPSSubscriptionStorage:
             if global_value:
                 global_subs = json.loads(global_value.decode("utf-8"))
                 subscribers.extend(global_subs)
-        except:
+        except Exception:
             pass  # No global subscriptions
 
         # Remove duplicates
         return list(set(subscribers))
 
-    def add_global_subscription(self, subscriber_url):
+    def add_global_subscription(self, subscriber_url: str) -> None:
         """Add a global subscription (notified for all workitems)"""
         try:
             value = orthanc.GetKeyValue(self.BUCKET, self.GLOBAL_KEY)
             global_subs = json.loads(value.decode("utf-8")) if value else []
-        except:
+        except Exception:
             global_subs = []
 
         if subscriber_url not in global_subs:

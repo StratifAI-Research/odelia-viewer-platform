@@ -1,12 +1,15 @@
+import contextlib
 import os
 import sqlite3
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
+from pathlib import Path
+from typing import Any
 
 # Configuration with sensible defaults; can be overridden using environment variables
 DB_DIR = os.environ.get("ORTHANC_FEEDBACK_DB_DIR", "/var/lib/odelia-feedback")
-DB_PATH = os.environ.get("ORTHANC_FEEDBACK_DB_PATH", os.path.join(DB_DIR, "feedback.sqlite"))
+DB_PATH = os.environ.get("ORTHANC_FEEDBACK_DB_PATH", str(Path(DB_DIR) / "feedback.sqlite"))
 ENABLE_WAL = os.environ.get("ORTHANC_FEEDBACK_ENABLE_WAL", "1") not in (
     "0",
     "false",
@@ -24,7 +27,7 @@ _checkpoint_thread_started = False
 
 
 def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def _connect() -> sqlite3.Connection:
@@ -36,7 +39,8 @@ def _connect() -> sqlite3.Connection:
     # WAL and busy timeout
     if ENABLE_WAL:
         try:
-            mode = cx.execute("PRAGMA journal_mode=WAL;")
+            row = cx.execute("PRAGMA journal_mode=WAL;").fetchone()
+            mode: str = row[0] if row is not None else ""
             assert mode.lower() == "wal", f"journal_mode is {mode}"
             print(mode)
         except Exception as e:
@@ -166,7 +170,7 @@ def _get_or_create_ai_result_id(
     result_ts: str,
     meta_json: str | None,
 ) -> int:
-    try:
+    with contextlib.suppress(sqlite3.IntegrityError):
         cx.execute(
             """
             INSERT INTO ai_result_ref(study_uid, model_name, model_version, result_ts, meta_json)
@@ -176,8 +180,6 @@ def _get_or_create_ai_result_id(
             """,
             (study_uid, model_name, model_version, result_ts, meta_json),
         )
-    except sqlite3.IntegrityError:
-        pass
     row = cx.execute(
         "SELECT id FROM ai_result_ref WHERE study_uid=? AND model_name=? AND model_version=? AND result_ts=?",
         (study_uid, model_name, model_version, result_ts),
@@ -191,7 +193,7 @@ class ConflictError(Exception):
     pass
 
 
-def submit_feedback(p: dict) -> dict:
+def submit_feedback(p: dict[str, Any]) -> dict[str, Any]:
     initialize()
     cx = _connect()
     try:
@@ -273,7 +275,7 @@ def read_feedback(
     result_ts: str,
     include_users: bool = False,
     include_history: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     initialize()
     cx = _connect()
     try:
@@ -358,7 +360,7 @@ def register_result(
     model_version: str,
     result_ts: str,
     meta_json: str | None,
-) -> dict:
+) -> dict[str, Any]:
     initialize()
     cx = _connect()
     try:
@@ -378,7 +380,7 @@ def export_rows_ndjson(
     model_name: str | None = None,
     model_version: str | None = None,
     scope: str = "history",
-) -> Iterable[str]:
+) -> Iterable[dict[str, Any]]:
     initialize()
     cx = _connect()
     try:
@@ -439,12 +441,12 @@ def export_rows_csv(
     model_name: str | None = None,
     model_version: str | None = None,
     scope: str = "history",
-) -> tuple[str, Iterable[tuple]]:
+) -> tuple[str, Iterable[sqlite3.Row]]:
     header = "study_uid,model_name,model_version,result_ts,user_id,verdict_L,verdict_R,created_at,submission_kind\n"
     initialize()
     cx = _connect()
 
-    def _iter():
+    def _iter() -> Generator[sqlite3.Row, None, None]:
         try:
             clauses = []
             args: list[str] = []
@@ -479,15 +481,14 @@ def export_rows_csv(
                     {where}
                     ORDER BY e.created_at ASC
                 """
-            for r in cx.execute(sql, args):
-                yield r
+            yield from cx.execute(sql, args)
         finally:
             cx.close()
 
     return header, _iter()
 
 
-def health() -> dict:
+def health() -> dict[str, Any]:
     initialize()
     cx = _connect()
     try:

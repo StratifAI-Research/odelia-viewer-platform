@@ -18,14 +18,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import after logging is configured
-from config import init_config
-from debug_routes import router as debug_router
-from image_cache import get_image_cache
-from ollama_client import get_ollama_client
-from runtime_config import get_runtime_config
-from session_manager import get_session_manager
-from shared.security_banner import print_security_banner
-from websocket_handler import handle_websocket
+from config import init_config  # noqa: E402
+from debug_routes import router as debug_router  # noqa: E402
+from image_cache import get_image_cache  # noqa: E402
+from ollama_client import get_ollama_client  # noqa: E402
+from runtime_config import get_runtime_config  # noqa: E402
+from session_manager import get_session_manager  # noqa: E402
+from shared.security_banner import print_security_banner  # noqa: E402
+from websocket_handler import handle_websocket  # noqa: E402
 
 
 @asynccontextmanager

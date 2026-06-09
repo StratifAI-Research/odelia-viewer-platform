@@ -146,30 +146,30 @@ def test_create_series_folder_propagates_rmtree_permission_error(tmp_path, monke
 
 
 def test_create_series_folder_propagates_makedirs_error(tmp_path, monkeypatch):
-    """When os.makedirs raises OSError (e.g. read-only mount), it must surface."""
+    """When Path.mkdir raises OSError (e.g. read-only mount), it must surface."""
+    from pathlib import Path
     from shared.dicom_storage import create_series_folder
     from shared.config import StorageConfig
     cfg = StorageConfig(image_folder=str(tmp_path))
-    import os as _os
-    monkeypatch.setattr(_os, "makedirs",
-                         lambda *a, **kw: (_ for _ in ()).throw(OSError("read-only filesystem")))
+    monkeypatch.setattr(Path, "mkdir",
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError("read-only filesystem")))
     with pytest.raises(OSError, match="read-only"):
         create_series_folder("1.2.840.7", cfg, clean=False)
 
 
 def test_save_dicom_bytes_to_folder_propagates_open_error(tmp_path, monkeypatch):
-    """When open(..., 'wb') raises (e.g. disk full), the syscall failure surfaces."""
+    """When Path.open(..., 'wb') raises (e.g. disk full), the syscall failure surfaces."""
+    from pathlib import Path
     from shared.dicom_storage import save_dicom_bytes_to_folder
     from shared.config import StorageConfig
     cfg = StorageConfig(image_folder=str(tmp_path))
 
-    import builtins
-    real_open = builtins.open
-    def _raising_open(path, mode="r", *a, **kw):
-        if "w" in mode and "b" in mode and str(path).endswith(".dcm"):
+    real_open = Path.open
+    def _raising_open(self, mode="r", *a, **kw):
+        if "w" in mode and "b" in mode and str(self).endswith(".dcm"):
             raise OSError("No space left on device")
-        return real_open(path, mode, *a, **kw)
-    monkeypatch.setattr(builtins, "open", _raising_open)
+        return real_open(self, mode, *a, **kw)
+    monkeypatch.setattr(Path, "open", _raising_open)
 
     with pytest.raises(OSError, match="No space left"):
         save_dicom_bytes_to_folder([b"DCMP"], "1.2.840.7", cfg)

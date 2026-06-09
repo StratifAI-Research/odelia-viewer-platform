@@ -67,7 +67,7 @@ def validate_classification(value: str) -> str:
     )
 
 
-def validate_confidence(value: Any) -> float:
+def validate_confidence(value: int | float | str | None) -> float:
     """
     Validate and normalize confidence value.
 
@@ -83,8 +83,10 @@ def validate_confidence(value: Any) -> float:
     try:
         confidence = float(value)
         return max(0.0, min(100.0, confidence))
-    except (ValueError, TypeError):
-        raise ResponseParsingError(f"Invalid confidence value '{value}'. Must be a number 0-100")
+    except (ValueError, TypeError) as e:
+        raise ResponseParsingError(
+            f"Invalid confidence value '{value}'. Must be a number 0-100"
+        ) from e
 
 
 def parse_bilateral_response(text: str) -> dict[str, Any]:
@@ -118,7 +120,7 @@ def parse_bilateral_response(text: str) -> dict[str, Any]:
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise ResponseParsingError(f"Invalid JSON: {e}", raw_response=json_str)
+        raise ResponseParsingError(f"Invalid JSON: {e}", raw_response=json_str) from e
 
     # Validate structure
     if "left" not in parsed or "right" not in parsed:

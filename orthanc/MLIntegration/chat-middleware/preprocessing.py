@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-import SimpleITK as sitk
+import SimpleITK as sitk  # noqa: N813
 from models import SliceStrategy
 from PIL import Image
 from runtime_config import PreprocessingParams
@@ -87,9 +87,7 @@ def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
 
     # Clip and normalize to 0-255
     normalized = np.clip(slice_array, p_low, p_high)
-    normalized = ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
-
-    return normalized
+    return ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
 
 
 def extract_slices(volume_array: np.ndarray, params: PreprocessingParams) -> list[np.ndarray]:

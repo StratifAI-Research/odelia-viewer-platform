@@ -3,6 +3,7 @@ In-memory session management for chat conversations
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ class Session:
     generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     active_task: asyncio.Task | None = field(default=None)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Ensure cancel_event is created if not provided
         if self.cancel_event is None:
             self.cancel_event = asyncio.Event()
@@ -41,10 +42,8 @@ class Session:
             except (TimeoutError, asyncio.CancelledError):
                 # If it doesn't stop gracefully, force cancel
                 self.active_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self.active_task
-                except asyncio.CancelledError:
-                    pass
             self.active_task = None
         # Reset cancel event for next generation
         self.cancel_event.clear()
@@ -56,7 +55,7 @@ class SessionManager:
     Sessions are keyed by session_id.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
 
     def create_session(self, session_id: str | None = None) -> Session:
@@ -111,7 +110,7 @@ class SessionManager:
         # Session doesn't exist, create it with the provided ID
         return self.create_session(session_id)
 
-    def append_message(self, session_id: str, role: str, content) -> None:
+    def append_message(self, session_id: str, role: str, content: str | list[dict]) -> None:
         """
         Append a message to a session's conversation history.
 

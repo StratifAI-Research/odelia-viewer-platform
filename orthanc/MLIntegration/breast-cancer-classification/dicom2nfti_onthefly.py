@@ -1,4 +1,3 @@
-import os
 import tempfile
 from pathlib import Path
 from shutil import copyfile
@@ -10,8 +9,8 @@ import torch
 import torchio as tio
 
 
-def maybe_convert(x):
-    if isinstance(x, (pydicom.sequence.Sequence, pydicom.dataset.Dataset)):
+def maybe_convert(x: object) -> object:
+    if isinstance(x, pydicom.sequence.Sequence | pydicom.dataset.Dataset):
         return None  # Don't store complex nested data
     if isinstance(x, pydicom.multival.MultiValue):
         return list(x)
@@ -24,22 +23,22 @@ def maybe_convert(x):
     return x
 
 
-def get(ds, key):
+def get(ds: pydicom.dataset.Dataset, key: pydicom.tag.BaseTag | tuple[int, int] | int) -> str:
     keyword = ds[key].keyword
     if keyword == "":
         return ds[key].name
     return keyword
 
 
-def dataset2dict(ds, exclude=["PixelData", "Overlay Data"]):
-    return {
-        get(ds, key): maybe_convert(ds[key].value)
-        for key in ds.keys()
-        if get(ds, key) not in exclude
-    }
+def dataset2dict(
+    ds: pydicom.dataset.Dataset, exclude: list[str] | None = None
+) -> dict[str, object]:
+    if exclude is None:
+        exclude = ["PixelData", "Overlay Data"]
+    return {get(ds, key): maybe_convert(ds[key].value) for key in ds if get(ds, key) not in exclude}
 
 
-def read_metadata(args):
+def read_metadata(args: tuple[Path, Path]) -> dict[str, object] | None:
     path_dcm, path_root_data = args
     try:
         # Try to read the DICOM file
@@ -54,7 +53,7 @@ def read_metadata(args):
         return None
 
 
-def sort_dyn(df_dyn):
+def sort_dyn(df_dyn: pd.DataFrame) -> pd.DataFrame | None:
     # Get n unique Trigger Time and assign index 0 to the smallest and n-1 to the largest trigger time
     df_dyn["TriggerIndex"] = df_dyn["TriggerTime"].rank(method="dense").dropna().astype(int) - 1
 
@@ -76,12 +75,10 @@ def sort_dyn(df_dyn):
     df_dyn["_NumberOfSequences"] = df_dyn["TriggerIndex"].max() + 1
 
     # Drop the TriggerIndex column if you don't want to keep it
-    df_dyn = df_dyn.drop(columns=["TriggerIndex"])
-
-    return df_dyn
+    return df_dyn.drop(columns=["TriggerIndex"])
 
 
-def dicom2nii(item, path_data_dicom):
+def dicom2nii(item: tuple[str, list[str]], path_data_dicom: Path) -> tuple[str, tio.ScalarImage]:
     series_instance_uid, paths_dicoms = item
 
     # Create temporary folder
@@ -114,14 +111,16 @@ def dicom2nii(item, path_data_dicom):
     return series_name, img_in_memory
 
 
-def dicom_to_unilateral_nifti(dicom_folder: Path, nifti_output_folder=None):
+def dicom_to_unilateral_nifti(
+    dicom_folder: Path, nifti_output_folder: Path | None = None
+) -> dict[str, tio.ScalarImage]:
     """
     Receives a dicom folder in which all dicom files are used to create the according nifti file in a unilateral version.
     If parameter nifti_output_folder is not None, the generated nifti file is saved under the provided path.
     nifti_output_folder will be created in case it does not already exist.
     """
     if nifti_output_folder:
-        os.makedirs(nifti_output_folder, exist_ok=True)
+        nifti_output_folder.mkdir(parents=True, exist_ok=True)
 
     # Read all Dicoms
     metadata_list = []

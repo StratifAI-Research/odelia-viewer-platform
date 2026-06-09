@@ -3,6 +3,7 @@ WebSocket handler for chat sessions
 """
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
 
@@ -19,7 +20,7 @@ from session_manager import Session, get_session_manager
 logger = logging.getLogger(__name__)
 
 
-async def send_message(websocket: WebSocket, msg_type: ServerMessageType, **kwargs) -> None:
+async def send_message(websocket: WebSocket, msg_type: ServerMessageType, **kwargs: object) -> None:
     """Send a typed message to the client"""
     message = {"type": msg_type.value, **kwargs}
     await websocket.send_json(message)
@@ -62,10 +63,8 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                             await asyncio.wait_for(session.active_task, timeout=1.0)
                         except (TimeoutError, asyncio.CancelledError):
                             session.active_task.cancel()
-                            try:
+                            with contextlib.suppress(asyncio.CancelledError):
                                 await session.active_task
-                            except asyncio.CancelledError:
-                                pass
                         session.active_task = None
 
                     # Reset cancel event for new generation
@@ -84,7 +83,7 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                     session.active_task = task
 
                     # Add callback to clean up when task completes
-                    def task_done_callback(t):
+                    def task_done_callback(t: asyncio.Task) -> None:
                         if session.active_task == t:
                             session.active_task = None
                         if t.exception():
@@ -102,10 +101,8 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                             await asyncio.wait_for(session.active_task, timeout=1.0)
                         except (TimeoutError, asyncio.CancelledError):
                             session.active_task.cancel()
-                            try:
+                            with contextlib.suppress(asyncio.CancelledError):
                                 await session.active_task
-                            except asyncio.CancelledError:
-                                pass
                         session.active_task = None
                         await send_message(websocket, ServerMessageType.DONE, content="Cancelled")
 

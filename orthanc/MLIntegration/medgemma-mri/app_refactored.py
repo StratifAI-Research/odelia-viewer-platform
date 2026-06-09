@@ -46,7 +46,7 @@ def initialize_service():
     )
 
     # Create necessary directories
-    os.makedirs(storage_config.image_folder, exist_ok=True)
+    Path(storage_config.image_folder).mkdir(parents=True, exist_ok=True)
 
     # Initialize model service
     model_service = MedGemmaModelService(medgemma_config, storage_config)

@@ -18,7 +18,7 @@ from pathlib import Path
 def load_timing_csv(csv_path: str) -> list[dict]:
     """Load timing data from CSV file"""
     measurements = []
-    with open(csv_path) as f:
+    with Path(csv_path).open() as f:
         reader = csv.DictReader(f)
         for row in reader:
             row["duration_ms"] = float(row["duration_ms"])
@@ -40,7 +40,7 @@ def analyze_by_component(measurements: list[dict]) -> dict:
     return dict(by_component)
 
 
-def print_summary(measurements: list[dict], csv_path: str):
+def print_summary(measurements: list[dict], csv_path: str) -> None:
     """Print detailed summary of timing measurements"""
     print("=" * 80)
     print(f"Analysis of: {csv_path}")
@@ -99,7 +99,7 @@ def print_summary(measurements: list[dict], csv_path: str):
     print("\n" + "=" * 80)
 
 
-def compare_profiles(csv_paths: list[str]):
+def compare_profiles(csv_paths: list[str]) -> None:
     """Compare multiple profiling runs"""
     print("=" * 80)
     print("COMPARING MULTIPLE RUNS")
@@ -161,7 +161,7 @@ def compare_profiles(csv_paths: list[str]):
     print("\n" + "=" * 80)
 
 
-def export_to_json(measurements: list[dict], output_path: str):
+def export_to_json(measurements: list[dict], output_path: str) -> None:
     """Export measurements to JSON format"""
     by_component = analyze_by_component(measurements)
 
@@ -172,13 +172,13 @@ def export_to_json(measurements: list[dict], output_path: str):
         "all_measurements": measurements,
     }
 
-    with open(output_path, "w") as f:
+    with Path(output_path).open("w") as f:
         json.dump(output, f, indent=2)
 
     print(f"Exported to {output_path}")
 
 
-def main():
+def main() -> int | None:
     parser = argparse.ArgumentParser(
         description="Analyze timing profiling results",
         formatter_class=argparse.RawDescriptionHelpFormatter,

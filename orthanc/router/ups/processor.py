@@ -6,15 +6,16 @@ import os
 import time
 from datetime import datetime
 
-import requests
+import requests  # type: ignore[import-untyped]
 from wado_utils import retrieve_series_metadata_sorted
 
 from ups.storage import ups_storage
+from ups.workitem import UPSWorkitem
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). Empty /
 # unset preserves current research behaviour. See docs/production-hardening.md.
 try:
-    from host_allowlist import host_is_allowed  # type: ignore
+    from host_allowlist import host_is_allowed
 except Exception:
 
     def host_is_allowed(_url: str) -> bool:
@@ -28,7 +29,7 @@ AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
-def notify_subscriber(workitem, subscriber_url):
+def notify_subscriber(workitem: UPSWorkitem, subscriber_url: str) -> None:
     """
     Send UPS notification to a single subscriber (RAD-87)
 
@@ -61,7 +62,7 @@ def notify_subscriber(workitem, subscriber_url):
         print(f"Error notifying {subscriber_url}: {e!s}")
 
 
-def notify_all_subscribers(workitem):
+def notify_all_subscribers(workitem: UPSWorkitem) -> None:
     """
     Send UPS notifications to all registered subscribers (RAD-87)
 
@@ -82,7 +83,7 @@ def notify_all_subscribers(workitem):
         notify_subscriber(workitem, subscriber_url)
 
 
-def process_workitem(workitem):
+def process_workitem(workitem: UPSWorkitem) -> None:
     """
     Process a UPS workitem immediately (similar to OnStableStudy pattern)
 
@@ -356,5 +357,5 @@ def process_workitem(workitem):
             workitem.update_state("CANCELED", cancellation_reason=error_msg)
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
-        except:
+        except Exception:
             pass  # Best effort state update

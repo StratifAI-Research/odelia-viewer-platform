@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class MSTModelService:
     """Service for MST model inference"""
 
-    def __init__(self, mst_config: MSTConfig, storage_config: StorageConfig):
+    def __init__(self, mst_config: MSTConfig, storage_config: StorageConfig) -> None:
         """
         Initialize MST model service
 
@@ -281,7 +281,7 @@ class MSTModelService:
 
         return WadoRSRetrieval(wado_rs_retrieval, self.storage_config)
 
-    def _run_inference(self, img) -> tuple[dict, any]:
+    def _run_inference(self, img: object) -> tuple[dict, object]:
         """Run MST model inference on a TorchIO ScalarImage."""
         if str(self.mst_config.model_path) not in sys.path:
             sys.path.insert(0, str(self.mst_config.model_path))

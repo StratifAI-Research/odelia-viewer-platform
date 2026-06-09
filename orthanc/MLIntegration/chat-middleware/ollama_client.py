@@ -19,7 +19,7 @@ class OllamaClient:
     Supports both Ollama and llama.cpp backends via backend_type.
     """
 
-    def __init__(self, base_url: str, model: str, backend_type: str = "ollama"):
+    def __init__(self, base_url: str, model: str, backend_type: str = "ollama") -> None:
         """
         Args:
             base_url: Base URL for the LLM server (e.g., "http://localhost:11434")
@@ -76,7 +76,7 @@ class OllamaClient:
         timeout = aiohttp.ClientTimeout(total=300)
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:  # noqa: SIM117
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -150,9 +150,11 @@ class OllamaClient:
         endpoint = "/health" if self.backend_type == "llamacpp" else "/api/tags"
         try:
             timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"{self.base_url}{endpoint}") as response:
-                    return response.status == 200
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(f"{self.base_url}{endpoint}") as response,
+            ):
+                return response.status == 200
         except Exception as e:
             logger.warning(f"Health check failed ({self.backend_type}): {e}")
             return False
@@ -186,7 +188,7 @@ class OllamaClient:
 _ollama_client: OllamaClient | None = None
 
 
-def get_ollama_client(base_url: str = None, model: str = None) -> OllamaClient:
+def get_ollama_client(base_url: str | None = None, model: str | None = None) -> OllamaClient:
     """
     Get the global Ollama client singleton.
 

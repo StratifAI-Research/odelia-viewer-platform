@@ -5,12 +5,13 @@ Retrieves DICOM instances via DICOMweb WADO-RS protocol
 
 import io
 from email import message_from_bytes
+from typing import Any
 
 import requests
 from pydicom import dcmread
 
 
-def parse_multipart_dicom(response_content, boundary):
+def parse_multipart_dicom(response_content: bytes, boundary: str) -> list[Any]:
     """
     Parse multipart/related response containing DICOM instances
 
@@ -51,7 +52,9 @@ def parse_multipart_dicom(response_content, boundary):
     return dicom_datasets
 
 
-def retrieve_via_wado_rs(wado_rs_retrieval, orthanc_url=None):
+def retrieve_via_wado_rs(
+    wado_rs_retrieval: list[dict[str, str]], orthanc_url: str | None = None
+) -> list[Any]:
     """
     Retrieve DICOM instances via WADO-RS
 
@@ -114,7 +117,7 @@ def retrieve_via_wado_rs(wado_rs_retrieval, orthanc_url=None):
     return all_datasets
 
 
-def fallback_to_orthanc_rest(series_uid, orthanc_url):
+def fallback_to_orthanc_rest(series_uid: str, orthanc_url: str) -> list[Any]:
     """
     Fallback: Retrieve DICOM instances via Orthanc REST API
     Used for backward compatibility when WADO-RS retrieval fails

@@ -72,7 +72,7 @@ class TestValidateSeriesUid:
 
     def test_rejects_non_string(self):
         with pytest.raises(ValueError, match="invalid series_uid"):
-            validate_series_uid(None)  # type: ignore[arg-type]
+            validate_series_uid(None)
 
 
 # ---------------------------------------------------------------------------

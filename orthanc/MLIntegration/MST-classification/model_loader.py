@@ -5,6 +5,8 @@ HuggingFace model download and loading logic for MST model
 import logging
 import os
 import sys
+from pathlib import Path
+from typing import Any
 
 from huggingface_hub import hf_hub_download, login
 
@@ -18,7 +20,7 @@ HTTP_PROXY = os.getenv("HTTP_PROXY", None)
 HTTPS_PROXY = os.getenv("HTTPS_PROXY", None)
 
 
-def get_proxy_config():
+def get_proxy_config() -> dict[str, str] | None:
     """Get proxy configuration dict for HuggingFace requests only"""
     proxies = {}
     if HTTP_PROXY:
@@ -28,7 +30,7 @@ def get_proxy_config():
     return proxies if proxies else None
 
 
-def download_model_files():
+def download_model_files() -> dict[str, str]:
     """
     Download required model files from HuggingFace
 
@@ -57,7 +59,7 @@ def download_model_files():
         logger.warning("No HF_TOKEN provided - may fail for gated models")
 
     # Create model directory
-    os.makedirs(MODEL_PATH, exist_ok=True)
+    Path(MODEL_PATH).mkdir(parents=True, exist_ok=True)
 
     # Download required files
     files_to_download = [
@@ -100,7 +102,7 @@ def download_model_files():
     return downloaded_files
 
 
-def load_model():
+def load_model() -> tuple[Any, Any, dict[str, str]]:
     """
     Load the MST model
 

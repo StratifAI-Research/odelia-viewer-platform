@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-import SimpleITK as sitk
+import SimpleITK as sitk  # noqa: N813
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,9 @@ def dicom_to_nifti_subtraction(dicom_folder: str) -> str:
     return str(nifti_path)
 
 
-def compute_subtraction_from_nifti(pre_path: str, post_path: str, output_path: str = None) -> str:
+def compute_subtraction_from_nifti(
+    pre_path: str, post_path: str, output_path: str | None = None
+) -> str:
     """
     Compute subtraction NIfTI from two separate pre/post NIfTI files.
     Result = (post - pre), floored to 0, cast to uint16.

@@ -5,6 +5,7 @@ Based on DICOM PS3.4 Section CC and PS3.18 Section 11
 
 import json
 from datetime import datetime
+from typing import Any, Self, cast
 
 from pydicom.uid import generate_uid
 
@@ -16,13 +17,13 @@ class UPSWorkitem:
 
     def __init__(
         self,
-        study_uid,
-        series_uids,
-        wado_rs_retrieval,
-        priority="MEDIUM",
-        workitem_uid=None,
-        viewer_url=None,
-    ):
+        study_uid: str,
+        series_uids: list[str],
+        wado_rs_retrieval: list[dict[str, Any]],
+        priority: str = "MEDIUM",
+        workitem_uid: str | None = None,
+        viewer_url: str | None = None,
+    ) -> None:
         """
         Create a new UPS workitem
 
@@ -38,7 +39,13 @@ class UPSWorkitem:
         self.viewer_url = viewer_url  # Store viewer URL for callbacks
         self.data = self._create_dicom_json(study_uid, series_uids, wado_rs_retrieval, priority)
 
-    def _create_dicom_json(self, study_uid, series_uids, wado_rs_retrieval, priority):
+    def _create_dicom_json(
+        self,
+        study_uid: str,
+        series_uids: list[str],
+        wado_rs_retrieval: list[dict[str, Any]],
+        priority: str,
+    ) -> dict[str, Any]:
         """Create DICOM JSON structure per DICOMweb standard"""
         now = datetime.now()
         date_str = now.strftime("%Y%m%d")
@@ -75,7 +82,9 @@ class UPSWorkitem:
             },
         }
 
-    def _build_input_sequence(self, wado_rs_retrieval):
+    def _build_input_sequence(
+        self, wado_rs_retrieval: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Build Input Information Sequence with WADO-RS URLs"""
         input_items = []
         for item in wado_rs_retrieval:
@@ -101,8 +110,12 @@ class UPSWorkitem:
         return input_items
 
     def update_state(
-        self, new_state, progress_percent=None, progress_description=None, cancellation_reason=None
-    ):
+        self,
+        new_state: str,
+        progress_percent: int | None = None,
+        progress_description: str | None = None,
+        cancellation_reason: str | None = None,
+    ) -> None:
         """
         Update ProcedureStepState and/or progress information
 
@@ -121,7 +134,7 @@ class UPSWorkitem:
         if current_state == "IN_PROGRESS" and (
             progress_percent is not None or progress_description is not None
         ):
-            progress_item = {}
+            progress_item: dict[str, Any] = {}
             if progress_percent is not None:
                 progress_item["00741004"] = {
                     "vr": "DS",
@@ -154,7 +167,7 @@ class UPSWorkitem:
                     "Value": [cancellation_reason],
                 }  # Reason For Cancellation
 
-    def add_output_reference(self, series_uid, study_uid):
+    def add_output_reference(self, series_uid: str, study_uid: str) -> None:
         """Add to Output Information Sequence (0040,4033)"""
         if "00404033" not in self.data:
             self.data["00404033"] = {"vr": "SQ", "Value": []}
@@ -166,12 +179,12 @@ class UPSWorkitem:
             }
         )
 
-    def to_json(self):
+    def to_json(self) -> str:
         """Serialize to JSON string for K-V storage"""
         return json.dumps(self.data)
 
     @classmethod
-    def from_json(cls, json_str, workitem_uid):
+    def from_json(cls, json_str: str, workitem_uid: str) -> Self:
         """
         Deserialize from K-V storage
 
@@ -187,18 +200,18 @@ class UPSWorkitem:
         instance.data = json.loads(json_str)
         return instance
 
-    def get_state(self):
+    def get_state(self) -> str:
         """Get current ProcedureStepState"""
-        return self.data["00741000"]["Value"][0]
+        return cast(str, self.data["00741000"]["Value"][0])
 
-    def get_wado_rs_urls(self):
+    def get_wado_rs_urls(self) -> list[dict[str, str | None]]:
         """
         Extract WADO-RS retrieval URLs from Input Information Sequence
 
         Returns:
             List of dicts with retrieval_url, study_uid, series_uid
         """
-        urls = []
+        urls: list[dict[str, str | None]] = []
         input_seq = self.data.get("00404021", {}).get("Value", [])
         for item in input_seq:
             retrieval_seq = item.get("0040E025", {}).get("Value", [])
@@ -214,7 +227,7 @@ class UPSWorkitem:
                     )
         return urls
 
-    def get_input_mapping(self):
+    def get_input_mapping(self) -> dict[str, Any] | None:
         """
         Parse Scheduled Processing Parameters (0074,1210) back into a
         structured mapping: {role_key: series_uid}.
@@ -224,8 +237,8 @@ class UPSWorkitem:
         if not proc_params:
             return None
 
-        mapping = {}
-        config_id = None
+        mapping: dict[str, str] = {}
+        config_id: str | None = None
 
         for item in proc_params:
             value_type = item.get("0040A040", {}).get("Value", [None])[0]
@@ -254,6 +267,6 @@ class UPSWorkitem:
 
         return {"mapping": mapping, "input_configuration_id": config_id}
 
-    def get_study_uid(self):
+    def get_study_uid(self) -> str | None:
         """Get StudyInstanceUID"""
-        return self.data.get("0020000D", {}).get("Value", [None])[0]
+        return cast("str | None", self.data.get("0020000D", {}).get("Value", [None])[0])

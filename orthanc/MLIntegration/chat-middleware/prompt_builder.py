@@ -4,13 +4,12 @@ with interleaved image_url and text content parts.
 """
 
 import logging
-from typing import Union
 
 from runtime_config import RuntimeConfig, get_runtime_config
 
 logger = logging.getLogger(__name__)
 
-ContentType = Union[str, list[dict]]
+ContentType = str | list[dict]
 
 
 class PromptBuilder:
@@ -23,7 +22,7 @@ class PromptBuilder:
     /v1/chat/completions endpoint.
     """
 
-    def __init__(self, runtime_config: RuntimeConfig = None):
+    def __init__(self, runtime_config: RuntimeConfig | None = None) -> None:
         self._config = runtime_config
 
     @property

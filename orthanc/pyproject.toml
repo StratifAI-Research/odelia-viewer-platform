@@ -26,6 +26,11 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "D"]
 "MLIntegration/*/app*.py" = ["ANN201"]
+# Orthanc REST callbacks use PascalCase to match the Orthanc plugin convention
+# (RegisterRestCallback handlers) and the DICOM UPS-RS operation names.
+"viewer/router.py" = ["N802"]
+"router/ups/routes.py" = ["N802"]
+"viewer/feedback_routes.py" = ["N802"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -41,3 +46,10 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["viewer.*", "router.*", "MLIntegration.shared.*"]
 strict = true
+
+# Tests are exempt from strict typing (mirrors the ruff "tests/**" ANN exemption).
+[[tool.mypy.overrides]]
+module = ["*.tests.*", "tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false

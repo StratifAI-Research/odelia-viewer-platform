@@ -14,7 +14,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-def prepare_for_inference(nifti_path: Path, model_path: Path):
+def prepare_for_inference(nifti_path: Path, model_path: Path) -> object:
     """
     Prepare NIfTI image for MST model inference
 
@@ -32,9 +32,7 @@ def prepare_for_inference(nifti_path: Path, model_path: Path):
     import torchio as tio
 
     logger.info(f"Loading NIfTI as TorchIO image: {nifti_path}")
-    img = tio.ScalarImage(str(nifti_path))
-
-    return img
+    return tio.ScalarImage(str(nifti_path))
 
 
 def generate_attention_overlays(

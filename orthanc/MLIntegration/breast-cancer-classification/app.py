@@ -24,16 +24,16 @@ ORTHANC_URL = os.getenv("ORTHANC_URL", "http://orthanc:8042")  # Default if not 
 IMAGE_FOLDER = os.getenv("IMAGE_FOLDER", "./images")
 MRI_MODEL_PATH = os.getenv("MODEL_PATH", "./models/resnet18_abrv_b=32_split0-0.pth")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-os.makedirs(IMAGE_FOLDER, exist_ok=True)
+Path(IMAGE_FOLDER).mkdir(parents=True, exist_ok=True)
 # --- Augmentations and Transforms ---
 
 
 class ImageToTensor:
-    def __call__(self, image: Image):
+    def __call__(self, image: Image) -> torch.Tensor:
         return image.data.swapaxes(1, -1)
 
 
-def parse_per_channel(per_channel, channels):
+def parse_per_channel(per_channel: bool, channels: int) -> list[tuple[int, ...]]:
     return [(ch,) for ch in range(channels)] if per_channel else [tuple(range(channels))]
 
 
@@ -41,10 +41,10 @@ class ZNormalization(tio.ZNormalization):
     def __init__(
         self,
         percentiles: float | tuple[float, float] = (0, 100),
-        per_channel=True,
+        per_channel: bool = True,
         masking_method: TypeMaskingMethod = None,
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
         super().__init__(masking_method=masking_method, **kwargs)
         self.percentiles = percentiles
         self.per_channel = per_channel
@@ -61,7 +61,13 @@ class ZNormalization(tio.ZNormalization):
             )
         )
 
-    def _znorm(self, image_data, mask, image_name, image_path):
+    def _znorm(
+        self,
+        image_data: torch.Tensor,
+        mask: torch.Tensor,
+        image_name: str,
+        image_path: str | Path,
+    ) -> torch.Tensor:
         cutoff = torch.quantile(
             image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0
         )
@@ -76,7 +82,7 @@ class ZNormalization(tio.ZNormalization):
 
 class RandomCropOrPad(tio.CropOrPad):
     @staticmethod
-    def _get_six_bounds_parameters(parameters: np.ndarray):
+    def _get_six_bounds_parameters(parameters: np.ndarray) -> tuple[int, ...]:
         return tuple(np.random.randint(0, size + 1) for size in parameters for _ in (0, 1))
 
 
@@ -124,18 +130,18 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
     logger.info(f"Preparing to download DICOM series: {series_uid}")
 
     # Check if the folder already exists
-    series_folder = os.path.join(IMAGE_FOLDER, series_uid)
-    if os.path.exists(series_folder):
+    series_folder = str(Path(IMAGE_FOLDER) / series_uid)
+    if Path(series_folder).exists():
         logger.info(f"Series folder already exists: {series_folder}")
     else:
         # Cleanup: remove all existing subfolders in LOCAL_DICOM_FOLDER (if not found)
         for item in os.listdir(IMAGE_FOLDER):
-            item_path = os.path.join(IMAGE_FOLDER, item)
-            if os.path.isdir(item_path):
+            item_path = str(Path(IMAGE_FOLDER) / item)
+            if Path(item_path).is_dir():
                 logger.info(f"Removing old series folder: {item_path}")
                 shutil.rmtree(item_path)
 
-        os.makedirs(series_folder, exist_ok=True)
+        Path(series_folder).mkdir(parents=True, exist_ok=True)
         logger.info(f"Created series folder: {series_folder}")
 
     # Download DICOM instances
@@ -152,8 +158,8 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
         dicom_data = requests.get(
             f"{ORTHANC_URL}/instances/{instance_id}/file", verify=False
         ).content
-        dicom_path = os.path.join(series_folder, f"instance_{idx + 1}.dcm")
-        with open(dicom_path, "wb") as f:
+        dicom_path = str(Path(series_folder) / f"instance_{idx + 1}.dcm")
+        with Path(dicom_path).open("wb") as f:
             f.write(dicom_data)
 
     logger.info(f"Successfully downloaded {len(instances)} DICOM files to {series_folder}")
@@ -210,16 +216,16 @@ def analyze_mri():
             series_uid = str(datasets[0].SeriesInstanceUID)
 
             # Save datasets to folder for processing
-            dicom_folder = os.path.join(IMAGE_FOLDER, series_uid)
-            if os.path.exists(dicom_folder):
+            dicom_folder = str(Path(IMAGE_FOLDER) / series_uid)
+            if Path(dicom_folder).exists():
                 import shutil
 
                 shutil.rmtree(dicom_folder)
-            os.makedirs(dicom_folder, exist_ok=True)
+            Path(dicom_folder).mkdir(parents=True, exist_ok=True)
 
             # Save each dataset as DICOM file
             for idx, ds in enumerate(datasets):
-                dicom_path = os.path.join(dicom_folder, f"instance_{idx:04d}.dcm")
+                dicom_path = str(Path(dicom_folder) / f"instance_{idx:04d}.dcm")
                 ds.save_as(dicom_path)
 
             logger.info(f"Saved {len(datasets)} DICOM files to {dicom_folder}")

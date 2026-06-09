@@ -1,14 +1,15 @@
 """WADO-RS metadata retrieval utilities"""
 
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
 from dicomweb_client.api import DICOMwebClient
 
 
 def retrieve_series_metadata_sorted(
-    wado_rs_retrieval: list[dict],
-) -> tuple[dict, list[list[float]], float]:
+    wado_rs_retrieval: list[dict[str, str]],
+) -> tuple[dict[str, Any], list[list[float]], float]:
     """
     Retrieve series metadata only (no pixel data) and return sorted by temporal phase and InstanceNumber
 

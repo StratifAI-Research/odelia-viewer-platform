@@ -6,6 +6,8 @@ Implements DICOM PS3.18 Section 11 (UPS-RS)
 import json
 import os
 import threading
+from pathlib import Path
+from typing import Any
 
 import orthanc
 
@@ -17,7 +19,7 @@ from ups.workitem import UPSWorkitem
 # unset/empty, host_is_allowed() returns True — preserves current research
 # behaviour. See docs/production-hardening.md.
 try:
-    from host_allowlist import host_is_allowed  # type: ignore
+    from host_allowlist import host_is_allowed
 except Exception:
 
     def host_is_allowed(_url: str) -> bool:
@@ -27,7 +29,7 @@ except Exception:
 MANIFEST_PATH = os.environ.get("AI_MANIFEST_PATH", "/etc/orthanc/manifest.json")
 
 
-def CreateWorkitem(output, uri, **request):
+def CreateWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems
     Create new UPS workitem and immediately process it (RAD-80)
@@ -105,7 +107,7 @@ def CreateWorkitem(output, uri, **request):
 
         # Process workitem immediately in background thread
         # (similar to OnStableStudy pattern - immediate execution, not polling)
-        def process_in_background():
+        def process_in_background() -> None:
             try:
                 process_workitem(workitem)
             except Exception as e:
@@ -126,7 +128,7 @@ def CreateWorkitem(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def GetWorkitem(output, uri, **request):
+def GetWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems/{uid}
     Retrieve workitem (RAD-83)
@@ -174,7 +176,7 @@ def GetWorkitem(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def UpdateWorkitemState(output, uri, **request):
+def UpdateWorkitemState(output: Any, uri: str, **request: Any) -> None:
     """
     PUT /ups-rs/workitems/{uid}/state
     Update workitem state (RAD-84/85/86)
@@ -227,7 +229,7 @@ def UpdateWorkitemState(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def QueryWorkitems(output, uri, **request):
+def QueryWorkitems(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems?state=SCHEDULED
     Query workitems (RAD-81)
@@ -262,7 +264,7 @@ def QueryWorkitems(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def SubscribeToWorkitem(output, uri, **request):
+def SubscribeToWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems/{uid}/subscribers
     Subscribe to notifications for a specific workitem (RAD-86)
@@ -323,7 +325,7 @@ def SubscribeToWorkitem(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def UnsubscribeFromWorkitem(output, uri, **request):
+def UnsubscribeFromWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     DELETE /ups-rs/workitems/{uid}/subscribers/{subscriber_url}
     Unsubscribe from workitem notifications (RAD-86)
@@ -352,7 +354,7 @@ def UnsubscribeFromWorkitem(output, uri, **request):
         output.SendHttpStatus(500, error_message)
 
 
-def ServeManifest(output, uri, **request):
+def ServeManifest(output: Any, uri: str, **request: Any) -> None:
     """
     GET /manifest
     Serve the model input manifest (if mounted).
@@ -363,12 +365,12 @@ def ServeManifest(output, uri, **request):
         output.SendMethodNotAllowed("GET")
         return
 
-    if not os.path.isfile(MANIFEST_PATH):
+    if not Path(MANIFEST_PATH).is_file():
         output.SendHttpStatus(404, "No manifest available")
         return
 
     try:
-        with open(MANIFEST_PATH) as f:
+        with Path(MANIFEST_PATH).open() as f:
             manifest_data = f.read()
         json.loads(manifest_data)  # validate JSON
         output.AnswerBuffer(manifest_data, "application/json")
@@ -378,7 +380,7 @@ def ServeManifest(output, uri, **request):
 
 
 # Helper to register all UPS routes
-def register_ups_routes():
+def register_ups_routes() -> None:
     """Register all UPS-RS REST endpoints"""
     orthanc.RegisterRestCallback("/ups-rs/workitems$", CreateWorkitem)
     orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)$", GetWorkitem)

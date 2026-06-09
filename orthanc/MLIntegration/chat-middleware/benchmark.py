@@ -265,7 +265,7 @@ def run_benchmark(
     max_tokens: int = 256,
     warmup: bool = True,
     show_responses: bool = False,
-):
+) -> None:
     """Run the benchmark suite across all backends and prompts."""
     if warmup:
         print("\n--- Warmup round (discarded) ---")
@@ -301,7 +301,7 @@ def run_benchmark(
         print_responses(all_results)
 
 
-def print_report(all_results: dict, rounds: int):
+def print_report(all_results: dict, rounds: int) -> None:
     sep = "-" * 90
     print(f"\n{'=' * 90}")
     print("BENCHMARK RESULTS")
@@ -335,7 +335,7 @@ def print_report(all_results: dict, rounds: int):
     print(f"{'=' * 90}\n")
 
 
-def print_responses(all_results: dict):
+def print_responses(all_results: dict) -> None:
     """Print full text responses from each backend, last round only."""
     print(f"{'=' * 90}")
     print("MODEL RESPONSES  (last round only)")
@@ -358,7 +358,7 @@ def print_responses(all_results: dict):
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark Ollama vs llama.cpp (text + multimodal)"
     )

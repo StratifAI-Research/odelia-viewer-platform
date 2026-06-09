@@ -41,8 +41,8 @@ def initialize_service():
     )
 
     # Create necessary directories
-    os.makedirs(storage_config.image_folder, exist_ok=True)
-    os.makedirs(mst_config.model_path, exist_ok=True)
+    Path(storage_config.image_folder).mkdir(parents=True, exist_ok=True)
+    Path(mst_config.model_path).mkdir(parents=True, exist_ok=True)
 
     # Initialize model service
     model_service = MSTModelService(mst_config, storage_config)

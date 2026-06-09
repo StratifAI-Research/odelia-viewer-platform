@@ -31,7 +31,7 @@ class RetrievalStrategy(ABC):
 class WadoRSRetrieval(RetrievalStrategy):
     """WADO-RS retrieval strategy"""
 
-    def __init__(self, wado_rs_retrieval: list, storage_config: StorageConfig):
+    def __init__(self, wado_rs_retrieval: list, storage_config: StorageConfig) -> None:
         """
         Initialize WADO-RS retrieval
 

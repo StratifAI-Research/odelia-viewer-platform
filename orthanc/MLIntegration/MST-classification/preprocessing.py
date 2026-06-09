@@ -2,13 +2,14 @@
 MST-specific preprocessing and attention map generation
 Single Responsibility: Data preprocessing for MST model
 """
-import sys
-import os
+
+import base64
 import logging
+import sys
+from pathlib import Path
+
 import numpy as np
 import torch
-import base64
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,9 @@ def prepare_for_inference(nifti_path: Path, model_path: Path):
     return img
 
 
-def generate_attention_overlays(img_tensor: torch.Tensor, weight_tensor: torch.Tensor, model_path: Path) -> dict:
+def generate_attention_overlays(
+    img_tensor: torch.Tensor, weight_tensor: torch.Tensor, model_path: Path
+) -> dict:
     """
     Generate RGB overlay images combining MRI and attention maps
 
@@ -86,10 +89,10 @@ def generate_attention_overlays(img_tensor: torch.Tensor, weight_tensor: torch.T
     # Convert to uint8 and encode as base64 for efficient transmission
     overlay_uint8 = (overlay_np * 255).astype(np.uint8)
     overlay_bytes = overlay_uint8.tobytes()
-    overlay_b64 = base64.b64encode(overlay_bytes).decode('ascii')
+    overlay_b64 = base64.b64encode(overlay_bytes).decode("ascii")
 
     return {
         "data": overlay_b64,
         "shape": list(overlay_uint8.shape),  # [num_slices, rows, cols, 3]
-        "dtype": "uint8"
+        "dtype": "uint8",
     }

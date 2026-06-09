@@ -4,8 +4,9 @@ Retrieves DICOM instances via DICOMweb WADO-RS protocol
 """
 
 import io
-import requests
 from email import message_from_bytes
+
+import requests
 from pydicom import dcmread
 
 
@@ -22,7 +23,10 @@ def parse_multipart_dicom(response_content, boundary):
     """
     # Parse multipart message
     msg = message_from_bytes(
-        b'Content-Type: multipart/related; boundary="' + boundary.encode() + b'"\r\n\r\n' + response_content
+        b'Content-Type: multipart/related; boundary="'
+        + boundary.encode()
+        + b'"\r\n\r\n'
+        + response_content
     )
 
     dicom_datasets = []
@@ -33,7 +37,7 @@ def parse_multipart_dicom(response_content, boundary):
             content_type = part.get_content_type()
 
             # Check if this part contains DICOM data
-            if 'application/dicom' in content_type:
+            if "application/dicom" in content_type:
                 # Get the binary content
                 part_content = part.get_payload(decode=True)
 
@@ -42,7 +46,7 @@ def parse_multipart_dicom(response_content, boundary):
                     ds = dcmread(io.BytesIO(part_content))
                     dicom_datasets.append(ds)
                 except Exception as e:
-                    print(f"Error parsing DICOM part: {str(e)}")
+                    print(f"Error parsing DICOM part: {e!s}")
 
     return dicom_datasets
 
@@ -73,10 +77,8 @@ def retrieve_via_wado_rs(wado_rs_retrieval, orthanc_url=None):
             # WADO-RS request with proper Accept header
             response = requests.get(
                 retrieval_url,
-                headers={
-                    "Accept": "multipart/related; type=application/dicom; transfer-syntax=*"
-                },
-                timeout=300  # 5 minutes timeout for large series
+                headers={"Accept": "multipart/related; type=application/dicom; transfer-syntax=*"},
+                timeout=300,  # 5 minutes timeout for large series
             )
 
             if response.status_code != 200:
@@ -84,14 +86,14 @@ def retrieve_via_wado_rs(wado_rs_retrieval, orthanc_url=None):
                 continue
 
             # Extract boundary from Content-Type header
-            content_type = response.headers.get('Content-Type', '')
+            content_type = response.headers.get("Content-Type", "")
             boundary = None
-            if 'boundary=' in content_type:
+            if "boundary=" in content_type:
                 # Properly parse boundary by splitting on semicolons first
-                for part in content_type.split(';'):
+                for part in content_type.split(";"):
                     part = part.strip()
-                    if part.startswith('boundary='):
-                        boundary = part.split('boundary=')[1].strip().strip('"')
+                    if part.startswith("boundary="):
+                        boundary = part.split("boundary=")[1].strip().strip('"')
                         break
 
             if not boundary:
@@ -104,8 +106,9 @@ def retrieve_via_wado_rs(wado_rs_retrieval, orthanc_url=None):
             all_datasets.extend(datasets)
 
         except Exception as e:
-            print(f"Error retrieving via WADO-RS: {str(e)}")
+            print(f"Error retrieving via WADO-RS: {e!s}")
             import traceback
+
             traceback.print_exc()
 
     return all_datasets
@@ -127,11 +130,7 @@ def fallback_to_orthanc_rest(series_uid, orthanc_url):
 
     try:
         # Lookup series ID from UID
-        lookup_response = requests.post(
-            f"{orthanc_url}/tools/lookup",
-            data=series_uid,
-            timeout=30
-        )
+        lookup_response = requests.post(f"{orthanc_url}/tools/lookup", data=series_uid, timeout=30)
 
         if lookup_response.status_code != 200:
             print(f"Error looking up series: {lookup_response.status_code}")
@@ -147,10 +146,7 @@ def fallback_to_orthanc_rest(series_uid, orthanc_url):
         series_id = series_result[0]["ID"]
 
         # Get instances
-        instances_response = requests.get(
-            f"{orthanc_url}/series/{series_id}/instances",
-            timeout=30
-        )
+        instances_response = requests.get(f"{orthanc_url}/series/{series_id}/instances", timeout=30)
 
         if instances_response.status_code != 200:
             print(f"Error getting instances: {instances_response.status_code}")
@@ -162,10 +158,7 @@ def fallback_to_orthanc_rest(series_uid, orthanc_url):
         datasets = []
         for instance in instances:
             instance_id = instance["ID"]
-            dicom_response = requests.get(
-                f"{orthanc_url}/instances/{instance_id}/file",
-                timeout=60
-            )
+            dicom_response = requests.get(f"{orthanc_url}/instances/{instance_id}/file", timeout=60)
 
             if dicom_response.status_code == 200:
                 ds = dcmread(io.BytesIO(dicom_response.content))
@@ -175,7 +168,8 @@ def fallback_to_orthanc_rest(series_uid, orthanc_url):
         return datasets
 
     except Exception as e:
-        print(f"Error in REST API fallback: {str(e)}")
+        print(f"Error in REST API fallback: {e!s}")
         import traceback
+
         traceback.print_exc()
         return []

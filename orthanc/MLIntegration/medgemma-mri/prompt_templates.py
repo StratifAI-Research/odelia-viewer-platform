@@ -2,11 +2,11 @@
 Prompt templates for MedGemma breast MRI analysis
 Single Responsibility: Build structured prompts for consistent model output
 """
-from typing import List, Tuple
+
 from PIL import Image
 
 
-def build_breast_mri_prompt() -> Tuple[str, str]:
+def build_breast_mri_prompt() -> tuple[str, str]:
     """
     Returns (instruction, query_text) for breast MRI analysis.
 
@@ -38,7 +38,7 @@ def build_breast_mri_prompt() -> Tuple[str, str]:
     return instruction, query_text
 
 
-def build_message_content(slices: List[Image.Image]) -> List[dict]:
+def build_message_content(slices: list[Image.Image]) -> list[dict]:
     """
     Build MedGemma message content with interleaved images and text.
 
@@ -64,7 +64,7 @@ def build_message_content(slices: List[Image.Image]) -> List[dict]:
     return content
 
 
-def build_messages(slices: List[Image.Image]) -> List[dict]:
+def build_messages(slices: list[Image.Image]) -> list[dict]:
     """
     Build complete message structure for MedGemma inference.
 
@@ -76,11 +76,6 @@ def build_messages(slices: List[Image.Image]) -> List[dict]:
     """
     content = build_message_content(slices)
 
-    messages = [
-        {
-            "role": "user",
-            "content": content
-        }
-    ]
+    messages = [{"role": "user", "content": content}]
 
     return messages

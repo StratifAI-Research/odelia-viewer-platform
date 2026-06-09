@@ -1,16 +1,12 @@
+import base64
 import datetime
 import io
-import json
 import os
-import time
 from datetime import datetime
-import base64
 
 import numpy as np
-import orthanc
-import requests
 from PIL import Image, ImageDraw, ImageFont
-from pydicom import Dataset, FileDataset, dcmread
+from pydicom import Dataset, FileDataset
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.sequence import Sequence
 from pydicom.uid import (
@@ -24,9 +20,7 @@ from pydicom.uid import (
 from ups.routes import register_ups_routes
 
 # Configuration
-MODEL_BACKEND_URL = os.environ.get(
-    "MODEL_BACKEND_URL", "http://breast-cancer-classification:5555"
-)
+MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://breast-cancer-classification:5555")
 AI_TEXT = os.environ.get("AI_TEXT", "PROCESSED BY AI")
 AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
@@ -49,7 +43,7 @@ def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
             # Load font
             try:
                 font = ImageFont.truetype("arial.ttf", size=50)
-            except IOError:
+            except OSError:
                 font = ImageFont.load_default()
 
             # Calculate text position using textbbox
@@ -65,29 +59,26 @@ def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
         return np.stack(processed_frames)
 
     # Handle single-frame DICOM
+    if len(pixel_array.shape) == 2:
+        im = Image.fromarray(pixel_array).convert("RGB")
     else:
-        if len(pixel_array.shape) == 2:
-            im = Image.fromarray(pixel_array).convert("RGB")
-        else:
-            im = Image.fromarray(pixel_array)
+        im = Image.fromarray(pixel_array)
 
-        draw = ImageDraw.Draw(im)
-        try:
-            font = ImageFont.truetype("arial.ttf", size=50)
-        except IOError:
-            font = ImageFont.load_default()
+    draw = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype("arial.ttf", size=50)
+    except OSError:
+        font = ImageFont.load_default()
 
-        # Calculate text position using textbbox
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        position = ((im.width - text_width) // 2, (im.height - text_height) // 2)
+    # Calculate text position using textbbox
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    position = ((im.width - text_width) // 2, (im.height - text_height) // 2)
 
-        # Add overlay with specified color
-        draw.text(position, text, fill=color, font=font)
-        return np.array(im)
-
-
+    # Add overlay with specified color
+    draw.text(position, text, fill=color, font=font)
+    return np.array(im)
 
 
 def create_multiframe_attention_sc(
@@ -139,13 +130,13 @@ def create_multiframe_attention_sc(
 
     # Copy spatial reference tags for synchronization
     # These allow OHIF to sync heatmap with original series
-    if hasattr(original_dicom, 'FrameOfReferenceUID'):
+    if hasattr(original_dicom, "FrameOfReferenceUID"):
         ds.FrameOfReferenceUID = original_dicom.FrameOfReferenceUID
     else:
         ds.FrameOfReferenceUID = generate_uid()
         print("WARNING: Original DICOM missing FrameOfReferenceUID - sync may not work")
 
-    if hasattr(original_dicom, 'ImageOrientationPatient'):
+    if hasattr(original_dicom, "ImageOrientationPatient"):
         ds.ImageOrientationPatient = original_dicom.ImageOrientationPatient
     else:
         ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]  # Default axial
@@ -174,8 +165,8 @@ def create_multiframe_attention_sc(
         ds.InstanceCreationTime = datetime.now().strftime("%H%M%S.%f")[:-3]
 
     # Decode base64 RGB overlay data from MST model (already uint8, already blended)
-    overlay_b64 = attention_maps.get('data')
-    overlay_shape = tuple(attention_maps.get('shape'))  # [num_frames, rows, cols, 3]
+    overlay_b64 = attention_maps.get("data")
+    overlay_shape = tuple(attention_maps.get("shape"))  # [num_frames, rows, cols, 3]
 
     print(f"Decoding base64 overlay data with shape: {overlay_shape}")
 
@@ -204,8 +195,8 @@ def create_multiframe_attention_sc(
     ds.PixelData = stacked_frames.tobytes()
 
     # Add per-frame spatial metadata for synchronization
-    original_position = getattr(original_dicom, 'ImagePositionPatient', None)
-    original_orientation = getattr(original_dicom, 'ImageOrientationPatient', None)
+    original_position = getattr(original_dicom, "ImagePositionPatient", None)
+    original_orientation = getattr(original_dicom, "ImageOrientationPatient", None)
 
     if original_position and original_orientation and num_frames > 1:
         # Calculate slice normal vector for position calculation
@@ -276,11 +267,17 @@ def create_multiframe_attention_sc(
         ds.SharedFunctionalGroupsSequence = shared_groups
 
         if positions_list and len(positions_list) >= num_frames:
-            print(f"Added spatial metadata: {num_frames} frames using actual positions from original series")
+            print(
+                f"Added spatial metadata: {num_frames} frames using actual positions from original series"
+            )
         else:
-            print(f"Added spatial metadata: {num_frames} frames with {slice_spacing}mm calculated spacing")
+            print(
+                f"Added spatial metadata: {num_frames} frames with {slice_spacing}mm calculated spacing"
+            )
     else:
-        print(f"WARNING: Cannot calculate per-frame positions (has_position={bool(original_position)}, has_orientation={bool(original_orientation)}, frames={num_frames})")
+        print(
+            f"WARNING: Cannot calculate per-frame positions (has_position={bool(original_position)}, has_orientation={bool(original_orientation)}, frames={num_frames})"
+        )
         print("Heatmap synchronization may not work correctly")
 
     # Add reference to original image
@@ -304,7 +301,6 @@ def create_multiframe_attention_sc(
     buffer = io.BytesIO()
     ds.save_as(buffer)
     return buffer.getvalue()
-
 
 
 def create_text_overlay_sc(
@@ -438,9 +434,7 @@ def create_measurement(value, unit, code_value, coding_scheme):
     measurement = Dataset()
     measurement.NumericValue = value
     measurement.MeasurementUnitsCodeSequence = [
-        create_code_sequence(
-            code_value=code_value, coding_scheme=coding_scheme, code_meaning=unit
-        )
+        create_code_sequence(code_value=code_value, coding_scheme=coding_scheme, code_meaning=unit)
     ]
     return measurement
 
@@ -733,10 +727,9 @@ def detect_response_format(model_results):
 
     if has_bilateral and has_attention_maps:
         return "bilateral_with_heatmap"
-    elif has_bilateral:
+    if has_bilateral:
         return "bilateral"
-    else:
-        raise ValueError(f"Unknown response format. Keys: {list(model_results.keys())}")
+    raise ValueError(f"Unknown response format. Keys: {list(model_results.keys())}")
 
 
 # Register UPS-RS REST endpoints (UPS-based workflow)

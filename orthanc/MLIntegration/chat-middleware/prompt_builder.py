@@ -2,14 +2,15 @@
 Prompt builder for assembling OpenAI-compatible message arrays
 with interleaved image_url and text content parts.
 """
+
 import logging
-from typing import Dict, List, Tuple, Union
+from typing import Union
 
 from runtime_config import RuntimeConfig, get_runtime_config
 
 logger = logging.getLogger(__name__)
 
-ContentType = Union[str, List[dict]]
+ContentType = Union[str, list[dict]]
 
 
 class PromptBuilder:
@@ -32,9 +33,7 @@ class PromptBuilder:
         return self._config
 
     def _build_user_content(
-        self,
-        user_text: str,
-        series_images: Dict[str, List[str]]
+        self, user_text: str, series_images: dict[str, list[str]]
     ) -> ContentType:
         """
         Build the content value for a user message.
@@ -52,7 +51,7 @@ class PromptBuilder:
             logger.info("Built user content with no images (text-only)")
             return user_text
 
-        content: List[dict] = []
+        content: list[dict] = []
         for idx, data_uri in enumerate(all_images, start=1):
             content.append({"type": "image_url", "image_url": {"url": data_uri}})
             content.append({"type": "text", "text": f"SLICE {idx}"})
@@ -64,10 +63,10 @@ class PromptBuilder:
 
     def build_messages(
         self,
-        conversation_history: List[dict],
+        conversation_history: list[dict],
         new_user_message: str,
-        series_images: Dict[str, List[str]]
-    ) -> Tuple[List[dict], ContentType]:
+        series_images: dict[str, list[str]],
+    ) -> tuple[list[dict], ContentType]:
         """
         Build OpenAI-format messages array for /v1/chat/completions.
 
@@ -77,10 +76,7 @@ class PromptBuilder:
         messages = []
 
         # 1. System prompt
-        messages.append({
-            "role": "system",
-            "content": self.config.system_prompt
-        })
+        messages.append({"role": "system", "content": self.config.system_prompt})
 
         # 2. Replay conversation history as-is
         for msg in conversation_history:

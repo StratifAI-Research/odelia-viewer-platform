@@ -1,22 +1,19 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from pathlib import Path
+import logging
 import os
+import shutil
+import time
+from pathlib import Path
+
+import numpy as np
 import requests
 import torch
 import torchio as tio
-import numpy as np
-from torchio import Subject, Image
-from monai.networks import nets
-from typing import Union, Tuple
-from torchio.transforms.transform import TypeMaskingMethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
-
 from dicom2nfti_onthefly import dicom_to_unilateral_nifti
-
-import shutil
-import logging
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from monai.networks import nets
+from torchio import Image, Subject
+from torchio.transforms.transform import TypeMaskingMethod
 
 # Set up logging to stdout for Docker compatibility
 logging.basicConfig(level=logging.INFO)
@@ -30,16 +27,24 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
 # --- Augmentations and Transforms ---
 
+
 class ImageToTensor:
     def __call__(self, image: Image):
         return image.data.swapaxes(1, -1)
 
+
 def parse_per_channel(per_channel, channels):
     return [(ch,) for ch in range(channels)] if per_channel else [tuple(range(channels))]
 
+
 class ZNormalization(tio.ZNormalization):
-    def __init__(self, percentiles: Union[float, Tuple[float, float]] = (0, 100), per_channel=True,
-                 masking_method: TypeMaskingMethod = None, **kwargs):
+    def __init__(
+        self,
+        percentiles: float | tuple[float, float] = (0, 100),
+        per_channel=True,
+        masking_method: TypeMaskingMethod = None,
+        **kwargs,
+    ):
         super().__init__(masking_method=masking_method, **kwargs)
         self.percentiles = percentiles
         self.per_channel = per_channel
@@ -47,33 +52,47 @@ class ZNormalization(tio.ZNormalization):
     def apply_normalization(self, subject: Subject, image_name: str, mask: torch.Tensor) -> None:
         image = subject[image_name]
         per_channel = parse_per_channel(self.per_channel, image.shape[0])
-        image.set_data(torch.cat([
-            self._znorm(image.data[chs,], mask[chs,], image_name, image.path)
-            for chs in per_channel])
+        image.set_data(
+            torch.cat(
+                [
+                    self._znorm(image.data[chs,], mask[chs,], image_name, image.path)
+                    for chs in per_channel
+                ]
+            )
         )
 
     def _znorm(self, image_data, mask, image_name, image_path):
-        cutoff = torch.quantile(image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0)
+        cutoff = torch.quantile(
+            image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0
+        )
         torch.clamp(image_data, *cutoff.to(image_data.dtype).tolist(), out=image_data)
         standardized = self.znorm(image_data, mask)
         if standardized is None:
-            raise RuntimeError(f'Standard deviation is 0 for masked values in image "{image_name}" ({image_path})')
+            raise RuntimeError(
+                f'Standard deviation is 0 for masked values in image "{image_name}" ({image_path})'
+            )
         return standardized
+
 
 class RandomCropOrPad(tio.CropOrPad):
     @staticmethod
     def _get_six_bounds_parameters(parameters: np.ndarray):
         return tuple(np.random.randint(0, size + 1) for size in parameters for _ in (0, 1))
 
+
 # --- Load Model ---
 
+
 def load_model():
-    model = nets.ResNet("basic", [2, 2, 2, 2], [64, 128, 256, 512], n_input_channels=2, num_classes=1)
-    #checkpoint = torch.load(MRI_MODEL_PATH, map_location=torch.device(DEVICE))
-    #model.load_state_dict(checkpoint)
+    model = nets.ResNet(
+        "basic", [2, 2, 2, 2], [64, 128, 256, 512], n_input_channels=2, num_classes=1
+    )
+    # checkpoint = torch.load(MRI_MODEL_PATH, map_location=torch.device(DEVICE))
+    # model.load_state_dict(checkpoint)
     model.to(DEVICE)
     model.eval()
     return model
+
 
 mri_model = load_model()
 
@@ -84,6 +103,7 @@ CORS(app)
 
 # --- Helper Functions ---
 
+
 def get_series_id_by_uid(series_uid: str):
     response = requests.get(f"{ORTHANC_URL}/series", verify=False)
     response.raise_for_status()
@@ -93,7 +113,6 @@ def get_series_id_by_uid(series_uid: str):
             return series_id
     return None
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def download_series_dicom(series_id: str, series_uid: str) -> str:
     """
@@ -116,7 +135,6 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
                 logger.info(f"Removing old series folder: {item_path}")
                 shutil.rmtree(item_path)
 
-
         os.makedirs(series_folder, exist_ok=True)
         logger.info(f"Created series folder: {series_folder}")
 
@@ -131,7 +149,9 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
     for idx, instance in enumerate(instances):
         instance_id = instance["ID"]
         logger.debug(f"Downloading instance {idx + 1}/{len(instances)}: {instance_id}")
-        dicom_data = requests.get(f"{ORTHANC_URL}/instances/{instance_id}/file", verify=False).content
+        dicom_data = requests.get(
+            f"{ORTHANC_URL}/instances/{instance_id}/file", verify=False
+        ).content
         dicom_path = os.path.join(series_folder, f"instance_{idx + 1}.dcm")
         with open(dicom_path, "wb") as f:
             f.write(dicom_data)
@@ -140,15 +160,20 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
     return series_folder
 
 
-
 def get_preprocessing():
-    return tio.Compose([
-        RandomCropOrPad((256, 256, 32)),
-        ZNormalization(per_channel=True, percentiles=(0.5, 99.5), masking_method=lambda x: x > 0),
-        ImageToTensor()
-    ])
+    return tio.Compose(
+        [
+            RandomCropOrPad((256, 256, 32)),
+            ZNormalization(
+                per_channel=True, percentiles=(0.5, 99.5), masking_method=lambda x: x > 0
+            ),
+            ImageToTensor(),
+        ]
+    )
+
 
 # --- Flask Route ---
+
 
 @app.route("/analyze/mri", methods=["POST"])
 def analyze_mri():
@@ -188,6 +213,7 @@ def analyze_mri():
             dicom_folder = os.path.join(IMAGE_FOLDER, series_uid)
             if os.path.exists(dicom_folder):
                 import shutil
+
                 shutil.rmtree(dicom_folder)
             os.makedirs(dicom_folder, exist_ok=True)
 
@@ -199,10 +225,11 @@ def analyze_mri():
             logger.info(f"Saved {len(datasets)} DICOM files to {dicom_folder}")
 
         except Exception as e:
-            logger.error(f"Error with WADO-RS retrieval: {str(e)}")
+            logger.error(f"Error with WADO-RS retrieval: {e!s}")
             import traceback
+
             traceback.print_exc()
-            return jsonify({"error": f"WADO-RS retrieval failed: {str(e)}"}), 500
+            return jsonify({"error": f"WADO-RS retrieval failed: {e!s}"}), 500
 
     elif series_uid_legacy:
         # LEGACY format with direct Orthanc retrieval
@@ -235,10 +262,11 @@ def analyze_mri():
             logger.info(f"DICOM files downloaded to: {dicom_folder}")
 
         except Exception as e:
-            logger.error(f"Error with legacy retrieval: {str(e)}")
+            logger.error(f"Error with legacy retrieval: {e!s}")
             import traceback
+
             traceback.print_exc()
-            return jsonify({"error": f"Legacy retrieval failed: {str(e)}"}), 500
+            return jsonify({"error": f"Legacy retrieval failed: {e!s}"}), 500
     else:
         logger.error("No seriesInstanceUID or wado_rs_retrieval provided")
         return jsonify({"error": "No seriesInstanceUID or wado_rs_retrieval provided"}), 400
@@ -251,13 +279,17 @@ def analyze_mri():
         logger.info("Step 3: Converting DICOM to NIfTI...")
         step_start = time.time()
         try:
-            nifties = dicom_to_unilateral_nifti(Path(dicom_folder), Path(f"{dicom_folder}/nifti/Dynamic_T1"))
+            nifties = dicom_to_unilateral_nifti(
+                Path(dicom_folder), Path(f"{dicom_folder}/nifti/Dynamic_T1")
+            )
             step_duration = (time.time() - step_start) * 1000
             logger.info(f"TIMING: dicom_to_nifti_conversion: {step_duration:.2f}ms")
-            logger.info(f"Successfully converted to NIfTI. Available images: {list(nifties.keys())}")
+            logger.info(
+                f"Successfully converted to NIfTI. Available images: {list(nifties.keys())}"
+            )
         except Exception as e:
-            logger.error(f"Failed to convert DICOM to NIfTI: {str(e)}", exc_info=True)
-            return jsonify({"error": f"DICOM to NIfTI conversion failed: {str(e)}"}), 500
+            logger.error(f"Failed to convert DICOM to NIfTI: {e!s}", exc_info=True)
+            return jsonify({"error": f"DICOM to NIfTI conversion failed: {e!s}"}), 500
 
         # Step 4: Prepare preprocessing
         logger.info("Step 4: Preparing preprocessing transforms...")
@@ -310,7 +342,7 @@ def analyze_mri():
                 logger.info(f"  {side}: Model output probability={prob:.4f}")
                 results[side] = {
                     "prediction": "Cancerous" if prob > 0.5 else "Not Cancerous",
-                    "confidence": round(prob if prob > 0.5 else 1 - prob, 4)*100,
+                    "confidence": round(prob if prob > 0.5 else 1 - prob, 4) * 100,
                 }
 
                 side_duration = (time.time() - side_start) * 1000
@@ -326,7 +358,7 @@ def analyze_mri():
                 side_duration = (time.time() - side_start) * 1000
                 logger.info(f"TIMING: {side}_total_error: {side_duration:.2f}ms")
                 logger.error(f"Error processing {side} side: {e}", exc_info=True)
-                results[side] = {"error": f"Processing error for {side} side: {str(e)}"}
+                results[side] = {"error": f"Processing error for {side} side: {e!s}"}
 
         overall_duration = (time.time() - overall_start) * 1000
         logger.info(f"TIMING: total_analysis: {overall_duration:.2f}ms")
@@ -334,8 +366,9 @@ def analyze_mri():
         return jsonify(results)
 
     except Exception as e:
-        logger.error(f"Unexpected error during MRI analysis: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
+        logger.error(f"Unexpected error during MRI analysis: {e!s}", exc_info=True)
+        return jsonify({"error": f"Analysis failed: {e!s}"}), 500
+
 
 # --- Main ---
 

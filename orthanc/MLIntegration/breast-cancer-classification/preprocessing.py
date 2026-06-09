@@ -2,19 +2,21 @@
 Breast cancer classification preprocessing
 Single Responsibility: Data preprocessing and transforms for ResNet model
 """
+
 import logging
+
+import numpy as np
 import torch
 import torchio as tio
-import numpy as np
-from typing import Union, Tuple
+from torchio import Image, Subject
 from torchio.transforms.transform import TypeMaskingMethod
-from torchio import Subject, Image
 
 logger = logging.getLogger(__name__)
 
 
 class ImageToTensor:
     """Convert TorchIO Image to tensor"""
+
     def __call__(self, image: Image):
         return image.data.swapaxes(1, -1)
 
@@ -27,8 +29,13 @@ def parse_per_channel(per_channel, channels):
 class ZNormalization(tio.ZNormalization):
     """Custom Z-normalization with percentile clipping"""
 
-    def __init__(self, percentiles: Union[float, Tuple[float, float]] = (0, 100), per_channel=True,
-                 masking_method: TypeMaskingMethod = None, **kwargs):
+    def __init__(
+        self,
+        percentiles: float | tuple[float, float] = (0, 100),
+        per_channel=True,
+        masking_method: TypeMaskingMethod = None,
+        **kwargs,
+    ):
         super().__init__(masking_method=masking_method, **kwargs)
         self.percentiles = percentiles
         self.per_channel = per_channel
@@ -36,17 +43,25 @@ class ZNormalization(tio.ZNormalization):
     def apply_normalization(self, subject: Subject, image_name: str, mask: torch.Tensor) -> None:
         image = subject[image_name]
         per_channel = parse_per_channel(self.per_channel, image.shape[0])
-        image.set_data(torch.cat([
-            self._znorm(image.data[chs,], mask[chs,], image_name, image.path)
-            for chs in per_channel])
+        image.set_data(
+            torch.cat(
+                [
+                    self._znorm(image.data[chs,], mask[chs,], image_name, image.path)
+                    for chs in per_channel
+                ]
+            )
         )
 
     def _znorm(self, image_data, mask, image_name, image_path):
-        cutoff = torch.quantile(image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0)
+        cutoff = torch.quantile(
+            image_data.masked_select(mask).float(), torch.tensor(self.percentiles) / 100.0
+        )
         torch.clamp(image_data, *cutoff.to(image_data.dtype).tolist(), out=image_data)
         standardized = self.znorm(image_data, mask)
         if standardized is None:
-            raise RuntimeError(f'Standard deviation is 0 for masked values in image "{image_name}" ({image_path})')
+            raise RuntimeError(
+                f'Standard deviation is 0 for masked values in image "{image_name}" ({image_path})'
+            )
         return standardized
 
 
@@ -65,14 +80,20 @@ def get_preprocessing_pipeline() -> tio.Compose:
     Returns:
         TorchIO Compose transform
     """
-    return tio.Compose([
-        RandomCropOrPad((256, 256, 32)),
-        ZNormalization(per_channel=True, percentiles=(0.5, 99.5), masking_method=lambda x: x > 0),
-        ImageToTensor()
-    ])
+    return tio.Compose(
+        [
+            RandomCropOrPad((256, 256, 32)),
+            ZNormalization(
+                per_channel=True, percentiles=(0.5, 99.5), masking_method=lambda x: x > 0
+            ),
+            ImageToTensor(),
+        ]
+    )
 
 
-def preprocess_for_side(pre_img: Image, post_img: Image, transform: tio.Compose, device: str) -> torch.Tensor:
+def preprocess_for_side(
+    pre_img: Image, post_img: Image, transform: tio.Compose, device: str
+) -> torch.Tensor:
     """
     Preprocess pre and post contrast images for one side
 

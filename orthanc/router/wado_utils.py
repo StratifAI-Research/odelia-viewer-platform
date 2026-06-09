@@ -1,10 +1,14 @@
 """WADO-RS metadata retrieval utilities"""
-import numpy as np
-from dicomweb_client.api import DICOMwebClient
-from typing import Tuple, Dict, List
+
 from collections import defaultdict
 
-def retrieve_series_metadata_sorted(wado_rs_retrieval: List[dict]) -> Tuple[Dict, List[List[float]], float]:
+import numpy as np
+from dicomweb_client.api import DICOMwebClient
+
+
+def retrieve_series_metadata_sorted(
+    wado_rs_retrieval: list[dict],
+) -> tuple[dict, list[list[float]], float]:
     """
     Retrieve series metadata only (no pixel data) and return sorted by temporal phase and InstanceNumber
 
@@ -23,7 +27,7 @@ def retrieve_series_metadata_sorted(wado_rs_retrieval: List[dict]) -> Tuple[Dict
     client = DICOMwebClient(url=base_url)
     instances_metadata = client.retrieve_series_metadata(
         study_instance_uid=first_retrieval["study_uid"],
-        series_instance_uid=first_retrieval["series_uid"]
+        series_instance_uid=first_retrieval["series_uid"],
     )
 
     print(f"Retrieved {len(instances_metadata)} instances")
@@ -47,20 +51,24 @@ def retrieve_series_metadata_sorted(wado_rs_retrieval: List[dict]) -> Tuple[Dict
                 if temporal_tag and temporal_tag.get("Value"):
                     temporal_position = int(temporal_tag["Value"][0])
 
-                instance_data.append({
-                    "metadata": inst_meta,
-                    "position": position,
-                    "instance_number": instance_number,
-                    "temporal_position": temporal_position
-                })
+                instance_data.append(
+                    {
+                        "metadata": inst_meta,
+                        "position": position,
+                        "instance_number": instance_number,
+                        "temporal_position": temporal_position,
+                    }
+                )
 
     if not instance_data:
-        raise ValueError("No instances with ImagePositionPatient (00200032) and InstanceNumber (00200013) found")
+        raise ValueError(
+            "No instances with ImagePositionPatient (00200032) and InstanceNumber (00200013) found"
+        )
 
     # Group by temporal position (matches model behavior)
     temporal_groups = defaultdict(list)
     for item in instance_data:
-        temporal_groups[item['temporal_position']].append(item)
+        temporal_groups[item["temporal_position"]].append(item)
 
     num_temporal_phases = len(temporal_groups)
     print(f"Detected {num_temporal_phases} temporal phase(s): {sorted(temporal_groups.keys())}")
@@ -73,9 +81,11 @@ def retrieve_series_metadata_sorted(wado_rs_retrieval: List[dict]) -> Tuple[Dict
     print(f"Using temporal phase {first_temporal_key} with {len(selected_instances)} instances")
 
     # Sort by InstanceNumber ascending within temporal group
-    selected_instances.sort(key=lambda x: x['instance_number'])
+    selected_instances.sort(key=lambda x: x["instance_number"])
 
-    print(f"Sorted {len(selected_instances)} instances by InstanceNumber: {selected_instances[0]['instance_number']} to {selected_instances[-1]['instance_number']}")
+    print(
+        f"Sorted {len(selected_instances)} instances by InstanceNumber: {selected_instances[0]['instance_number']} to {selected_instances[-1]['instance_number']}"
+    )
 
     # Extract positions list for all frames
     positions_list = [item["position"] for item in selected_instances]
@@ -83,7 +93,9 @@ def retrieve_series_metadata_sorted(wado_rs_retrieval: List[dict]) -> Tuple[Dict
     # Calculate spacing from first two instances as fallback
     slice_spacing = 1.0  # Default fallback
     if len(selected_instances) >= 2:
-        pos_diff = np.array(selected_instances[1]["position"]) - np.array(selected_instances[0]["position"])
+        pos_diff = np.array(selected_instances[1]["position"]) - np.array(
+            selected_instances[0]["position"]
+        )
         slice_spacing = float(np.linalg.norm(pos_diff))
 
     print(f"Using slice spacing: {slice_spacing:.2f}mm (fallback)")

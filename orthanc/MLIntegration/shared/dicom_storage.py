@@ -2,12 +2,13 @@
 DICOM file storage utilities
 Single Responsibility: File system operations for DICOM data
 """
+
+import logging
 import os
 import re
 import shutil
-import logging
 from pathlib import Path
-from typing import List
+
 from pydicom.dataset import Dataset
 
 from .config import StorageConfig
@@ -38,7 +39,9 @@ def validate_series_uid(series_uid: str) -> str:
     return series_uid
 
 
-def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: bool = True) -> Path:
+def create_series_folder(
+    series_uid: str, storage_config: StorageConfig, clean: bool = True
+) -> Path:
     """
     Create a folder for storing DICOM series
 
@@ -64,7 +67,9 @@ def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: 
     return series_folder
 
 
-def save_datasets_to_folder(datasets: List[Dataset], series_uid: str, storage_config: StorageConfig) -> Path:
+def save_datasets_to_folder(
+    datasets: list[Dataset], series_uid: str, storage_config: StorageConfig
+) -> Path:
     """
     Save DICOM datasets to a folder on disk
 
@@ -91,7 +96,9 @@ def save_datasets_to_folder(datasets: List[Dataset], series_uid: str, storage_co
     return series_folder
 
 
-def save_dicom_bytes_to_folder(dicom_files: List[bytes], series_uid: str, storage_config: StorageConfig) -> Path:
+def save_dicom_bytes_to_folder(
+    dicom_files: list[bytes], series_uid: str, storage_config: StorageConfig
+) -> Path:
     """
     Save DICOM file bytes to a folder on disk
 

@@ -3,24 +3,20 @@ UPS Workitem processor - executes AI inference tasks
 """
 
 import os
-import io
-import json
 import time
-import requests
 from datetime import datetime
 
-import orthanc
-from pydicom import dcmread
-from pydicom.uid import generate_uid
+import requests
+from wado_utils import retrieve_series_metadata_sorted
 
 from ups.storage import ups_storage
-from wado_utils import retrieve_series_metadata_sorted
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). Empty /
 # unset preserves current research behaviour. See docs/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed  # type: ignore
 except Exception:
+
     def host_is_allowed(_url: str) -> bool:
         return True
 
@@ -44,21 +40,25 @@ def notify_subscriber(workitem, subscriber_url):
         # Defense in depth: subscriber URLs are also validated at intake
         # (SubscribeToWorkitem), but check again on egress in case the
         # subscription store was populated by some other path.
-        print(f"notify_subscriber: subscriber_url host not in ROUTER_HOST_ALLOWLIST, skipping: {subscriber_url}")
+        print(
+            f"notify_subscriber: subscriber_url host not in ROUTER_HOST_ALLOWLIST, skipping: {subscriber_url}"
+        )
         return
     try:
         response = requests.post(
             f"{subscriber_url}/ups-rs/workitems/{workitem.workitem_uid}",
             data=workitem.to_json(),
             headers={"Content-Type": "application/dicom+json"},
-            timeout=5
+            timeout=5,
         )
         if response.status_code == 200:
-            print(f"Notified subscriber {subscriber_url}: workitem {workitem.workitem_uid} state={workitem.get_state()}")
+            print(
+                f"Notified subscriber {subscriber_url}: workitem {workitem.workitem_uid} state={workitem.get_state()}"
+            )
         else:
             print(f"Notification failed for {subscriber_url}: {response.status_code}")
     except Exception as e:
-        print(f"Error notifying {subscriber_url}: {str(e)}")
+        print(f"Error notifying {subscriber_url}: {e!s}")
 
 
 def notify_all_subscribers(workitem):
@@ -95,9 +95,7 @@ def process_workitem(workitem):
     try:
         # Step 1: Update state to IN_PROGRESS with initial progress
         workitem.update_state(
-            "IN_PROGRESS",
-            progress_percent=10,
-            progress_description="Starting AI inference"
+            "IN_PROGRESS", progress_percent=10, progress_description="Starting AI inference"
         )
         ups_storage.store_workitem(workitem)
         notify_all_subscribers(workitem)
@@ -110,9 +108,7 @@ def process_workitem(workitem):
 
         # Update: Retrieved metadata
         workitem.update_state(
-            "IN_PROGRESS",
-            progress_percent=20,
-            progress_description="Retrieved study metadata"
+            "IN_PROGRESS", progress_percent=20, progress_description="Retrieved study metadata"
         )
         ups_storage.store_workitem(workitem)
         notify_all_subscribers(workitem)
@@ -120,25 +116,22 @@ def process_workitem(workitem):
         # Step 3: Call AI model with WADO-RS URLs (and structured input mapping if present)
         try:
             workitem.update_state(
-                "IN_PROGRESS",
-                progress_percent=30,
-                progress_description="Sending data to AI model"
+                "IN_PROGRESS", progress_percent=30, progress_description="Sending data to AI model"
             )
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
 
             # Build request body for the model backend
-            model_request_body = {
-                "wado_rs_retrieval": wado_rs_urls,
-                "study_uid": study_uid
-            }
+            model_request_body = {"wado_rs_retrieval": wado_rs_urls, "study_uid": study_uid}
 
             # Extract structured input mapping from workitem (if present)
             structured_input = workitem.get_input_mapping()
             if structured_input:
                 role_mapping = structured_input["mapping"]
                 config_id = structured_input.get("input_configuration_id")
-                print(f"Structured input mapping found: config={config_id}, roles={list(role_mapping.keys())}")
+                print(
+                    f"Structured input mapping found: config={config_id}, roles={list(role_mapping.keys())}"
+                )
 
                 wado_rs_by_series = {}
                 for item in wado_rs_urls:
@@ -149,7 +142,7 @@ def process_workitem(workitem):
                     input_mapping_for_model[role_key] = {
                         "series_uid": series_uid,
                         "study_uid": study_uid,
-                        "wado_rs_url": wado_rs_by_series.get(series_uid)
+                        "wado_rs_url": wado_rs_by_series.get(series_uid),
                     }
 
                 model_request_body["input_mapping"] = input_mapping_for_model
@@ -169,9 +162,7 @@ def process_workitem(workitem):
 
             # Update: Model processing
             workitem.update_state(
-                "IN_PROGRESS",
-                progress_percent=50,
-                progress_description="AI model analyzing data"
+                "IN_PROGRESS", progress_percent=50, progress_description="AI model analyzing data"
             )
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
@@ -187,7 +178,7 @@ def process_workitem(workitem):
             model_results = model_response.json()
 
         except requests.exceptions.RequestException as e:
-            error_msg = f"Network error calling model: {str(e)}"
+            error_msg = f"Network error calling model: {e!s}"
             print(error_msg)
             workitem.update_state("CANCELED", cancellation_reason=error_msg)
             ups_storage.store_workitem(workitem)
@@ -198,25 +189,28 @@ def process_workitem(workitem):
         try:
             # Import the existing result processing functions from server.py
             from server import (
-                detect_response_format,
                 create_bilateral_sr,
-                create_multiframe_attention_sc
+                create_multiframe_attention_sc,
+                detect_response_format,
             )
 
             # Update: Retrieving source metadata
             workitem.update_state(
                 "IN_PROGRESS",
                 progress_percent=70,
-                progress_description="Retrieving source metadata"
+                progress_description="Retrieving source metadata",
             )
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
 
             # Get spatial metadata (metadata-only, no pixel data)
-            first_instance_meta, positions_list, slice_spacing = retrieve_series_metadata_sorted(wado_rs_urls)
+            first_instance_meta, positions_list, slice_spacing = retrieve_series_metadata_sorted(
+                wado_rs_urls
+            )
 
             # Create minimal Dataset with spatial tags only
             from pydicom import Dataset
+
             original_dicom = Dataset()
 
             # Extract from DICOM JSON format (tag->Value structure)
@@ -234,17 +228,21 @@ def process_workitem(workitem):
 
             # Copy required study/patient tags
             tag_mapping = {
-                "00100010": "PatientName",      # Patient Name (PN - special handling)
-                "00100020": "PatientID",        # Patient ID
-                "0020000D": "StudyInstanceUID", # Study Instance UID
-                "00080016": "SOPClassUID",      # SOP Class UID
-                "00080018": "SOPInstanceUID"    # SOP Instance UID
+                "00100010": "PatientName",  # Patient Name (PN - special handling)
+                "00100020": "PatientID",  # Patient ID
+                "0020000D": "StudyInstanceUID",  # Study Instance UID
+                "00080016": "SOPClassUID",  # SOP Class UID
+                "00080018": "SOPInstanceUID",  # SOP Instance UID
             }
 
             for hex_tag, attr_name in tag_mapping.items():
                 tag_data = first_instance_meta.get(hex_tag)
                 if tag_data and tag_data.get("Value"):
-                    value = tag_data["Value"][0] if isinstance(tag_data["Value"], list) else tag_data["Value"]
+                    value = (
+                        tag_data["Value"][0]
+                        if isinstance(tag_data["Value"], list)
+                        else tag_data["Value"]
+                    )
 
                     # Special handling for PersonName (PN) VR - extract Alphabetic component
                     if attr_name == "PatientName" and isinstance(value, dict):
@@ -252,13 +250,13 @@ def process_workitem(workitem):
 
                     setattr(original_dicom, attr_name, value)
 
-            print(f"Using spatially first instance with position {original_dicom.ImagePositionPatient}")
+            print(
+                f"Using spatially first instance with position {original_dicom.ImagePositionPatient}"
+            )
 
             # Update: Creating DICOM results
             workitem.update_state(
-                "IN_PROGRESS",
-                progress_percent=85,
-                progress_description="Creating DICOM results"
+                "IN_PROGRESS", progress_percent=85, progress_description="Creating DICOM results"
             )
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
@@ -272,14 +270,14 @@ def process_workitem(workitem):
             current_time = datetime.now().strftime("%H%M%S.%f")[:-3]
 
             if response_format == "bilateral":
-                sr_bytes, current_date, current_time, sr_sop_instance_uid = (
-                    create_bilateral_sr(original_dicom, model_results)
+                sr_bytes, current_date, current_time, sr_sop_instance_uid = create_bilateral_sr(
+                    original_dicom, model_results
                 )
                 dicom_objects_to_upload = [(sr_bytes, "SR-Bilateral")]
 
             elif response_format == "bilateral_with_heatmap":
-                sr_bytes, current_date, current_time, sr_sop_instance_uid = (
-                    create_bilateral_sr(original_dicom, model_results)
+                sr_bytes, current_date, current_time, sr_sop_instance_uid = create_bilateral_sr(
+                    original_dicom, model_results
                 )
                 dicom_objects_to_upload.append((sr_bytes, "SR-Bilateral-MST"))
 
@@ -294,7 +292,7 @@ def process_workitem(workitem):
                         creation_time=current_time,
                         sr_sop_instance_uid=sr_sop_instance_uid,
                         slice_spacing=slice_spacing,  # Use calculated spacing as fallback
-                        positions_list=positions_list  # Use actual positions from sorted instances
+                        positions_list=positions_list,  # Use actual positions from sorted instances
                     )
                     dicom_objects_to_upload.append((sc_bytes, "SC-MultiFrame"))
 
@@ -303,7 +301,7 @@ def process_workitem(workitem):
             workitem.update_state(
                 "IN_PROGRESS",
                 progress_percent=95,
-                progress_description="Uploading results to viewer"
+                progress_description="Uploading results to viewer",
             )
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
@@ -329,9 +327,10 @@ def process_workitem(workitem):
             print(f"TIMING: upload_all_to_viewer: {upload_duration:.2f}ms")
 
         except Exception as e:
-            error_msg = f"Error processing results: {str(e)}"
+            error_msg = f"Error processing results: {e!s}"
             print(error_msg)
             import traceback
+
             traceback.print_exc()
             workitem.update_state("CANCELED", cancellation_reason=error_msg)
             ups_storage.store_workitem(workitem)
@@ -348,9 +347,10 @@ def process_workitem(workitem):
         print(f"Successfully processed workitem {workitem.workitem_uid}")
 
     except Exception as e:
-        error_msg = f"Unexpected error processing workitem: {str(e)}"
+        error_msg = f"Unexpected error processing workitem: {e!s}"
         print(error_msg)
         import traceback
+
         traceback.print_exc()
         try:
             workitem.update_state("CANCELED", cancellation_reason=error_msg)

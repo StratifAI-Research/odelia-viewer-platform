@@ -1,10 +1,11 @@
 """
 HuggingFace model download and loading logic for MST model
 """
+
+import logging
 import os
 import sys
-import logging
-from pathlib import Path
+
 from huggingface_hub import hf_hub_download, login
 
 logger = logging.getLogger(__name__)
@@ -16,14 +17,16 @@ HF_TOKEN = os.getenv("HF_TOKEN", None)
 HTTP_PROXY = os.getenv("HTTP_PROXY", None)
 HTTPS_PROXY = os.getenv("HTTPS_PROXY", None)
 
+
 def get_proxy_config():
     """Get proxy configuration dict for HuggingFace requests only"""
     proxies = {}
     if HTTP_PROXY:
-        proxies['http'] = HTTP_PROXY
-        proxies['https'] = HTTPS_PROXY if HTTPS_PROXY else HTTP_PROXY
+        proxies["http"] = HTTP_PROXY
+        proxies["https"] = HTTPS_PROXY if HTTPS_PROXY else HTTP_PROXY
         logger.info(f"Using proxy for HuggingFace downloads: {HTTP_PROXY}")
     return proxies if proxies else None
+
 
 def download_model_files():
     """
@@ -32,7 +35,6 @@ def download_model_files():
     Returns:
         dict: Paths to downloaded files
     """
-    import httpx
 
     logger.info(f"Downloading MST model files from {MODEL_REPO}")
 
@@ -42,9 +44,10 @@ def download_model_files():
     # Configure httpx client with proxy if needed
     if proxies:
         import huggingface_hub
+
         # Set proxy only for HuggingFace operations
         huggingface_hub.constants.HF_HUB_OFFLINE = False
-        os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '120'
+        os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "120"
 
     # Authenticate with HuggingFace if token provided
     if HF_TOKEN:
@@ -61,7 +64,7 @@ def download_model_files():
         "models.py",
         "predict_attention.py",
         "model_config.json",
-        "state_dict.pt"  # The actual model weights
+        "state_dict.pt",  # The actual model weights
     ]
 
     downloaded_files = {}
@@ -69,19 +72,16 @@ def download_model_files():
     # Temporarily set proxy env vars only for HuggingFace downloads
     try:
         if proxies:
-            os.environ['HTTP_PROXY'] = proxies.get('http', '')
-            os.environ['HTTPS_PROXY'] = proxies.get('https', '')
-            os.environ['http_proxy'] = proxies.get('http', '')
-            os.environ['https_proxy'] = proxies.get('https', '')
+            os.environ["HTTP_PROXY"] = proxies.get("http", "")
+            os.environ["HTTPS_PROXY"] = proxies.get("https", "")
+            os.environ["http_proxy"] = proxies.get("http", "")
+            os.environ["https_proxy"] = proxies.get("https", "")
 
         for filename in files_to_download:
             try:
                 logger.info(f"Downloading {filename}...")
                 file_path = hf_hub_download(
-                    repo_id=MODEL_REPO,
-                    filename=filename,
-                    local_dir=MODEL_PATH,
-                    token=HF_TOKEN
+                    repo_id=MODEL_REPO, filename=filename, local_dir=MODEL_PATH, token=HF_TOKEN
                 )
                 downloaded_files[filename] = file_path
                 logger.info(f"✓ Downloaded {filename} to {file_path}")
@@ -90,10 +90,10 @@ def download_model_files():
                 raise
     finally:
         # Remove ALL proxy settings after download completes
-        os.environ.pop('HTTP_PROXY', None)
-        os.environ.pop('http_proxy', None)
-        os.environ.pop('HTTPS_PROXY', None)
-        os.environ.pop('https_proxy', None)
+        os.environ.pop("HTTP_PROXY", None)
+        os.environ.pop("http_proxy", None)
+        os.environ.pop("HTTPS_PROXY", None)
+        os.environ.pop("https_proxy", None)
         logger.info("Proxy settings cleared after download")
 
     logger.info("All model files downloaded successfully")
@@ -112,7 +112,8 @@ def load_model():
         sys.path.insert(0, MODEL_PATH)
 
         # Import the downloaded modules
-        from predict_attention import load_model as load_mst_model, run_prediction
+        from predict_attention import load_model as load_mst_model
+        from predict_attention import run_prediction
 
         logger.info("Loading MST model...")
 
@@ -125,7 +126,7 @@ def load_model():
         model_info = {
             "model_name": "ODELIA-AI",
             "architecture": "Vision Transformer",
-            "version": "1.0"
+            "version": "1.0",
         }
 
         return model, run_prediction, model_info

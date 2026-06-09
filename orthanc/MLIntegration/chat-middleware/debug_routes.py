@@ -2,21 +2,22 @@
 Debug REST API endpoints for development and testing.
 Should be disabled or protected in production.
 """
-import logging
-from fastapi import APIRouter, HTTPException
 
-from models import (
-    DebugConfigUpdate,
-    DebugConfigResponse,
-    SessionListResponse,
-    SessionInfo,
-    CacheClearResponse
-)
+import logging
+
 from config import get_config
+from fastapi import APIRouter, HTTPException
+from image_cache import get_image_cache
+from models import (
+    CacheClearResponse,
+    DebugConfigResponse,
+    DebugConfigUpdate,
+    SessionInfo,
+    SessionListResponse,
+)
+from ollama_client import get_ollama_client
 from runtime_config import get_runtime_config
 from session_manager import get_session_manager
-from image_cache import get_image_cache
-from ollama_client import get_ollama_client
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def get_debug_config() -> DebugConfigResponse:
         ollama_static={
             "url": config.ollama_url,
         },
-        ollama_options=runtime_config.ollama_options.to_full_dict()
+        ollama_options=runtime_config.ollama_options.to_full_dict(),
     )
 
 
@@ -66,7 +67,7 @@ async def update_debug_config(update: DebugConfigUpdate) -> DebugConfigResponse:
         system_prompt=update.system_prompt,
         model=update.model,
         preprocessing=preprocessing_dict,
-        ollama_options=ollama_options_dict
+        ollama_options=ollama_options_dict,
     )
 
     # Auto-clear image cache when preprocessing params change
@@ -74,10 +75,12 @@ async def update_debug_config(update: DebugConfigUpdate) -> DebugConfigResponse:
         cleared = get_image_cache().clear()
         logger.info(f"Auto-cleared {cleared} cache entries after preprocessing config change")
 
-    logger.info(f"Updated runtime config: system_prompt={'changed' if update.system_prompt else 'unchanged'}, "
-                f"model={'changed' if update.model else 'unchanged'}, "
-                f"preprocessing={'changed' if preprocessing_dict else 'unchanged'}, "
-                f"ollama_options={'changed' if ollama_options_dict else 'unchanged'}")
+    logger.info(
+        f"Updated runtime config: system_prompt={'changed' if update.system_prompt else 'unchanged'}, "
+        f"model={'changed' if update.model else 'unchanged'}, "
+        f"preprocessing={'changed' if preprocessing_dict else 'unchanged'}, "
+        f"ollama_options={'changed' if ollama_options_dict else 'unchanged'}"
+    )
 
     # Return updated config
     config = get_config()
@@ -88,7 +91,7 @@ async def update_debug_config(update: DebugConfigUpdate) -> DebugConfigResponse:
         ollama_static={
             "url": config.ollama_url,
         },
-        ollama_options=runtime_config.ollama_options.to_full_dict()
+        ollama_options=runtime_config.ollama_options.to_full_dict(),
     )
 
 
@@ -104,10 +107,7 @@ async def clear_cache() -> CacheClearResponse:
 
     logger.info(f"Cleared image cache: {cleared} entries removed")
 
-    return CacheClearResponse(
-        cleared_entries=cleared,
-        message=f"Cleared {cleared} cached series"
-    )
+    return CacheClearResponse(cleared_entries=cleared, message=f"Cleared {cleared} cached series")
 
 
 @router.get("/cache/stats")
@@ -132,7 +132,7 @@ async def list_sessions() -> SessionListResponse:
             session_id=s["session_id"],
             created_at=s["created_at"],
             last_activity=s["last_activity"],
-            message_count=s["message_count"]
+            message_count=s["message_count"],
         )
         for s in sessions_data
     ]
@@ -150,8 +150,7 @@ async def delete_session(session_id: str) -> dict:
     if session_manager.remove_session(session_id):
         logger.info(f"Deleted session via debug API: {session_id}")
         return {"message": f"Session {session_id} deleted"}
-    else:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
 
 @router.post("/sessions/cleanup")
@@ -167,10 +166,7 @@ async def cleanup_sessions(max_age_minutes: int = 60) -> dict:
 
     logger.info(f"Cleaned up {removed} stale sessions (max age: {max_age_minutes} min)")
 
-    return {
-        "removed_sessions": removed,
-        "max_age_minutes": max_age_minutes
-    }
+    return {"removed_sessions": removed, "max_age_minutes": max_age_minutes}
 
 
 @router.get("/health")
@@ -195,10 +191,8 @@ async def debug_health() -> dict:
             "url": config.ollama_url,
             "model": config.ollama_model,
             "connected": ollama_healthy,
-            "available_models": ollama_models
+            "available_models": ollama_models,
         },
         "cache": image_cache.stats(),
-        "sessions": {
-            "active": len(session_manager.sessions)
-        }
+        "sessions": {"active": len(session_manager.sessions)},
     }

@@ -1,6 +1,7 @@
 """
 FastAPI application entry point for the chat middleware service
 """
+
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -11,20 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
 # Import after logging is configured
-from config import init_config, get_config
-from runtime_config import get_runtime_config
-from session_manager import get_session_manager
+from config import init_config
+from debug_routes import router as debug_router
 from image_cache import get_image_cache
 from ollama_client import get_ollama_client
-from websocket_handler import handle_websocket
-from debug_routes import router as debug_router
+from runtime_config import get_runtime_config
+from session_manager import get_session_manager
 from shared.security_banner import print_security_banner
+from websocket_handler import handle_websocket
 
 
 @asynccontextmanager
@@ -79,7 +80,7 @@ app = FastAPI(
     title="Chat Middleware Service",
     description="WebSocket-based chat middleware for DICOM study analysis with Ollama",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -117,10 +118,4 @@ if __name__ == "__main__":
 
     config = init_config()
 
-    uvicorn.run(
-        "app:app",
-        host=config.host,
-        port=config.port,
-        reload=False,
-        log_level="info"
-    )
+    uvicorn.run("app:app", host=config.host, port=config.port, reload=False, log_level="info")

@@ -1,11 +1,11 @@
 """
 Per-series image cache with LRU eviction
 """
+
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CachedSeries:
     """Cached preprocessed images for a DICOM series"""
+
     series_uid: str
-    base64_images: List[str]  # Central slices as base64 PNG
+    base64_images: list[str]  # Central slices as base64 PNG
     created_at: datetime = field(default_factory=datetime.now)
     last_accessed: datetime = field(default_factory=datetime.now)
 
@@ -36,7 +37,7 @@ class ImageCache:
         self._cache: OrderedDict[str, CachedSeries] = OrderedDict()
         self.max_entries = max_entries
 
-    def get(self, series_uid: str) -> Optional[CachedSeries]:
+    def get(self, series_uid: str) -> CachedSeries | None:
         """
         Get cached series by UID.
         Updates last_accessed and moves to end of LRU queue.
@@ -96,7 +97,7 @@ class ImageCache:
         """
         return series_uid in self._cache
 
-    def _evict_lru(self) -> Optional[str]:
+    def _evict_lru(self) -> str | None:
         """
         Evict the least recently used entry.
 
@@ -142,12 +143,12 @@ class ImageCache:
         return {
             "size": len(self._cache),
             "max_entries": self.max_entries,
-            "series_uids": list(self._cache.keys())
+            "series_uids": list(self._cache.keys()),
         }
 
 
 # Global image cache instance
-_image_cache: Optional[ImageCache] = None
+_image_cache: ImageCache | None = None
 
 
 def get_image_cache(max_entries: int = 100) -> ImageCache:

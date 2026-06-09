@@ -2,13 +2,14 @@
 MedGemma-specific preprocessing: DICOM to PIL Image conversion
 Single Responsibility: Extract representative slices from MRI volumes
 """
+
 import logging
+from collections import defaultdict
+from pathlib import Path
+
 import numpy as np
 import SimpleITK as sitk
-from pathlib import Path
 from PIL import Image
-from typing import List
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +78,24 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
     file_metadata = []
     for dcm_file in dicom_files:
         temporal_pos, slice_loc, instance_num = get_dicom_metadata(str(dcm_file))
-        file_metadata.append({
-            'path': str(dcm_file),
-            'temporal_pos': temporal_pos,
-            'slice_location': slice_loc,
-            'instance_number': instance_num
-        })
+        file_metadata.append(
+            {
+                "path": str(dcm_file),
+                "temporal_pos": temporal_pos,
+                "slice_location": slice_loc,
+                "instance_number": instance_num,
+            }
+        )
 
     # Group by temporal position
     temporal_groups = defaultdict(list)
     for item in file_metadata:
-        temporal_groups[item['temporal_pos']].append(item)
+        temporal_groups[item["temporal_pos"]].append(item)
 
     num_temporal_phases = len(temporal_groups)
-    logger.info(f"Detected {num_temporal_phases} temporal phase(s): {sorted(temporal_groups.keys())}")
+    logger.info(
+        f"Detected {num_temporal_phases} temporal phase(s): {sorted(temporal_groups.keys())}"
+    )
 
     # Determine which files to use
     if num_temporal_phases == 1:
@@ -114,8 +119,10 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
         selected_files_metadata = temporal_groups[selected_key]
 
         # Sort files by spatial position
-        selected_files_metadata.sort(key=lambda x: (x['slice_location'], x['instance_number']), reverse=True)
-        selected_files = [item['path'] for item in selected_files_metadata]
+        selected_files_metadata.sort(
+            key=lambda x: (x["slice_location"], x["instance_number"]), reverse=True
+        )
+        selected_files = [item["path"] for item in selected_files_metadata]
 
         logger.info(
             f"4D temporal series detected. Extracting first temporal position "
@@ -128,9 +135,7 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
         reader.LoadPrivateTagsOn()
         image = reader.Execute()
 
-    logger.info(
-        f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}"
-    )
+    logger.info(f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}")
 
     return image
 
@@ -160,7 +165,7 @@ def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
     return normalized
 
 
-def extract_central_slices(dicom_folder: Path, num_slices: int = 5) -> List[Image.Image]:
+def extract_central_slices(dicom_folder: Path, num_slices: int = 5) -> list[Image.Image]:
     """
     Extract evenly-spaced slices from the central portion of MRI volume.
 
@@ -202,7 +207,9 @@ def extract_central_slices(dicom_folder: Path, num_slices: int = 5) -> List[Imag
         step = (end_idx - start_idx - 1) / (num_slices - 1)
         indices = [int(start_idx + i * step) for i in range(num_slices)]
 
-    logger.info(f"Extracting slices at indices: {indices} (from central 60% of {total_slices} total)")
+    logger.info(
+        f"Extracting slices at indices: {indices} (from central 60% of {total_slices} total)"
+    )
 
     # Extract and convert slices to PIL Images
     pil_images = []
@@ -216,11 +223,13 @@ def extract_central_slices(dicom_folder: Path, num_slices: int = 5) -> List[Imag
         rgb_array = np.stack([normalized, normalized, normalized], axis=-1)
 
         # Create PIL Image
-        pil_image = Image.fromarray(rgb_array, mode='RGB')
+        pil_image = Image.fromarray(rgb_array, mode="RGB")
         pil_images.append(pil_image)
 
-        logger.debug(f"Extracted slice {idx}: shape={slice_array.shape}, "
-                    f"range=[{slice_array.min():.1f}, {slice_array.max():.1f}]")
+        logger.debug(
+            f"Extracted slice {idx}: shape={slice_array.shape}, "
+            f"range=[{slice_array.min():.1f}, {slice_array.max():.1f}]"
+        )
 
     logger.info(f"Extracted {len(pil_images)} PIL images from volume")
 

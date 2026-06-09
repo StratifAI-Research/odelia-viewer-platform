@@ -3,8 +3,9 @@ UPS Subscription storage using Orthanc Key-Value Store
 Implements RAD-86 subscription registry
 """
 
-import orthanc
 import json
+
+import orthanc
 
 
 class UPSSubscriptionStorage:
@@ -30,9 +31,9 @@ class UPSSubscriptionStorage:
         subscription_data = {
             "workitem_uid": workitem_uid,
             "subscriber_url": subscriber_url,
-            "deletion_lock": deletion_lock
+            "deletion_lock": deletion_lock,
         }
-        orthanc.StoreKeyValue(self.BUCKET, key, json.dumps(subscription_data).encode('utf-8'))
+        orthanc.StoreKeyValue(self.BUCKET, key, json.dumps(subscription_data).encode("utf-8"))
         print(f"Added subscription: {subscriber_url} -> workitem {workitem_uid}")
 
     def remove_subscription(self, workitem_uid, subscriber_url):
@@ -42,7 +43,7 @@ class UPSSubscriptionStorage:
             orthanc.DeleteKeyValue(self.BUCKET, key)
             print(f"Removed subscription: {subscriber_url} from workitem {workitem_uid}")
         except Exception as e:
-            print(f"Error removing subscription: {str(e)}")
+            print(f"Error removing subscription: {e!s}")
 
     def get_subscribers(self, workitem_uid):
         """
@@ -61,16 +62,16 @@ class UPSSubscriptionStorage:
                 if key.startswith(f"{self.KEY_PREFIX}{workitem_uid}:"):
                     value = it.GetValue()
                     if value:
-                        data = json.loads(value.decode('utf-8'))
-                        subscribers.append(data['subscriber_url'])
+                        data = json.loads(value.decode("utf-8"))
+                        subscribers.append(data["subscriber_url"])
         except Exception as e:
-            print(f"Error getting subscribers for {workitem_uid}: {str(e)}")
+            print(f"Error getting subscribers for {workitem_uid}: {e!s}")
 
         # Add global subscribers
         try:
             global_value = orthanc.GetKeyValue(self.BUCKET, self.GLOBAL_KEY)
             if global_value:
-                global_subs = json.loads(global_value.decode('utf-8'))
+                global_subs = json.loads(global_value.decode("utf-8"))
                 subscribers.extend(global_subs)
         except:
             pass  # No global subscriptions
@@ -82,13 +83,15 @@ class UPSSubscriptionStorage:
         """Add a global subscription (notified for all workitems)"""
         try:
             value = orthanc.GetKeyValue(self.BUCKET, self.GLOBAL_KEY)
-            global_subs = json.loads(value.decode('utf-8')) if value else []
+            global_subs = json.loads(value.decode("utf-8")) if value else []
         except:
             global_subs = []
 
         if subscriber_url not in global_subs:
             global_subs.append(subscriber_url)
-            orthanc.StoreKeyValue(self.BUCKET, self.GLOBAL_KEY, json.dumps(global_subs).encode('utf-8'))
+            orthanc.StoreKeyValue(
+                self.BUCKET, self.GLOBAL_KEY, json.dumps(global_subs).encode("utf-8")
+            )
             print(f"Added global subscription: {subscriber_url}")
 
 

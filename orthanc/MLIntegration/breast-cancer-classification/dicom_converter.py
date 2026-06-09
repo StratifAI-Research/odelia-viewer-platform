@@ -2,6 +2,7 @@
 DICOM to NIfTI conversion wrapper
 Single Responsibility: Provide clean interface for DICOM conversion
 """
+
 import logging
 from pathlib import Path
 

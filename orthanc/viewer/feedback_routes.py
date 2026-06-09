@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any
 
 import orthanc
 
@@ -10,7 +10,7 @@ except Exception as _e:
     raise
 
 
-def _json(output, obj: Dict[str, Any], status_ok: bool = True):
+def _json(output, obj: dict[str, Any], status_ok: bool = True):
     body = json.dumps(obj)
     if status_ok:
         output.AnswerBuffer(body, "application/json")
@@ -26,7 +26,7 @@ def _bad_request(output, message: str):
     output.SendHttpStatus(400, message)
 
 
-def _validate_submit_payload(p: Dict[str, Any]) -> str:
+def _validate_submit_payload(p: dict[str, Any]) -> str:
     required = [
         "study_uid",
         "model_name",
@@ -59,7 +59,7 @@ def FeedbackSubmit(output, uri, **request):
     try:
         p = json.loads(request.get("body", "{}"))
     except Exception as e:
-        _bad_request(output, f"Invalid JSON body: {str(e)}")
+        _bad_request(output, f"Invalid JSON body: {e!s}")
         return
     err = _validate_submit_payload(p)
     if err:
@@ -121,13 +121,11 @@ def FeedbackRegisterResult(output, uri, **request):
     try:
         p = json.loads(request.get("body", "{}"))
     except Exception as e:
-        _bad_request(output, f"Invalid JSON body: {str(e)}")
+        _bad_request(output, f"Invalid JSON body: {e!s}")
         return
     required = ["study_uid", "model_name", "model_version", "result_ts"]
     if not all(k in p for k in required):
-        _bad_request(
-            output, f"Missing fields: {', '.join([k for k in required if k not in p])}"
-        )
+        _bad_request(output, f"Missing fields: {', '.join([k for k in required if k not in p])}")
         return
     try:
         res = feedback_db.register_result(
@@ -155,9 +153,7 @@ def FeedbackExportNdjson(output, uri, **request):
     scope = q.get("scope", "history")
     try:
         chunks = []
-        for obj in feedback_db.export_rows_ndjson(
-            since, until, model_name, model_version, scope
-        ):
+        for obj in feedback_db.export_rows_ndjson(since, until, model_name, model_version, scope):
             chunks.append(json.dumps(obj))
         ndjson = "\n".join(chunks)
         output.AnswerBuffer(ndjson, "application/x-ndjson")

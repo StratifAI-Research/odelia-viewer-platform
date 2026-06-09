@@ -2,13 +2,11 @@ import os
 import sqlite3
 import threading
 import time
-from typing import Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
 
 # Configuration with sensible defaults; can be overridden using environment variables
 DB_DIR = os.environ.get("ORTHANC_FEEDBACK_DB_DIR", "/var/lib/odelia-feedback")
-DB_PATH = os.environ.get(
-    "ORTHANC_FEEDBACK_DB_PATH", os.path.join(DB_DIR, "feedback.sqlite")
-)
+DB_PATH = os.environ.get("ORTHANC_FEEDBACK_DB_PATH", os.path.join(DB_DIR, "feedback.sqlite"))
 ENABLE_WAL = os.environ.get("ORTHANC_FEEDBACK_ENABLE_WAL", "1") not in (
     "0",
     "false",
@@ -31,9 +29,7 @@ def _ensure_dir(path: str) -> None:
 
 def _connect() -> sqlite3.Connection:
     # check_same_thread=False to allow usage from handler threads
-    cx = sqlite3.connect(
-        DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000.0, check_same_thread=False
-    )
+    cx = sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000.0, check_same_thread=False)
     cx.row_factory = sqlite3.Row
     # Enforce foreign keys
     cx.execute("PRAGMA foreign_keys=ON;")
@@ -157,9 +153,7 @@ def start_checkpoint_thread() -> None:
     global _checkpoint_thread_started
     if _checkpoint_thread_started or not ENABLE_WAL:
         return
-    t = threading.Thread(
-        target=_checkpoint_worker, name="feedback-sqlite-checkpoint", daemon=True
-    )
+    t = threading.Thread(target=_checkpoint_worker, name="feedback-sqlite-checkpoint", daemon=True)
     t.start()
     _checkpoint_thread_started = True
 
@@ -170,7 +164,7 @@ def _get_or_create_ai_result_id(
     model_name: str,
     model_version: str,
     result_ts: str,
-    meta_json: Optional[str],
+    meta_json: str | None,
 ) -> int:
     try:
         cx.execute(
@@ -197,7 +191,7 @@ class ConflictError(Exception):
     pass
 
 
-def submit_feedback(p: Dict) -> Dict:
+def submit_feedback(p: dict) -> dict:
     initialize()
     cx = _connect()
     try:
@@ -259,7 +253,7 @@ def submit_feedback(p: Dict) -> Dict:
 
 def get_result_id(
     study_uid: str, model_name: str, model_version: str, result_ts: str
-) -> Optional[int]:
+) -> int | None:
     initialize()
     cx = _connect()
     try:
@@ -279,7 +273,7 @@ def read_feedback(
     result_ts: str,
     include_users: bool = False,
     include_history: bool = False,
-) -> Dict:
+) -> dict:
     initialize()
     cx = _connect()
     try:
@@ -363,16 +357,14 @@ def register_result(
     model_name: str,
     model_version: str,
     result_ts: str,
-    meta_json: Optional[str],
-) -> Dict:
+    meta_json: str | None,
+) -> dict:
     initialize()
     cx = _connect()
     try:
         before_id = get_result_id(study_uid, model_name, model_version, result_ts)
         cx.execute("BEGIN IMMEDIATE")
-        _get_or_create_ai_result_id(
-            cx, study_uid, model_name, model_version, result_ts, meta_json
-        )
+        _get_or_create_ai_result_id(cx, study_uid, model_name, model_version, result_ts, meta_json)
         cx.execute("COMMIT")
         after_id = get_result_id(study_uid, model_name, model_version, result_ts)
         return {"created": before_id is None, "id": after_id}
@@ -381,17 +373,17 @@ def register_result(
 
 
 def export_rows_ndjson(
-    since: Optional[str] = None,
-    until: Optional[str] = None,
-    model_name: Optional[str] = None,
-    model_version: Optional[str] = None,
+    since: str | None = None,
+    until: str | None = None,
+    model_name: str | None = None,
+    model_version: str | None = None,
     scope: str = "history",
 ) -> Iterable[str]:
     initialize()
     cx = _connect()
     try:
         clauses = []
-        args: List[str] = []
+        args: list[str] = []
         if since:
             clauses.append("e.created_at >= ?")
             args.append(since)
@@ -442,12 +434,12 @@ def export_rows_ndjson(
 
 
 def export_rows_csv(
-    since: Optional[str] = None,
-    until: Optional[str] = None,
-    model_name: Optional[str] = None,
-    model_version: Optional[str] = None,
+    since: str | None = None,
+    until: str | None = None,
+    model_name: str | None = None,
+    model_version: str | None = None,
     scope: str = "history",
-) -> Tuple[str, Iterable[Tuple]]:
+) -> tuple[str, Iterable[tuple]]:
     header = "study_uid,model_name,model_version,result_ts,user_id,verdict_L,verdict_R,created_at,submission_kind\n"
     initialize()
     cx = _connect()
@@ -455,7 +447,7 @@ def export_rows_csv(
     def _iter():
         try:
             clauses = []
-            args: List[str] = []
+            args: list[str] = []
             if since:
                 clauses.append("e.created_at >= ?")
                 args.append(since)
@@ -495,7 +487,7 @@ def export_rows_csv(
     return header, _iter()
 
 
-def health() -> Dict:
+def health() -> dict:
     initialize()
     cx = _connect()
     try:

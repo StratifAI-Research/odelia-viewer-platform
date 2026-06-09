@@ -2,17 +2,18 @@
 WADO-RS retrieval helper for AI models
 Single Responsibility: Retrieve DICOM instances via DICOMweb WADO-RS protocol
 """
+
 import logging
-from pydicom.dataset import Dataset
-from typing import List
+
 from dicomweb_client.api import DICOMwebClient
+from pydicom.dataset import Dataset
 
 from .exceptions import DicomRetrievalError
 
 logger = logging.getLogger(__name__)
 
 
-def retrieve_via_wado_rs(wado_rs_retrieval: List[dict]) -> List[Dataset]:
+def retrieve_via_wado_rs(wado_rs_retrieval: list[dict]) -> list[Dataset]:
     """
     Retrieve DICOM instances via WADO-RS using dicomweb-client
 
@@ -50,17 +51,17 @@ def retrieve_via_wado_rs(wado_rs_retrieval: List[dict]) -> List[Dataset]:
             # Retrieve all instances in the series
             # Returns List[pydicom.Dataset]
             datasets = client.retrieve_series(
-                study_instance_uid=study_uid,
-                series_instance_uid=series_uid
+                study_instance_uid=study_uid, series_instance_uid=series_uid
             )
 
             logger.info(f"Retrieved {len(datasets)} instances for series {series_uid}")
             all_datasets.extend(datasets)
 
         except Exception as e:
-            logger.error(f"Error retrieving via WADO-RS: {str(e)}")
+            logger.error(f"Error retrieving via WADO-RS: {e!s}")
             import traceback
+
             traceback.print_exc()
-            raise DicomRetrievalError(f"WADO-RS retrieval failed: {str(e)}") from e
+            raise DicomRetrievalError(f"WADO-RS retrieval failed: {e!s}") from e
 
     return all_datasets

@@ -2,9 +2,10 @@
 Response parser for MedGemma text output
 Single Responsibility: Parse generated JSON into structured classification
 """
+
 import json
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from exceptions import ResponseParsingError
 
@@ -33,9 +34,9 @@ def clean_json_text(text: str) -> str:
     # Remove markdown code block wrapper if present
     if cleaned.startswith("```"):
         # Find the end of opening fence
-        first_newline = cleaned.find('\n')
+        first_newline = cleaned.find("\n")
         if first_newline != -1:
-            cleaned = cleaned[first_newline + 1:]
+            cleaned = cleaned[first_newline + 1 :]
 
         # Remove closing fence
         if cleaned.endswith("```"):
@@ -86,7 +87,7 @@ def validate_confidence(value: Any) -> float:
         raise ResponseParsingError(f"Invalid confidence value '{value}'. Must be a number 0-100")
 
 
-def parse_bilateral_response(text: str) -> Dict[str, Any]:
+def parse_bilateral_response(text: str) -> dict[str, Any]:
     """
     Parse MedGemma JSON output into bilateral classification format.
 
@@ -122,8 +123,7 @@ def parse_bilateral_response(text: str) -> Dict[str, Any]:
     # Validate structure
     if "left" not in parsed or "right" not in parsed:
         raise ResponseParsingError(
-            "Response must contain 'left' and 'right' keys",
-            raw_response=text
+            "Response must contain 'left' and 'right' keys", raw_response=text
         )
 
     result = {}
@@ -133,25 +133,22 @@ def parse_bilateral_response(text: str) -> Dict[str, Any]:
 
         if not isinstance(side_data, dict):
             raise ResponseParsingError(
-                f"'{side}' must be an object with classification and confidence",
-                raw_response=text
+                f"'{side}' must be an object with classification and confidence", raw_response=text
             )
 
         if "classification" not in side_data:
             raise ResponseParsingError(
-                f"'{side}' missing required 'classification' field",
-                raw_response=text
+                f"'{side}' missing required 'classification' field", raw_response=text
             )
 
         if "confidence" not in side_data:
             raise ResponseParsingError(
-                f"'{side}' missing required 'confidence' field",
-                raw_response=text
+                f"'{side}' missing required 'confidence' field", raw_response=text
             )
 
         result[side] = {
             "prediction": validate_classification(side_data["classification"]),
-            "confidence": round(validate_confidence(side_data["confidence"]), 1)
+            "confidence": round(validate_confidence(side_data["confidence"]), 1),
         }
 
     logger.info(f"Parsed response: left={result['left']}, right={result['right']}")

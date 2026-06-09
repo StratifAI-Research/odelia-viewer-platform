@@ -5,6 +5,7 @@ Based on DICOM PS3.4 Section CC and PS3.18 Section 11
 
 import json
 from datetime import datetime
+
 from pydicom.uid import generate_uid
 
 
@@ -13,7 +14,15 @@ class UPSWorkitem:
     UPS workitem using DICOM JSON format (application/dicom+json)
     """
 
-    def __init__(self, study_uid, series_uids, wado_rs_retrieval, priority="MEDIUM", workitem_uid=None, viewer_url=None):
+    def __init__(
+        self,
+        study_uid,
+        series_uids,
+        wado_rs_retrieval,
+        priority="MEDIUM",
+        workitem_uid=None,
+        viewer_url=None,
+    ):
         """
         Create a new UPS workitem
 
@@ -36,43 +45,64 @@ class UPSWorkitem:
         time_str = now.strftime("%H%M%S")
 
         return {
-            "00080016": {"vr": "UI", "Value": ["1.2.840.10008.5.1.4.34.6.1"]},  # SOPClassUID: UPS Push
+            "00080016": {
+                "vr": "UI",
+                "Value": ["1.2.840.10008.5.1.4.34.6.1"],
+            },  # SOPClassUID: UPS Push
             "00080018": {"vr": "UI", "Value": [self.workitem_uid]},  # SOPInstanceUID
             "0020000D": {"vr": "UI", "Value": [study_uid]},  # StudyInstanceUID
             "00741000": {"vr": "CS", "Value": ["SCHEDULED"]},  # ProcedureStepState
             "00741200": {"vr": "CS", "Value": [priority]},  # ScheduledProcedureStepPriority
             "00741202": {"vr": "LO", "Value": ["AI-INFERENCE"]},  # WorklistLabel
             "00741204": {"vr": "LO", "Value": ["AI Model Inference"]},  # ProcedureStepLabel
-            "00404005": {"vr": "DT", "Value": [date_str + time_str]},  # ScheduledProcedureStepStartDateTime
+            "00404005": {
+                "vr": "DT",
+                "Value": [date_str + time_str],
+            },  # ScheduledProcedureStepStartDateTime
             "00404041": {"vr": "CS", "Value": ["READY"]},  # InputReadinessState
-
             # Input Information Sequence with WADO-RS retrieval
             "00404021": {"vr": "SQ", "Value": self._build_input_sequence(wado_rs_retrieval)},
-
             # Scheduled Workitem Code Sequence
-            "00404018": {"vr": "SQ", "Value": [{
-                "00080100": {"vr": "SH", "Value": ["110004"]},  # Computer Aided Detection
-                "00080102": {"vr": "SH", "Value": ["DCM"]},
-                "00080104": {"vr": "LO", "Value": ["Computer Aided Detection"]}
-            }]},
+            "00404018": {
+                "vr": "SQ",
+                "Value": [
+                    {
+                        "00080100": {"vr": "SH", "Value": ["110004"]},  # Computer Aided Detection
+                        "00080102": {"vr": "SH", "Value": ["DCM"]},
+                        "00080104": {"vr": "LO", "Value": ["Computer Aided Detection"]},
+                    }
+                ],
+            },
         }
 
     def _build_input_sequence(self, wado_rs_retrieval):
         """Build Input Information Sequence with WADO-RS URLs"""
         input_items = []
         for item in wado_rs_retrieval:
-            input_items.append({
-                "0040E020": {"vr": "CS", "Value": ["DICOM"]},  # TypeOfInstances
-                "0020000D": {"vr": "UI", "Value": [item["study_uid"]]},
-                "0020000E": {"vr": "UI", "Value": [item["series_uid"]]},
-                "0040E025": {"vr": "SQ", "Value": [{  # WADO-RS Retrieval Sequence
-                    "00081190": {"vr": "UR", "Value": [item["retrieval_url"]]},
-                    "0040E011": {"vr": "UI", "Value": [generate_uid()]}  # Retrieve Location UID
-                }]}
-            })
+            input_items.append(
+                {
+                    "0040E020": {"vr": "CS", "Value": ["DICOM"]},  # TypeOfInstances
+                    "0020000D": {"vr": "UI", "Value": [item["study_uid"]]},
+                    "0020000E": {"vr": "UI", "Value": [item["series_uid"]]},
+                    "0040E025": {
+                        "vr": "SQ",
+                        "Value": [
+                            {  # WADO-RS Retrieval Sequence
+                                "00081190": {"vr": "UR", "Value": [item["retrieval_url"]]},
+                                "0040E011": {
+                                    "vr": "UI",
+                                    "Value": [generate_uid()],
+                                },  # Retrieve Location UID
+                            }
+                        ],
+                    },
+                }
+            )
         return input_items
 
-    def update_state(self, new_state, progress_percent=None, progress_description=None, cancellation_reason=None):
+    def update_state(
+        self, new_state, progress_percent=None, progress_description=None, cancellation_reason=None
+    ):
         """
         Update ProcedureStepState and/or progress information
 
@@ -88,34 +118,53 @@ class UPSWorkitem:
 
         # Handle progress information (for IN_PROGRESS state OR when updating existing IN_PROGRESS)
         current_state = self.data["00741000"]["Value"][0]
-        if current_state == "IN_PROGRESS" and (progress_percent is not None or progress_description is not None):
+        if current_state == "IN_PROGRESS" and (
+            progress_percent is not None or progress_description is not None
+        ):
             progress_item = {}
             if progress_percent is not None:
-                progress_item["00741004"] = {"vr": "DS", "Value": [str(progress_percent)]}  # Procedure Step Progress
+                progress_item["00741004"] = {
+                    "vr": "DS",
+                    "Value": [str(progress_percent)],
+                }  # Procedure Step Progress
             if progress_description:
-                progress_item["00741006"] = {"vr": "ST", "Value": [progress_description]}  # Procedure Step Progress Description
+                progress_item["00741006"] = {
+                    "vr": "ST",
+                    "Value": [progress_description],
+                }  # Procedure Step Progress Description
 
             if progress_item:
-                self.data["00741002"] = {"vr": "SQ", "Value": [progress_item]}  # Progress Information Sequence
+                self.data["00741002"] = {
+                    "vr": "SQ",
+                    "Value": [progress_item],
+                }  # Progress Information Sequence
 
         # Handle cancellation information for CANCELED state
         if new_state == "CANCELED":
             now = datetime.now()
             datetime_str = now.strftime("%Y%m%d%H%M%S")
-            self.data["00404052"] = {"vr": "DT", "Value": [datetime_str]}  # Procedure Step Cancellation DateTime
+            self.data["00404052"] = {
+                "vr": "DT",
+                "Value": [datetime_str],
+            }  # Procedure Step Cancellation DateTime
 
             if cancellation_reason:
-                self.data["00741238"] = {"vr": "LO", "Value": [cancellation_reason]}  # Reason For Cancellation
+                self.data["00741238"] = {
+                    "vr": "LO",
+                    "Value": [cancellation_reason],
+                }  # Reason For Cancellation
 
     def add_output_reference(self, series_uid, study_uid):
         """Add to Output Information Sequence (0040,4033)"""
         if "00404033" not in self.data:
             self.data["00404033"] = {"vr": "SQ", "Value": []}
 
-        self.data["00404033"]["Value"].append({
-            "0020000D": {"vr": "UI", "Value": [study_uid]},
-            "0020000E": {"vr": "UI", "Value": [series_uid]}
-        })
+        self.data["00404033"]["Value"].append(
+            {
+                "0020000D": {"vr": "UI", "Value": [study_uid]},
+                "0020000E": {"vr": "UI", "Value": [series_uid]},
+            }
+        )
 
     def to_json(self):
         """Serialize to JSON string for K-V storage"""
@@ -156,11 +205,13 @@ class UPSWorkitem:
             for ret_item in retrieval_seq:
                 url = ret_item.get("00081190", {}).get("Value", [None])[0]
                 if url:
-                    urls.append({
-                        "retrieval_url": url,
-                        "study_uid": item.get("0020000D", {}).get("Value", [None])[0],
-                        "series_uid": item.get("0020000E", {}).get("Value", [None])[0]
-                    })
+                    urls.append(
+                        {
+                            "retrieval_url": url,
+                            "study_uid": item.get("0020000D", {}).get("Value", [None])[0],
+                            "series_uid": item.get("0020000E", {}).get("Value", [None])[0],
+                        }
+                    )
         return urls
 
     def get_input_mapping(self):

@@ -7,6 +7,7 @@ Non-empty   => URLs whose hostname is not in the set are rejected.
 
 See docs/production-hardening.md.
 """
+
 import os
 from urllib.parse import urlparse
 

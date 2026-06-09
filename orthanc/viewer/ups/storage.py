@@ -3,8 +3,9 @@ UPS Workitem storage using Orthanc Key-Value Store
 Reference: https://orthanc.uclouvain.be/book/plugins/python.html#using-key-value-stores-and-queues-new-in-6-0
 """
 
-import orthanc
 import json
+
+import orthanc
 
 
 class UPSStorage:
@@ -26,7 +27,7 @@ class UPSStorage:
         key = f"{self.KEY_PREFIX}{workitem.workitem_uid}"
 
         # Store workitem data
-        orthanc.StoreKeyValue(self.BUCKET, key, workitem.to_json().encode('utf-8'))
+        orthanc.StoreKeyValue(self.BUCKET, key, workitem.to_json().encode("utf-8"))
 
         # Update index
         self._add_to_index(workitem.workitem_uid)
@@ -50,11 +51,12 @@ class UPSStorage:
             if value is None:
                 print(f"Workitem {workitem_uid} not found in storage")
                 return None
-            json_str = value.decode('utf-8')
+            json_str = value.decode("utf-8")
             from ups.workitem import UPSWorkitem
+
             return UPSWorkitem.from_json(json_str, workitem_uid)
         except Exception as e:
-            print(f"Error retrieving workitem {workitem_uid}: {str(e)}")
+            print(f"Error retrieving workitem {workitem_uid}: {e!s}")
             return None
 
     def delete_workitem(self, workitem_uid):
@@ -70,7 +72,7 @@ class UPSStorage:
             self._remove_from_index(workitem_uid)
             print(f"Deleted workitem {workitem_uid}")
         except Exception as e:
-            print(f"Error deleting workitem {workitem_uid}: {str(e)}")
+            print(f"Error deleting workitem {workitem_uid}: {e!s}")
 
     def list_workitems(self, state=None):
         """
@@ -99,7 +101,7 @@ class UPSStorage:
             value = orthanc.GetKeyValue(self.BUCKET, self.INDEX_KEY)
             if value is None:
                 return []
-            return json.loads(value.decode('utf-8'))
+            return json.loads(value.decode("utf-8"))
         except:
             return []
 
@@ -108,14 +110,14 @@ class UPSStorage:
         index = self._get_index()
         if workitem_uid not in index:
             index.append(workitem_uid)
-            orthanc.StoreKeyValue(self.BUCKET, self.INDEX_KEY, json.dumps(index).encode('utf-8'))
+            orthanc.StoreKeyValue(self.BUCKET, self.INDEX_KEY, json.dumps(index).encode("utf-8"))
 
     def _remove_from_index(self, workitem_uid):
         """Remove workitem UID from index"""
         index = self._get_index()
         if workitem_uid in index:
             index.remove(workitem_uid)
-            orthanc.StoreKeyValue(self.BUCKET, self.INDEX_KEY, json.dumps(index).encode('utf-8'))
+            orthanc.StoreKeyValue(self.BUCKET, self.INDEX_KEY, json.dumps(index).encode("utf-8"))
 
 
 # Global instance

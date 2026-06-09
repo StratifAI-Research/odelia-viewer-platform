@@ -2,10 +2,11 @@
 DICOM to NIfTI conversion wrapper
 Single Responsibility: Provide clean interface for DICOM conversion
 """
+
 import logging
 from pathlib import Path
 
-from dicom_utils import dicom_to_nifti, dicom_to_nifti_subtraction, compute_subtraction_from_nifti
+from dicom_utils import compute_subtraction_from_nifti, dicom_to_nifti, dicom_to_nifti_subtraction
 
 logger = logging.getLogger(__name__)
 

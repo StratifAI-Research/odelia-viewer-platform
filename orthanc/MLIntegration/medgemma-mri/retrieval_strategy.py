@@ -58,7 +58,7 @@ class WadoRSRetrieval(RetrievalStrategy):
         first_series = [self.wado_rs_retrieval[0]]
         series_uid = first_series[0].get("series_uid", "unknown")
 
-        # Use wado_helper to retrieve DICOM datasets
+        # Use shared.wado_retrieval to retrieve DICOM datasets
         logger.info(f"Retrieving series {series_uid} via WADO-RS")
         datasets = retrieve_via_wado_rs(first_series)
 

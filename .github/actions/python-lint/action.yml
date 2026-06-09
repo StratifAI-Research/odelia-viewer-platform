@@ -12,7 +12,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+    - uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -34,6 +34,7 @@ runs:
         set +e
         ruff check . \
           --output-format=json \
+          --exclude .venv,__pycache__,.pytest_cache,tests,sample_data,screenshots \
           > outputs/ruff.json
         echo $? > outputs/ruff.exit
 

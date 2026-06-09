@@ -1,8 +1,11 @@
 [tool.pytest.ini_options]
-testpaths = [
-  "tests"
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+asyncio_mode = "auto"
+markers = [
+  "unit: fast tests with no external services; default CI run",
+  "integration: tests requiring a live Orthanc instance (skipped automatically if unreachable)",
 ]
-addopts = "-q"
 
 
 [tool.ruff]
@@ -13,9 +16,11 @@ extend-exclude = ["__pycache__", ".pytest_cache", ".venv", "tests", "sample_data
 [tool.ruff.lint]
 # ODV-199 acceptance criteria
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "C4", "RET", "PTH", "RUF"]
-extend-select = ["ANN"]
+# ODV-195 acceptance criteria
+extend-select = ["UP006", "UP007", "ANN"]
 ignore = [
   "ANN401",  # Any-typed allowed during ODV-195 migration; remove this after
+  "E501",    # line length enforced by formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]

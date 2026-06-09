@@ -16,7 +16,6 @@ concurrency:
 jobs:
   lint-py:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6.0.2
         with:

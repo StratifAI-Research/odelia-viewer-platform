@@ -7,10 +7,7 @@ services:
   # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
   # See docs/restrict-to-localhost.md.
   viewer:
-    build:
-      context: ../../
-      dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.1.0}
     container_name: odelia-viewer
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf
@@ -33,7 +30,7 @@ services:
     build:
       context: ./orthanc/viewer
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-viewer:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-viewer:${TAG:-0.1.0}
     hostname: orthanc-viewer
     container_name: odelia-orthanc-viewer
     volumes:
@@ -67,7 +64,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
     hostname: orthanc-router-mst
     container_name: odelia-orthanc-router-mst
     volumes:
@@ -96,8 +93,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: MST-classification/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-mst-classifier:${TAG:-latest}
-    container_name: odelia-mst-classifier
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-mst:${TAG:-0.1.0}
+    container_name: odelia-model-mst
     environment:
       ORTHANC_URL: "http://orthanc-router-mst:8042"
       IMAGE_FOLDER: "/app/mst-service/images"
@@ -112,7 +109,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
     hostname: orthanc-router-medgemma
     container_name: odelia-orthanc-router-medgemma
     volumes:
@@ -141,8 +138,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: medgemma-mri/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-medgemma-mri:${TAG:-latest}
-    container_name: odelia-medgemma-mri
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-medgemma:${TAG:-0.1.0}
+    container_name: odelia-model-medgemma
     environment:
       ORTHANC_URL: "http://orthanc-router-medgemma:8042"
       IMAGE_FOLDER: "/app/medgemma-service/images"
@@ -169,8 +166,8 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: chat-middleware/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat-middleware:${TAG:-latest}
-    container_name: odelia-chat-middleware
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat:${TAG:-0.1.0}
+    container_name: odelia-chat
     environment:
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"

@@ -46,6 +46,7 @@ def fake_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for svc in check.SERVICES:
         _write_service(tmp_path, svc, ["pydicom==3.0.2"], ["pydicom==3.0.2"])
     (tmp_path / "requirements-dev.txt").write_text("ruff==0.8.4\nmypy==1.13.0\n")
+    (tmp_path / "requirements-tests.txt").write_text("pytest==9.0.2\nrequests==2.32.3\njq==1.6.0\n")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -186,3 +187,13 @@ def test_pinned_build_system_requires_passes(
     assert check.main() == 0
     out = capsys.readouterr().out
     assert "✓ viewer" in out
+
+
+def test_requirements_tests_unpinned_fails(
+    fake_tree: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (fake_tree / "requirements-tests.txt").write_text("pytest\nrequests==2.32.3\n")
+    assert check.main() == 1
+    out = capsys.readouterr().out
+    assert "requirements-tests.txt" in out
+    assert "unpinned dep" in out

@@ -32,7 +32,7 @@ SERVICES = [
 ]
 
 # Stand-alone pinned files that have no pyproject counterpart (dev tooling).
-EXTRA_PINNED_FILES = ["requirements-dev.txt"]
+EXTRA_PINNED_FILES = ["requirements-dev.txt", "requirements-tests.txt"]
 
 # A dep line is "pinned" if it has `==<version>` (no wildcards) OR is a git URL
 # with a full 40-character commit SHA: `pkg @ git+url@<40-hex>`.

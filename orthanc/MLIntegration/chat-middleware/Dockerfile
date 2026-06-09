@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install shared package first (for caching)
 COPY shared/ ./shared/
-COPY setup.py pyproject.toml ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
 # Copy chat-middleware requirements and install

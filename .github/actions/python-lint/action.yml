@@ -34,6 +34,7 @@ runs:
         set +e
         ruff check . \
           --output-format=json \
+          --exclude .venv,__pycache__,.pytest_cache,tests,sample_data,screenshots \
           > outputs/ruff.json
         echo $? > outputs/ruff.exit
 

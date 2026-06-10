@@ -99,3 +99,27 @@ def test_dicom_to_unilateral_nifti_raises_when_sort_dyn_returns_none(tmp_path, m
     })
     with pytest.raises((AttributeError, TypeError)):
         d.dicom_to_unilateral_nifti(tmp_path)
+
+
+def test_dicom2nii_loads_real_dicom_series(mri_sample_dir):
+    """REAL dicom2nii against the committed MR sample: copies the slices to a temp
+    dir, loads them via torchio/SimpleITK, and returns an in-memory ScalarImage.
+
+    This exercises dicom2nii's actual DICOM->tensor path end to end — the existing
+    orchestration tests monkeypatch dicom2nii out, so it was never run before the
+    sample data existed.
+    """
+    import torchio as tio
+    import dicom2nfti_onthefly as d
+
+    files = sorted(p.name for p in mri_sample_dir.glob("*.dcm"))
+    series_name, img = d.dicom2nii(("studyUID_seriesName", files), mri_sample_dir)
+
+    assert series_name == "seriesName"  # split on first "_"
+    assert isinstance(img, tio.ScalarImage)
+    assert img.data.shape[0] == 1  # single channel
+    assert tuple(img.data.shape[1:3]) == (512, 512)  # rows x cols
+    assert img.data.shape[3] == len(files)  # one slice per file
+    assert int(img.data.max()) > 0  # real intensities loaded, not zeros
+    # ScalarImage is detached from the (now-deleted) temp dir: data is in memory
+    assert img.data.sum().item() != 0

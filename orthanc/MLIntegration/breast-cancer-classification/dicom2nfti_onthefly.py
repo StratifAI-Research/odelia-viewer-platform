@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from pathlib import Path
 from shutil import copyfile
@@ -7,6 +8,8 @@ import pandas as pd
 import pydicom
 import torch
 import torchio as tio
+
+logger = logging.getLogger(__name__)
 
 
 def maybe_convert(x: object) -> object:
@@ -58,6 +61,10 @@ def read_metadata(args: tuple[Path, Path]) -> dict[str, object] | None:
         return meta_dict
 
     except Exception:
+        # Tolerate unreadable/non-DICOM files by skipping them, but DO NOT swallow
+        # silently: a programming bug (e.g. the dataset2dict KeyError regression)
+        # would otherwise turn every slice into None and vanish without a trace.
+        logger.warning("read_metadata: skipping unreadable DICOM %s", path_dcm, exc_info=True)
         return None
 
 

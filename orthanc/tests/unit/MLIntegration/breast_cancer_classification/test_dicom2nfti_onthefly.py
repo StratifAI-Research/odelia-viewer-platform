@@ -120,3 +120,43 @@ def test_sort_dyn_adds_number_of_sequences_column():
     result = dicom2nfti_onthefly.sort_dyn(df)
     assert '_NumberOfSequences' in result.columns
     assert result['_NumberOfSequences'].iloc[0] == 3
+
+
+# --- dataset2dict / read_metadata against a REAL pydicom Dataset ---
+# Regression guard: a SIM118 autofix once rewrote `for key in ds.keys()` to
+# `for key in ds`, silently breaking every lookup because pydicom's
+# Dataset.__iter__ yields DataElement objects (not tags). The helper-only tests
+# above never exercised a real Dataset, so the suite stayed green while the
+# breast-cancer DICOM->NIfTI path was broken for all real input. These cover it.
+
+def test_dataset2dict_real_dataset(mri_sample_file):
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    result = dicom2nfti_onthefly.dataset2dict(ds)
+    assert isinstance(result, dict)
+    assert result, "dataset2dict returned an empty mapping for a real Dataset"
+    assert all(isinstance(k, str) for k in result)
+    # keyword -> value mapping must match direct tag access
+    assert result["SeriesInstanceUID"] == ds.SeriesInstanceUID
+    assert result["Modality"] == ds.Modality
+    assert "PixelData" not in result  # excluded by default
+
+
+def test_dataset2dict_excludes_requested_keywords(mri_sample_file):
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    result = dicom2nfti_onthefly.dataset2dict(ds, exclude=["Modality"])
+    assert "Modality" not in result
+    assert "SeriesInstanceUID" in result
+
+
+def test_read_metadata_returns_mapping_for_real_dicom(mri_sample_file):
+    import dicom2nfti_onthefly
+    root = mri_sample_file.parent
+    result = dicom2nfti_onthefly.read_metadata((mri_sample_file, root))
+    assert result is not None, "read_metadata must not swallow a real DICOM into None"
+    assert isinstance(result, dict)
+    assert result["_Path"] == mri_sample_file.name
+    assert "SeriesInstanceUID" in result

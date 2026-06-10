@@ -35,7 +35,15 @@ def dataset2dict(
 ) -> dict[str, object]:
     if exclude is None:
         exclude = ["PixelData", "Overlay Data"]
-    return {get(ds, key): maybe_convert(ds[key].value) for key in ds if get(ds, key) not in exclude}
+    # NOTE: pydicom's Dataset.__iter__ yields DataElement objects, not tags, while
+    # .keys() yields BaseTag. We index ds[key] by tag, so we MUST iterate .keys().
+    # Do not let ruff SIM118 rewrite this to `for key in ds` — it silently breaks
+    # every lookup with KeyError (see test_dataset2dict_real_dataset).
+    return {
+        get(ds, key): maybe_convert(ds[key].value)
+        for key in ds.keys()  # noqa: SIM118
+        if get(ds, key) not in exclude
+    }
 
 
 def read_metadata(args: tuple[Path, Path]) -> dict[str, object] | None:

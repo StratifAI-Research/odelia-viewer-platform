@@ -3,6 +3,7 @@ Pydantic models for WebSocket messages and debug API
 """
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -99,9 +100,9 @@ class DebugConfigResponse(BaseModel):
 
     system_prompt: str
     model: str  # Active model name (runtime-adjustable)
-    preprocessing: dict
-    ollama_static: dict  # Read-only: url, backend_type (from env vars)
-    ollama_options: dict  # Adjustable: max_tokens, temperature, top_p, stop, seed
+    preprocessing: dict[str, Any]
+    ollama_static: dict[str, Any]  # Read-only: url, backend_type (from env vars)
+    ollama_options: dict[str, Any]  # Adjustable: max_tokens, temperature, top_p, stop, seed
 
 
 class SessionInfo(BaseModel):

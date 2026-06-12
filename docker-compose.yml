@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # OHIF Viewer service (main viewer)
   # ${BIND_HOST:-} prefix lets operators restrict every published port to

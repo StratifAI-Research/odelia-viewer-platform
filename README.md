@@ -37,7 +37,7 @@ Follow these steps for a complete local deployment:
     ```bash
     docker compose up -d
     ```
-    > **Note:** Initial run warnings about not being able to pull images for `odelia-orthanc-router`, `odelia-orthanc-viewer`, and the AI models (`odelia-breast-cancer-classification`, `odelia-mst-classifier`) are **normal**. These images will be built automatically from source.
+    > **Note:** Initial run warnings about not being able to pull images for `odelia-orthanc-router`, `odelia-orthanc-viewer`, and the AI models (`odelia-model-mst`, `odelia-model-medgemma`) are **normal**. These images will be built automatically from source.
 
 3.  **Access the Viewer:**
     Open your web browser and navigate to (use viewer/viewer as default credentials):
@@ -102,8 +102,8 @@ Send studies to the integrated AI models for analysis:
 1.  **Open a Study** in the Odelia Viewer. The **AI Analysis** panel (right sidebar) will automatically detect the active study.
 2.  **Select Series** - Choose the specific series you want to analyze and click **"Next"**.
 3.  **Select AI Model** and click **"Send to AI"**:
-    * Classification model (breast cancer)
-    * MST AI model (requires `HF_TOKEN` configuration - see Configuration section).
+    * MST classification model (requires `HF_TOKEN` configuration - see Configuration section).
+    * MedGemma MRI model (requires `HF_TOKEN` configuration - see Configuration section).
 4.  **View Results** - The AI-processed studies, including annotations and results, will appear in your study list.
 </details>
 
@@ -181,7 +181,7 @@ Or rebuild only specific services:
 docker compose build <service-name>
 ```
 
-**Services built from source** (require rebuild): `orthanc-viewer`, `orthanc-router`, `orthanc-router-mst`, `orthanc-router-medgemma`, `breast-cancer-classification`, `mst-classifier`, `medgemma-mri`, `chat-middleware`
+**Services built from source** (require rebuild): `orthanc-viewer`, `orthanc-router-mst`, `orthanc-router-medgemma`, `mst-classifier`, `medgemma-mri`, `chat-middleware`
 
 **Pre-built images** (update via pull): `viewer`, `grafana`, `keycloak`, `postgres`
 
@@ -243,7 +243,7 @@ The Odelia Viewer deployment consists of several interconnected components, each
 | **Keycloak** | Handles **User Authentication** and **Authorization** (OIDC). Admin Console is available at `http://localhost:8081/keycloak`. |
 | **Local Orthanc Instance** | The core **DICOM Server**. It acts as a local PACS, receiving, storing, and managing all DICOM medical images. |
 | **Orthanc Router** | The **Traffic Controller** for the AI pipeline. It receives studies, routes them to the appropriate AI model, wraps the inference results in DICOM, and sends everything back to the viewer. |
-| **AI Models** | Services that receive studies from the Router and return inference results (e.g., `odelia-breast-cancer-classification`, `odelia-mst-classifier`). |
+| **AI Models** | Services that receive studies from the Router and return inference results (e.g., `odelia-model-mst`, `odelia-model-medgemma`). |
 | **Nginx** | Acts as a **Reverse Proxy**, routing traffic from port `8081` to the appropriate backend services (Viewer, Keycloak, etc.). |
 | **Grafana** | An optional component for **Monitoring** and visualization of system metrics. |
 
@@ -282,15 +282,16 @@ The Odelia Viewer uses OHIF's internal OIDC module for authentication.
 
 ### AI Model Configuration (Hugging Face) 🤖
 <details>
-<summary>View MST Classifier Setup (HF_TOKEN)</summary>
+<summary>View AI Model Setup (HF_TOKEN)</summary>
 
-The **MST Classification model** requires a Hugging Face token for access. The default **breast-cancer-classification** model does not.
+Both AI models — **MST Classification** and **MedGemma MRI** — require a Hugging Face token for access.
 
 1.  **Obtain Token:** Get a "Read" access token from your Hugging Face account settings.
 2.  **Accept Licenses:** **Crucially**, you must log in to Hugging Face and accept the licenses for:
     * [ODELIA-AI/MST](https://huggingface.co/ODELIA-AI/MST) (Model Usage Agreement)
     * [DINOv3](https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m) (DINOv3 License terms)
-3.  **Configure Token:** Set the `HF_TOKEN` environment variable for the `mst-classifier` service:
+    * [MedGemma](https://huggingface.co/google/medgemma-1.5-4b-it) (Health AI Developer Foundation terms)
+3.  **Configure Token:** Set the `HF_TOKEN` environment variable for the AI model services:
     * **Option 1 (Recommended):** Edit `docker-compose.yml` and replace the placeholder:
         ```yaml
         environment:
@@ -593,7 +594,8 @@ Create a `logs` directory and run the following commands to collect logs from al
     ```
 3.  **Router Logs**
     ```bash
-    docker logs odelia-orthanc-router > logs/router.log
+    docker logs odelia-orthanc-router-mst > logs/router-mst.log
+    docker logs odelia-orthanc-router-medgemma > logs/router-medgemma.log
     ```
 4.  **System & Container Info**
     ```bash

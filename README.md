@@ -260,7 +260,7 @@ The viewer is pre-configured, but you may need to adjust settings for production
 | :--- | :--- | :--- | :--- |
 | `config/app-config.js` | **OHIF Viewer Settings** | `oidc[0].authority`, `oidc[0].redirect_uri`, `oidc[0].post_logout_redirect_uri` | DICOMWeb endpoints, OHIF features. |
 | `config/nginx.conf` | **Web Server Reverse Proxy** | Routes `/keycloak/` to the Keycloak service. | Maps `/` to the viewer and static content. Set `server_name` for production. |
-| `docker-compose.yml` | **Service Environment Variables** | `KC_HOSTNAME_URL`, `KC_HOSTNAME_ADMIN_URL` (for production domain changes). | `HF_TOKEN` (for MST classifier), volumes, ports, etc. |
+| `docker-compose.yml` | **Service Environment Variables** | `KC_HOSTNAME_URL`, `KC_HOSTNAME_ADMIN_URL` (for production domain changes). | `HF_TOKEN` (for the MedGemma MRI model), volumes, ports, etc. |
 </details>
 
 ### Keycloak Configuration 🔐
@@ -286,13 +286,14 @@ The Odelia Viewer uses OHIF's internal OIDC module for authentication.
 The **MedGemma MRI model** requires a Hugging Face token for access. The **MST Classification model** does not — its weights download automatically from [ODELIA-AI/MST](https://huggingface.co/ODELIA-AI/MST) on first start.
 
 1.  **Obtain Token:** Get a "Read" access token from your Hugging Face account settings.
+    > **Note:** If you use a *fine-grained* token instead, you must enable **"Read access to contents of all public gated repos you can access"** — otherwise the download fails with a 403, which `transformers` misleadingly reports as *"We couldn't connect to https://huggingface.co"*.
 2.  **Accept License:** **Crucially**, you must log in to Hugging Face and accept the license for:
     * [MedGemma](https://huggingface.co/google/medgemma-1.5-4b-it) (Health AI Developer Foundation terms)
 3.  **Configure Token:** Set the `HF_TOKEN` environment variable for the `medgemma-mri` service:
-    * **Option 1 (Recommended):** Edit `docker-compose.yml` and replace the placeholder:
-        ```yaml
-        environment:
-          HF_TOKEN: "your_actual_token_here" # REPLACE with your token
+    * **Option 1 (Recommended):** Create a `.env` file next to `docker-compose.yml`:
+        ```bash
+        echo 'HF_TOKEN=your_actual_token_here' >> .env
+        docker compose up -d
         ```
     * **Option 2 (Environment Variable):**
         ```bash

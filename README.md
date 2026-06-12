@@ -37,7 +37,6 @@ Follow these steps for a complete local deployment:
     ```bash
     docker compose up -d
     ```
-    > **Note:** Initial run warnings about not being able to pull images for `odelia-orthanc-router`, `odelia-orthanc-viewer`, and the AI models (`odelia-model-mst`, `odelia-model-medgemma`) are **normal**. These images will be built automatically from source.
 
 3.  **Access the Viewer:**
     Open your web browser and navigate to (use viewer/viewer as default credentials):
@@ -102,7 +101,7 @@ Send studies to the integrated AI models for analysis:
 1.  **Open a Study** in the Odelia Viewer. The **AI Analysis** panel (right sidebar) will automatically detect the active study.
 2.  **Select Series** - Choose the specific series you want to analyze and click **"Next"**.
 3.  **Select AI Model** and click **"Send to AI"**:
-    * MST classification model (requires `HF_TOKEN` configuration - see Configuration section).
+    * MST classification model (works out of the box - weights download automatically).
     * MedGemma MRI model (requires `HF_TOKEN` configuration - see Configuration section).
 4.  **View Results** - The AI-processed studies, including annotations and results, will appear in your study list.
 </details>
@@ -284,14 +283,12 @@ The Odelia Viewer uses OHIF's internal OIDC module for authentication.
 <details>
 <summary>View AI Model Setup (HF_TOKEN)</summary>
 
-Both AI models — **MST Classification** and **MedGemma MRI** — require a Hugging Face token for access.
+The **MedGemma MRI model** requires a Hugging Face token for access. The **MST Classification model** does not — its weights download automatically from [ODELIA-AI/MST](https://huggingface.co/ODELIA-AI/MST) on first start.
 
 1.  **Obtain Token:** Get a "Read" access token from your Hugging Face account settings.
-2.  **Accept Licenses:** **Crucially**, you must log in to Hugging Face and accept the licenses for:
-    * [ODELIA-AI/MST](https://huggingface.co/ODELIA-AI/MST) (Model Usage Agreement)
-    * [DINOv3](https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m) (DINOv3 License terms)
+2.  **Accept License:** **Crucially**, you must log in to Hugging Face and accept the license for:
     * [MedGemma](https://huggingface.co/google/medgemma-1.5-4b-it) (Health AI Developer Foundation terms)
-3.  **Configure Token:** Set the `HF_TOKEN` environment variable for the AI model services:
+3.  **Configure Token:** Set the `HF_TOKEN` environment variable for the `medgemma-mri` service:
     * **Option 1 (Recommended):** Edit `docker-compose.yml` and replace the placeholder:
         ```yaml
         environment:

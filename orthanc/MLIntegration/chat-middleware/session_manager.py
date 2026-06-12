@@ -1,12 +1,13 @@
 """
 In-memory session management for chat conversations
 """
+
 import asyncio
-import uuid
+import contextlib
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +15,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Session:
     """Represents a chat session with conversation history"""
+
     session_id: str
-    conversation_history: List[dict] = field(default_factory=list)
+    conversation_history: list[dict] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    active_task: Optional[asyncio.Task] = field(default=None)
+    active_task: asyncio.Task | None = field(default=None)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Ensure cancel_event is created if not provided
         if self.cancel_event is None:
             self.cancel_event = asyncio.Event()
@@ -37,13 +39,11 @@ class Session:
             # Give the task a moment to notice cancellation
             try:
                 await asyncio.wait_for(asyncio.shield(self.active_task), timeout=0.5)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 # If it doesn't stop gracefully, force cancel
                 self.active_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self.active_task
-                except asyncio.CancelledError:
-                    pass
             self.active_task = None
         # Reset cancel event for next generation
         self.cancel_event.clear()
@@ -55,10 +55,10 @@ class SessionManager:
     Sessions are keyed by session_id.
     """
 
-    def __init__(self):
-        self.sessions: Dict[str, Session] = {}
+    def __init__(self) -> None:
+        self.sessions: dict[str, Session] = {}
 
-    def create_session(self, session_id: Optional[str] = None) -> Session:
+    def create_session(self, session_id: str | None = None) -> Session:
         """
         Create a new session.
 
@@ -76,7 +76,7 @@ class SessionManager:
         logger.info(f"Created new session: {session_id}")
         return session
 
-    def get_session(self, session_id: str) -> Optional[Session]:
+    def get_session(self, session_id: str) -> Session | None:
         """
         Get an existing session by ID.
 
@@ -110,7 +110,7 @@ class SessionManager:
         # Session doesn't exist, create it with the provided ID
         return self.create_session(session_id)
 
-    def append_message(self, session_id: str, role: str, content) -> None:
+    def append_message(self, session_id: str, role: str, content: str | list[dict]) -> None:
         """
         Append a message to a session's conversation history.
 
@@ -129,7 +129,7 @@ class SessionManager:
         session.last_activity = datetime.now()
         logger.debug(f"Appended {role} message to session {session_id}")
 
-    def get_history(self, session_id: str) -> List[dict]:
+    def get_history(self, session_id: str) -> list[dict]:
         """
         Get conversation history for a session.
 
@@ -160,7 +160,7 @@ class SessionManager:
             return True
         return False
 
-    def list_sessions(self) -> List[dict]:
+    def list_sessions(self) -> list[dict]:
         """
         List all active sessions (for debug API).
 
@@ -169,12 +169,14 @@ class SessionManager:
         """
         result = []
         for session in self.sessions.values():
-            result.append({
-                "session_id": session.session_id,
-                "created_at": session.created_at.isoformat(),
-                "last_activity": session.last_activity.isoformat(),
-                "message_count": len(session.conversation_history)
-            })
+            result.append(
+                {
+                    "session_id": session.session_id,
+                    "created_at": session.created_at.isoformat(),
+                    "last_activity": session.last_activity.isoformat(),
+                    "message_count": len(session.conversation_history),
+                }
+            )
         return result
 
     def cleanup_stale(self, max_age_minutes: int = 60) -> int:
@@ -205,7 +207,7 @@ class SessionManager:
 
 
 # Global session manager instance
-_session_manager: Optional[SessionManager] = None
+_session_manager: SessionManager | None = None
 
 
 def get_session_manager() -> SessionManager:

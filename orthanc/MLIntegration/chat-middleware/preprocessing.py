@@ -2,25 +2,23 @@
 DICOM preprocessing with configurable slice strategies.
 Reuses core DICOM handling from medgemma-mri/preprocessing.py.
 """
-import io
+
 import base64
-import shutil
+import io
 import logging
-import tempfile
+import shutil
 from pathlib import Path
-from typing import List
 
 import numpy as np
-import SimpleITK as sitk
-from PIL import Image
-
+import SimpleITK as sitk  # noqa: N813
 from models import SliceStrategy
+from PIL import Image
 from runtime_config import PreprocessingParams
+from shared.config import StorageConfig
+from shared.dicom_storage import save_datasets_to_folder
 
 # Import shared utilities
 from shared.wado_retrieval import retrieve_via_wado_rs
-from shared.dicom_storage import save_datasets_to_folder
-from shared.config import StorageConfig
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +36,6 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
     Returns:
         SimpleITK Image object
     """
-    from collections import defaultdict
 
     dicom_path = Path(dicom_folder)
 
@@ -63,9 +60,7 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
     reader.LoadPrivateTagsOn()
     image = reader.Execute()
 
-    logger.info(
-        f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}"
-    )
+    logger.info(f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}")
 
     return image
 
@@ -92,15 +87,10 @@ def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
 
     # Clip and normalize to 0-255
     normalized = np.clip(slice_array, p_low, p_high)
-    normalized = ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
-
-    return normalized
+    return ((normalized - p_low) / (p_high - p_low) * 255).astype(np.uint8)
 
 
-def extract_slices(
-    volume_array: np.ndarray,
-    params: PreprocessingParams
-) -> List[np.ndarray]:
+def extract_slices(volume_array: np.ndarray, params: PreprocessingParams) -> list[np.ndarray]:
     """
     Extract slices based on the configured strategy.
 
@@ -165,7 +155,7 @@ def extract_slices(
     return [volume_array[i, :, :] for i in indices]
 
 
-def slices_to_base64(slice_arrays: List[np.ndarray]) -> List[str]:
+def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
     """
     Convert slice arrays to base64-encoded PNG images.
 
@@ -185,7 +175,7 @@ def slices_to_base64(slice_arrays: List[np.ndarray]) -> List[str]:
         rgb_array = np.stack([normalized, normalized, normalized], axis=-1)
 
         # Create PIL Image and encode to base64
-        pil_image = Image.fromarray(rgb_array, mode='RGB')
+        pil_image = Image.fromarray(rgb_array, mode="RGB")
 
         buffer = io.BytesIO()
         pil_image.save(buffer, format="PNG")
@@ -200,8 +190,8 @@ async def preprocess_series(
     study_uid: str,
     params: PreprocessingParams,
     wado_base_url: str,
-    image_folder: Path
-) -> List[str]:
+    image_folder: Path,
+) -> list[str]:
     """
     Retrieve and preprocess a DICOM series, returning base64-encoded images.
 
@@ -226,22 +216,21 @@ async def preprocess_series(
     logger.info(f"Preprocessing series {series_uid} from study {study_uid}")
 
     # Prepare WADO-RS retrieval info
-    wado_info = [{
-        "retrieval_url": f"{wado_base_url}/studies/{study_uid}/series/{series_uid}",
-        "study_uid": study_uid,
-        "series_uid": series_uid
-    }]
+    wado_info = [
+        {
+            "retrieval_url": f"{wado_base_url}/studies/{study_uid}/series/{series_uid}",
+            "study_uid": study_uid,
+            "series_uid": series_uid,
+        }
+    ]
 
     # Create storage config for temp folder
-    storage_config = StorageConfig(
-        image_folder=image_folder,
-        cleanup_on_start=False
-    )
+    storage_config = StorageConfig(image_folder=image_folder, cleanup_on_start=False)
 
     dicom_folder = None
     try:
         # Retrieve DICOM instances
-        logger.info(f"Retrieving series via WADO-RS...")
+        logger.info("Retrieving series via WADO-RS...")
         datasets = retrieve_via_wado_rs(wado_info)
 
         if not datasets:

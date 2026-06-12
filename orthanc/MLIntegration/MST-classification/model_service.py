@@ -2,22 +2,26 @@
 MST Model Service - Orchestrates the entire inference pipeline
 Single Responsibility: Model orchestration and inference
 """
+
 import logging
 import sys
-import torch
 from pathlib import Path
-from typing import Optional, Tuple
 
-from shared.timing_utils import time_operation
-from shared.config import StorageConfig
-
+import torch
 from config import MSTConfig
-from exceptions import ModelNotLoadedError, InferenceError
-from model_loader import load_model as load_mst_model, download_model_files
-from dicom_converter import convert_series_to_nifti, convert_multiphase_to_subtraction_nifti, compute_subtraction_nifti
-from preprocessing import prepare_for_inference, generate_attention_overlays
+from dicom_converter import (
+    compute_subtraction_nifti,
+    convert_multiphase_to_subtraction_nifti,
+    convert_series_to_nifti,
+)
+from exceptions import InferenceError, ModelNotLoadedError
+from model_loader import download_model_files
+from model_loader import load_model as load_mst_model
+from preprocessing import generate_attention_overlays, prepare_for_inference
 from response_builder import build_bilateral_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
+from shared.config import StorageConfig
+from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ logger = logging.getLogger(__name__)
 class MSTModelService:
     """Service for MST model inference"""
 
-    def __init__(self, mst_config: MSTConfig, storage_config: StorageConfig):
+    def __init__(self, mst_config: MSTConfig, storage_config: StorageConfig) -> None:
         """
         Initialize MST model service
 
@@ -48,11 +52,13 @@ class MSTModelService:
 
             # Download model files if not already present
             logger.info(f"Checking model files in {self.mst_config.model_path}")
-            required_files = ["models.py", "predict_attention.py", "state_dict.pt", "model_config.json"]
-            files_exist = all(
-                (self.mst_config.model_path / f).exists()
-                for f in required_files
-            )
+            required_files = [
+                "models.py",
+                "predict_attention.py",
+                "state_dict.pt",
+                "model_config.json",
+            ]
+            files_exist = all((self.mst_config.model_path / f).exists() for f in required_files)
 
             if not files_exist:
                 logger.info("Model files not found, downloading from HuggingFace...")
@@ -78,6 +84,7 @@ class MSTModelService:
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -112,12 +119,11 @@ class MSTModelService:
 
         if config_id == "pre_post" and input_mapping:
             return self._analyze_pre_post(input_mapping)
-        elif config_id == "subtraction" and input_mapping:
+        if config_id == "subtraction" and input_mapping:
             return self._analyze_subtraction(input_mapping)
-        elif config_id == "multiphase" and input_mapping:
+        if config_id == "multiphase" and input_mapping:
             return self._analyze_multiphase(input_mapping)
-        else:
-            return self._analyze_flat(request_data)
+        return self._analyze_flat(request_data)
 
     # ------------------------------------------------------------------
     # Mode-specific analysis pipelines
@@ -148,8 +154,9 @@ class MSTModelService:
         except Exception as e:
             logger.error(f"Error in pre_post analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Pre+Post analysis failed: {str(e)}") from e
+            raise InferenceError(f"Pre+Post analysis failed: {e!s}") from e
 
     def _analyze_subtraction(self, input_mapping: dict) -> dict:
         """Subtraction mode: retrieve pre-computed subtraction volume, run inference."""
@@ -167,8 +174,9 @@ class MSTModelService:
         except Exception as e:
             logger.error(f"Error in subtraction analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Subtraction analysis failed: {str(e)}") from e
+            raise InferenceError(f"Subtraction analysis failed: {e!s}") from e
 
     def _analyze_multiphase(self, input_mapping: dict) -> dict:
         """Multi-phase mode: retrieve series, extract temporal groups, compute subtraction, run inference."""
@@ -186,8 +194,9 @@ class MSTModelService:
         except Exception as e:
             logger.error(f"Error in multiphase analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Multi-phase analysis failed: {str(e)}") from e
+            raise InferenceError(f"Multi-phase analysis failed: {e!s}") from e
 
     def _analyze_flat(self, request_data: dict) -> dict:
         """Legacy fallback: flat single-series retrieval (no manifest / input mapping)."""
@@ -206,8 +215,9 @@ class MSTModelService:
         except Exception as e:
             logger.error(f"Error in flat analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Analysis failed: {str(e)}") from e
+            raise InferenceError(f"Analysis failed: {e!s}") from e
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -227,14 +237,12 @@ class MSTModelService:
 
         with time_operation("generate_attention_maps_total", logger):
             attention_maps = generate_attention_overlays(
-                img.data,
-                weight.data,
-                self.mst_config.model_path
+                img.data, weight.data, self.mst_config.model_path
             )
 
         return build_bilateral_response(probs, attention_maps, self.model_info)
 
-    def _retrieve_role(self, input_mapping: dict, role_key: str) -> Tuple[Path, str]:
+    def _retrieve_role(self, input_mapping: dict, role_key: str) -> tuple[Path, str]:
         """
         Retrieve a single input role's DICOM series via WADO-RS.
 
@@ -252,11 +260,13 @@ class MSTModelService:
         if not info or not info.get("wado_rs_url"):
             raise ValueError(f"Missing or invalid mapping for input '{role_key}'")
 
-        wado_entry = [{
-            "retrieval_url": info["wado_rs_url"],
-            "study_uid": info.get("study_uid", ""),
-            "series_uid": info["series_uid"]
-        }]
+        wado_entry = [
+            {
+                "retrieval_url": info["wado_rs_url"],
+                "study_uid": info.get("study_uid", ""),
+                "series_uid": info["series_uid"],
+            }
+        ]
         return WadoRSRetrieval(wado_entry, self.storage_config).retrieve()
 
     def _create_retrieval_strategy(self, request_data: dict) -> RetrievalStrategy:
@@ -271,7 +281,7 @@ class MSTModelService:
 
         return WadoRSRetrieval(wado_rs_retrieval, self.storage_config)
 
-    def _run_inference(self, img) -> Tuple[dict, any]:
+    def _run_inference(self, img: object) -> tuple[dict, object]:
         """Run MST model inference on a TorchIO ScalarImage."""
         if str(self.mst_config.model_path) not in sys.path:
             sys.path.insert(0, str(self.mst_config.model_path))
@@ -289,5 +299,5 @@ class MSTModelService:
             "status": "healthy",
             "model_loaded": self.model is not None,
             "device": self.mst_config.device,
-            "model_info": self.model_info if self.model_info else None
+            "model_info": self.model_info if self.model_info else None,
         }

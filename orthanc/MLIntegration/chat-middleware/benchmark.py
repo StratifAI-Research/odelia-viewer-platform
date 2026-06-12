@@ -16,20 +16,19 @@ Usage:
   python benchmark.py --llamacpp http://localhost:8090 \
       --series-uid 1.2.276.0.7230010.3.1.3.8323329.105762.1742335625.4202572
 """
+
 import argparse
 import base64
 import json
-import sys
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 
 import requests
-
 
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class RunResult:
@@ -39,7 +38,7 @@ class RunResult:
     total_ms: float = 0.0
     token_count: int = 0
     tokens_per_sec: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     full_output: str = ""
 
 
@@ -47,11 +46,12 @@ class RunResult:
 # Orthanc image retrieval
 # ---------------------------------------------------------------------------
 
+
 def fetch_series_images(
     orthanc_url: str,
     series_uid: str,
     num_slices: int = 5,
-) -> List[str]:
+) -> list[str]:
     """
     Fetch rendered PNG slices from Orthanc and return as base64 data URIs.
     Picks evenly-spaced instances from the middle of the series.
@@ -77,9 +77,7 @@ def fetch_series_images(
     # Sort by InstanceNumber (tag 0020,0013) for consistent ordering
     for inst in instances:
         try:
-            tags = requests.get(
-                f"{base}/instances/{inst['ID']}/simplified-tags", timeout=5
-            ).json()
+            tags = requests.get(f"{base}/instances/{inst['ID']}/simplified-tags", timeout=5).json()
             inst["_sort_key"] = int(tags.get("InstanceNumber", 0))
         except Exception:
             inst["_sort_key"] = 0
@@ -103,7 +101,7 @@ def fetch_series_images(
 
     print(f"  Fetching {n} slices from series ({total} instances total) ...")
 
-    images: List[str] = []
+    images: list[str] = []
     for idx in indices:
         inst_id = instances[idx]["ID"]
         r = requests.get(f"{base}/instances/{inst_id}/preview", timeout=15)
@@ -111,11 +109,13 @@ def fetch_series_images(
         b64 = base64.b64encode(r.content).decode("utf-8")
         images.append(f"data:image/png;base64,{b64}")
 
-    print(f"  Retrieved {len(images)} images (total payload ~{sum(len(i) for i in images) // 1024} KB)")
+    print(
+        f"  Retrieved {len(images)} images (total payload ~{sum(len(i) for i in images) // 1024} KB)"
+    )
     return images
 
 
-def build_multimodal_content(images: List[str], user_text: str) -> list:
+def build_multimodal_content(images: list[str], user_text: str) -> list:
     """
     Build interleaved content array matching chat-middleware's PromptBuilder format:
       [image_url, "SLICE 1", image_url, "SLICE 2", ..., user_text]
@@ -137,19 +137,25 @@ TEXT_PROMPTS = [
         "name": "short_text",
         "messages": [
             {"role": "system", "content": "You are a helpful radiology assistant."},
-            {"role": "user", "content": "In two sentences, what are the key features of a malignant breast lesion on MRI?"},
+            {
+                "role": "user",
+                "content": "In two sentences, what are the key features of a malignant breast lesion on MRI?",
+            },
         ],
     },
     {
         "name": "reasoning",
         "messages": [
             {"role": "system", "content": "You are a helpful radiology assistant."},
-            {"role": "user", "content": (
-                "A 52-year-old woman presents with a 1.5 cm enhancing mass in the upper outer quadrant "
-                "of the left breast on dynamic contrast-enhanced MRI. The mass shows irregular margins "
-                "and a washout kinetic curve. There is no associated axillary lymphadenopathy. "
-                "What is your differential diagnosis and recommended next step?"
-            )},
+            {
+                "role": "user",
+                "content": (
+                    "A 52-year-old woman presents with a 1.5 cm enhancing mass in the upper outer quadrant "
+                    "of the left breast on dynamic contrast-enhanced MRI. The mass shows irregular margins "
+                    "and a washout kinetic curve. There is no associated axillary lymphadenopathy. "
+                    "What is your differential diagnosis and recommended next step?"
+                ),
+            },
         ],
     },
 ]
@@ -169,7 +175,7 @@ IMAGE_PROMPTS = [
 ]
 
 
-def make_image_messages(images: List[str], prompt_cfg: dict) -> list:
+def make_image_messages(images: list[str], prompt_cfg: dict) -> list:
     return [
         {"role": "system", "content": "You are a helpful radiology assistant."},
         {"role": "user", "content": build_multimodal_content(images, prompt_cfg["user_text"])},
@@ -180,9 +186,8 @@ def make_image_messages(images: List[str], prompt_cfg: dict) -> list:
 # Benchmark core
 # ---------------------------------------------------------------------------
 
-def stream_request(
-    base_url: str, model: str, messages: list, max_tokens: int = 256
-) -> RunResult:
+
+def stream_request(base_url: str, model: str, messages: list, max_tokens: int = 256) -> RunResult:
     """Send a streaming /v1/chat/completions request and measure timing."""
     url = f"{base_url.rstrip('/')}/v1/chat/completions"
     payload = {
@@ -193,7 +198,7 @@ def stream_request(
     }
 
     result = RunResult(backend=base_url)
-    tokens: List[str] = []
+    tokens: list[str] = []
     t_start = time.perf_counter()
     t_first_token = None
 
@@ -207,7 +212,7 @@ def stream_request(
             for raw_line in resp.iter_lines(decode_unicode=True):
                 if not raw_line or not raw_line.startswith("data: "):
                     continue
-                data = raw_line[len("data: "):]
+                data = raw_line[len("data: ") :]
                 if data == "[DONE]":
                     break
                 try:
@@ -252,6 +257,7 @@ def check_health(base_url: str, backend_type: str) -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+
 def run_benchmark(
     backends: list,
     prompts: list,
@@ -259,7 +265,7 @@ def run_benchmark(
     max_tokens: int = 256,
     warmup: bool = True,
     show_responses: bool = False,
-):
+) -> None:
     """Run the benchmark suite across all backends and prompts."""
     if warmup:
         print("\n--- Warmup round (discarded) ---")
@@ -285,7 +291,9 @@ def run_benchmark(
                 if res.error:
                     print(f"ERROR: {res.error}")
                 else:
-                    print(f"TTFT={res.ttft_ms:.0f}ms  tok/s={res.tokens_per_sec:.1f}  tokens={res.token_count}")
+                    print(
+                        f"TTFT={res.ttft_ms:.0f}ms  tok/s={res.tokens_per_sec:.1f}  tokens={res.token_count}"
+                    )
 
     print_report(all_results, rounds)
 
@@ -293,7 +301,7 @@ def run_benchmark(
         print_responses(all_results)
 
 
-def print_report(all_results: dict, rounds: int):
+def print_report(all_results: dict, rounds: int) -> None:
     sep = "-" * 90
     print(f"\n{'=' * 90}")
     print("BENCHMARK RESULTS")
@@ -302,7 +310,9 @@ def print_report(all_results: dict, rounds: int):
     for pname, backend_results in all_results.items():
         print(f"\nPrompt: {pname}")
         print(sep)
-        print(f"{'Backend':<20} {'TTFT (ms)':>12} {'Total (ms)':>12} {'Tokens':>8} {'Tok/s':>10} {'Errors':>8}")
+        print(
+            f"{'Backend':<20} {'TTFT (ms)':>12} {'Total (ms)':>12} {'Tokens':>8} {'Tok/s':>10} {'Errors':>8}"
+        )
         print(sep)
 
         for label, runs in backend_results.items():
@@ -315,7 +325,9 @@ def print_report(all_results: dict, rounds: int):
             avg_total = sum(r.total_ms for r in ok) / len(ok)
             avg_tok = sum(r.token_count for r in ok) / len(ok)
             avg_tps = sum(r.tokens_per_sec for r in ok) / len(ok)
-            print(f"{label:<20} {avg_ttft:>12.1f} {avg_total:>12.1f} {avg_tok:>8.0f} {avg_tps:>10.1f} {errs:>8}")
+            print(
+                f"{label:<20} {avg_ttft:>12.1f} {avg_total:>12.1f} {avg_tok:>8.0f} {avg_tps:>10.1f} {errs:>8}"
+            )
 
         print(sep)
 
@@ -323,7 +335,7 @@ def print_report(all_results: dict, rounds: int):
     print(f"{'=' * 90}\n")
 
 
-def print_responses(all_results: dict):
+def print_responses(all_results: dict) -> None:
     """Print full text responses from each backend, last round only."""
     print(f"{'=' * 90}")
     print("MODEL RESPONSES  (last round only)")
@@ -345,33 +357,58 @@ def print_responses(all_results: dict):
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Benchmark Ollama vs llama.cpp (text + multimodal)"
     )
     parser.add_argument("--ollama", type=str, help="Ollama base URL (e.g. http://localhost:11434)")
-    parser.add_argument("--llamacpp", type=str, help="llama.cpp server base URL (e.g. http://localhost:8090)")
-    parser.add_argument("--model", type=str, default="thiagomoraes/medgemma-1.5-4b-it:F16",
-                        help="Model name for Ollama")
-    parser.add_argument("--llamacpp-model", type=str, default="medgemma-1.5-4b-it-BF16",
-                        help="Model name for llama.cpp")
+    parser.add_argument(
+        "--llamacpp", type=str, help="llama.cpp server base URL (e.g. http://localhost:8090)"
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="thiagomoraes/medgemma-1.5-4b-it:F16",
+        help="Model name for Ollama",
+    )
+    parser.add_argument(
+        "--llamacpp-model",
+        type=str,
+        default="medgemma-1.5-4b-it-BF16",
+        help="Model name for llama.cpp",
+    )
     parser.add_argument("--rounds", type=int, default=3, help="Rounds per prompt per backend")
     parser.add_argument("--max-tokens", type=int, default=256, help="Max tokens per request")
     parser.add_argument("--no-warmup", action="store_true", help="Skip warmup round")
-    parser.add_argument("--show-responses", action="store_true",
-                        help="Print full text output from each model after the benchmark")
+    parser.add_argument(
+        "--show-responses",
+        action="store_true",
+        help="Print full text output from each model after the benchmark",
+    )
 
     # Multimodal options
-    parser.add_argument("--series-uid", type=str,
-                        help="DICOM SeriesInstanceUID to benchmark with real images")
-    parser.add_argument("--orthanc-url", type=str, default="http://localhost:8000",
-                        help="Orthanc REST API URL (default: http://localhost:8000)")
-    parser.add_argument("--num-slices", type=int, default=5,
-                        help="Number of slices to extract from the series (default: 5)")
-    parser.add_argument("--text-only", action="store_true",
-                        help="Skip text prompts and only run image prompts")
-    parser.add_argument("--image-only", action="store_true",
-                        help="Skip text prompts and only run image prompts")
+    parser.add_argument(
+        "--series-uid", type=str, help="DICOM SeriesInstanceUID to benchmark with real images"
+    )
+    parser.add_argument(
+        "--orthanc-url",
+        type=str,
+        default="http://localhost:8000",
+        help="Orthanc REST API URL (default: http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--num-slices",
+        type=int,
+        default=5,
+        help="Number of slices to extract from the series (default: 5)",
+    )
+    parser.add_argument(
+        "--text-only", action="store_true", help="Skip text prompts and only run image prompts"
+    )
+    parser.add_argument(
+        "--image-only", action="store_true", help="Skip text prompts and only run image prompts"
+    )
 
     args = parser.parse_args()
 
@@ -407,10 +444,12 @@ def main():
         try:
             images = fetch_series_images(args.orthanc_url, args.series_uid, args.num_slices)
             for pcfg in IMAGE_PROMPTS:
-                prompts.append({
-                    "name": pcfg["name"],
-                    "messages": make_image_messages(images, pcfg),
-                })
+                prompts.append(
+                    {
+                        "name": pcfg["name"],
+                        "messages": make_image_messages(images, pcfg),
+                    }
+                )
         except Exception as e:
             print(f"  ERROR fetching images: {e}")
             print("  Falling back to text-only benchmark.")

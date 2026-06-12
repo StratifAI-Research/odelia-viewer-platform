@@ -2,17 +2,18 @@
 Breast Cancer Classification Service - Flask microservice
 Refactored: Thin HTTP layer delegating to model_service
 """
-import os
-import logging
-from pathlib import Path
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 
+import logging
+import os
+from pathlib import Path
+
+from config import BreastCancerConfig
+from exceptions import InferenceError, ModelNotLoadedError
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from model_service import BreastCancerModelService
 from shared.config import StorageConfig
 from shared.security_banner import print_security_banner
-from config import BreastCancerConfig
-from model_service import BreastCancerModelService
-from exceptions import ModelNotLoadedError, InferenceError
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -34,12 +35,11 @@ def initialize_service():
     bc_config = BreastCancerConfig.from_env()
 
     storage_config = StorageConfig(
-        image_folder=Path(os.getenv("IMAGE_FOLDER", "./images")),
-        cleanup_on_start=True
+        image_folder=Path(os.getenv("IMAGE_FOLDER", "./images")), cleanup_on_start=True
     )
 
     # Create necessary directories
-    os.makedirs(storage_config.image_folder, exist_ok=True)
+    Path(storage_config.image_folder).mkdir(parents=True, exist_ok=True)
 
     # Initialize model service
     model_service = BreastCancerModelService(bc_config, storage_config)
@@ -101,8 +101,9 @@ def analyze_mri():
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+        return jsonify({"error": f"Internal server error: {e!s}"}), 500
 
 
 if __name__ == "__main__":

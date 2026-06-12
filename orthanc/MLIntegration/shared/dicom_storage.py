@@ -2,12 +2,12 @@
 DICOM file storage utilities
 Single Responsibility: File system operations for DICOM data
 """
-import os
+
+import logging
 import re
 import shutil
-import logging
 from pathlib import Path
-from typing import List
+
 from pydicom.dataset import Dataset
 
 from .config import StorageConfig
@@ -38,7 +38,9 @@ def validate_series_uid(series_uid: str) -> str:
     return series_uid
 
 
-def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: bool = True) -> Path:
+def create_series_folder(
+    series_uid: str, storage_config: StorageConfig, clean: bool = True
+) -> Path:
     """
     Create a folder for storing DICOM series
 
@@ -58,13 +60,15 @@ def create_series_folder(series_uid: str, storage_config: StorageConfig, clean: 
         logger.info(f"Removing existing series folder: {series_folder}")
         shutil.rmtree(series_folder)
 
-    os.makedirs(series_folder, exist_ok=True)
+    series_folder.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created series folder: {series_folder}")
 
     return series_folder
 
 
-def save_datasets_to_folder(datasets: List[Dataset], series_uid: str, storage_config: StorageConfig) -> Path:
+def save_datasets_to_folder(
+    datasets: list[Dataset], series_uid: str, storage_config: StorageConfig
+) -> Path:
     """
     Save DICOM datasets to a folder on disk
 
@@ -91,7 +95,9 @@ def save_datasets_to_folder(datasets: List[Dataset], series_uid: str, storage_co
     return series_folder
 
 
-def save_dicom_bytes_to_folder(dicom_files: List[bytes], series_uid: str, storage_config: StorageConfig) -> Path:
+def save_dicom_bytes_to_folder(
+    dicom_files: list[bytes], series_uid: str, storage_config: StorageConfig
+) -> Path:
     """
     Save DICOM file bytes to a folder on disk
 
@@ -112,7 +118,7 @@ def save_dicom_bytes_to_folder(dicom_files: List[bytes], series_uid: str, storag
     # Save each DICOM file
     for idx, dicom_data in enumerate(dicom_files):
         dicom_path = series_folder / f"instance_{idx:04d}.dcm"
-        with open(dicom_path, "wb") as f:
+        with dicom_path.open("wb") as f:
             f.write(dicom_data)
 
     logger.info(f"Saved {len(dicom_files)} DICOM files to {series_folder}")

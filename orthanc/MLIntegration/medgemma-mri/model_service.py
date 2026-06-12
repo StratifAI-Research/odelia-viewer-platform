@@ -2,21 +2,23 @@
 MedGemma Model Service - Orchestrates the entire inference pipeline
 Single Responsibility: Model orchestration and inference
 """
+
 import logging
+
 import torch
-from pathlib import Path
-from typing import Optional
-
-from shared.timing_utils import time_operation
-from shared.config import StorageConfig
-
 from config import MedGemmaConfig
-from exceptions import ModelNotLoadedError, ModelAuthenticationError, InferenceError, ResponseParsingError
+from exceptions import (
+    InferenceError,
+    ModelAuthenticationError,
+    ModelNotLoadedError,
+)
 from preprocessing import extract_central_slices
 from prompt_templates import build_messages
-from response_parser import parse_bilateral_response
 from response_builder import build_bilateral_response
+from response_parser import parse_bilateral_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
+from shared.config import StorageConfig
+from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 class MedGemmaModelService:
     """Service for MedGemma MRI inference"""
 
-    def __init__(self, config: MedGemmaConfig, storage_config: StorageConfig):
+    def __init__(self, config: MedGemmaConfig, storage_config: StorageConfig) -> None:
         """
         Initialize MedGemma model service
 
@@ -39,7 +41,7 @@ class MedGemmaModelService:
         self.model_info = {
             "model_name": "MedGemma",
             "architecture": "Vision-Language Model",
-            "version": "1.5-4b-it"
+            "version": "1.5-4b-it",
         }
 
     def initialize_model(self) -> None:
@@ -50,7 +52,7 @@ class MedGemmaModelService:
             logger.info("=" * 60)
 
             # Import transformers here to fail fast if not available
-            from transformers import AutoProcessor, AutoModelForImageTextToText
+            from transformers import AutoModelForImageTextToText, AutoProcessor
 
             logger.info(f"Loading MedGemma model: {self.config.model_id}")
             logger.info(f"Device: {self.config.device}")
@@ -75,8 +77,7 @@ class MedGemmaModelService:
             # Load processor
             logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(
-                self.config.model_id,
-                token=self.config.hf_token
+                self.config.model_id, token=self.config.hf_token
             )
 
             # Load model
@@ -85,7 +86,7 @@ class MedGemmaModelService:
                 self.config.model_id,
                 token=self.config.hf_token,
                 torch_dtype=torch_dtype,
-                device_map="auto" if self.config.device == "cuda" else None
+                device_map="auto" if self.config.device == "cuda" else None,
             )
 
             # Move to device if not using device_map
@@ -94,7 +95,7 @@ class MedGemmaModelService:
 
             self.model.eval()
 
-            logger.info(f"Model loaded successfully")
+            logger.info("Model loaded successfully")
             logger.info("=" * 60)
             logger.info("Service ready to accept requests")
             logger.info("=" * 60)
@@ -102,6 +103,7 @@ class MedGemmaModelService:
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -151,15 +153,14 @@ class MedGemmaModelService:
                 parsed_result = parse_bilateral_response(generated_text)
 
             # Step 6: Build final response
-            response = build_bilateral_response(parsed_result, self.model_info)
-
-            return response
+            return build_bilateral_response(parsed_result, self.model_info)
 
         except Exception as e:
             logger.error(f"Error during MRI analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Analysis failed: {str(e)}") from e
+            raise InferenceError(f"Analysis failed: {e!s}") from e
 
     def _create_retrieval_strategy(self, request_data: dict) -> RetrievalStrategy:
         """
@@ -176,10 +177,7 @@ class MedGemmaModelService:
         if not wado_rs_retrieval:
             raise ValueError("Missing required field 'wado_rs_retrieval'")
 
-        return WadoRSRetrieval(
-            wado_rs_retrieval,
-            self.storage_config
-        )
+        return WadoRSRetrieval(wado_rs_retrieval, self.storage_config)
 
     def _run_inference(self, messages: list) -> str:
         """
@@ -198,7 +196,7 @@ class MedGemmaModelService:
                 add_generation_prompt=True,
                 tokenize=True,
                 return_dict=True,
-                return_tensors="pt"
+                return_tensors="pt",
             )
             # Move inputs to device
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
@@ -211,7 +209,7 @@ class MedGemmaModelService:
                 outputs = self.model.generate(
                     **inputs,
                     max_new_tokens=self.config.max_new_tokens,
-                    do_sample=False  # Deterministic for classification
+                    do_sample=False,  # Deterministic for classification
                 )
             output_len = outputs.shape[1]
             logger.info(f"Output token count: {output_len} (generated: {output_len - input_len})")
@@ -219,9 +217,7 @@ class MedGemmaModelService:
         # Step 3: Decode output (detokenization)
         with time_operation("decode_output", logger):
             generated_tokens = outputs[0][input_len:]
-            generated_text = self.processor.decode(generated_tokens, skip_special_tokens=True)
-
-        return generated_text
+            return self.processor.decode(generated_tokens, skip_special_tokens=True)
 
     def get_health_status(self) -> dict:
         """
@@ -234,5 +230,5 @@ class MedGemmaModelService:
             "status": "healthy",
             "model_loaded": self.model is not None,
             "device": self.config.device,
-            "model_info": self.model_info if self.model_info else None
+            "model_info": self.model_info if self.model_info else None,
         }

@@ -1,11 +1,13 @@
 """
 DICOM to NIfTI conversion utilities using SimpleITK
 """
-import SimpleITK as sitk
-import numpy as np
-from pathlib import Path
+
 import logging
 from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+import SimpleITK as sitk  # noqa: N813
 
 logger = logging.getLogger(__name__)
 
@@ -67,18 +69,22 @@ def _gather_temporal_groups(dicom_folder: str) -> tuple:
     file_metadata = []
     for dcm_file in dicom_files:
         temporal_pos, slice_loc, instance_num = get_dicom_metadata(str(dcm_file))
-        file_metadata.append({
-            'path': str(dcm_file),
-            'temporal_pos': temporal_pos,
-            'slice_location': slice_loc,
-            'instance_number': instance_num
-        })
+        file_metadata.append(
+            {
+                "path": str(dcm_file),
+                "temporal_pos": temporal_pos,
+                "slice_location": slice_loc,
+                "instance_number": instance_num,
+            }
+        )
 
     temporal_groups = defaultdict(list)
     for item in file_metadata:
-        temporal_groups[item['temporal_pos']].append(item)
+        temporal_groups[item["temporal_pos"]].append(item)
 
-    logger.info(f"Detected {len(temporal_groups)} temporal phase(s): {sorted(temporal_groups.keys())}")
+    logger.info(
+        f"Detected {len(temporal_groups)} temporal phase(s): {sorted(temporal_groups.keys())}"
+    )
     return dicom_path, temporal_groups
 
 
@@ -88,11 +94,9 @@ def _read_temporal_group(file_metadata_list: list) -> sitk.Image:
     Files are sorted spatially (superior-to-inferior) to match GDCM default ordering.
     """
     sorted_meta = sorted(
-        file_metadata_list,
-        key=lambda x: (x['slice_location'], x['instance_number']),
-        reverse=True
+        file_metadata_list, key=lambda x: (x["slice_location"], x["instance_number"]), reverse=True
     )
-    sorted_files = [item['path'] for item in sorted_meta]
+    sorted_files = [item["path"] for item in sorted_meta]
 
     reader = sitk.ImageSeriesReader()
     reader.SetFileNames(sorted_files)
@@ -205,7 +209,9 @@ def dicom_to_nifti_subtraction(dicom_folder: str) -> str:
     return str(nifti_path)
 
 
-def compute_subtraction_from_nifti(pre_path: str, post_path: str, output_path: str = None) -> str:
+def compute_subtraction_from_nifti(
+    pre_path: str, post_path: str, output_path: str | None = None
+) -> str:
     """
     Compute subtraction NIfTI from two separate pre/post NIfTI files.
     Result = (post - pre), floored to 0, cast to uint16.

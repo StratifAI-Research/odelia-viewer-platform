@@ -5,26 +5,31 @@ Implements DICOM PS3.18 Section 11 (UPS-RS)
 
 import json
 import os
-import orthanc
 import threading
+from pathlib import Path
+from typing import Any
 
-from ups.workitem import UPSWorkitem
-from ups.storage import ups_storage
+import orthanc
+
 from ups.processor import process_workitem
+from ups.storage import ups_storage
+from ups.workitem import UPSWorkitem
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). When
 # unset/empty, host_is_allowed() returns True — preserves current research
 # behaviour. See docs/production-hardening.md.
 try:
-    from host_allowlist import host_is_allowed  # type: ignore
+    from host_allowlist import host_is_allowed
 except Exception:
+
     def host_is_allowed(_url: str) -> bool:
         return True
+
 
 MANIFEST_PATH = os.environ.get("AI_MANIFEST_PATH", "/etc/orthanc/manifest.json")
 
 
-def CreateWorkitem(output, uri, **request):
+def CreateWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems
     Create new UPS workitem and immediately process it (RAD-80)
@@ -67,11 +72,9 @@ def CreateWorkitem(output, uri, **request):
         wado_rs_retrieval = []
         for series_uid in series_uids:
             retrieval_url = f"{wado_rs_base}/studies/{study_uid}/series/{series_uid}"
-            wado_rs_retrieval.append({
-                "retrieval_url": retrieval_url,
-                "study_uid": study_uid,
-                "series_uid": series_uid
-            })
+            wado_rs_retrieval.append(
+                {"retrieval_url": retrieval_url, "study_uid": study_uid, "series_uid": series_uid}
+            )
 
         # Create workitem (with optional structured input mapping)
         workitem = UPSWorkitem(
@@ -80,7 +83,7 @@ def CreateWorkitem(output, uri, **request):
             wado_rs_retrieval=wado_rs_retrieval,
             priority=priority,
             input_mapping=input_mapping,
-            input_configuration_id=input_configuration_id
+            input_configuration_id=input_configuration_id,
         )
 
         print(f"CreateWorkitem: Created workitem with UID: {workitem.workitem_uid}")
@@ -92,38 +95,40 @@ def CreateWorkitem(output, uri, **request):
         # Verify storage
         verify = ups_storage.get_workitem(workitem.workitem_uid)
         if verify:
-            print(f"CreateWorkitem: Verification successful - workitem {workitem.workitem_uid} can be retrieved")
+            print(
+                f"CreateWorkitem: Verification successful - workitem {workitem.workitem_uid} can be retrieved"
+            )
         else:
-            print(f"CreateWorkitem: WARNING - workitem {workitem.workitem_uid} was NOT stored properly!")
+            print(
+                f"CreateWorkitem: WARNING - workitem {workitem.workitem_uid} was NOT stored properly!"
+            )
 
         print(f"Created workitem {workitem.workitem_uid} for study {study_uid}")
 
         # Process workitem immediately in background thread
         # (similar to OnStableStudy pattern - immediate execution, not polling)
-        def process_in_background():
+        def process_in_background() -> None:
             try:
                 process_workitem(workitem)
             except Exception as e:
-                print(f"Error processing workitem in background: {str(e)}")
+                print(f"Error processing workitem in background: {e!s}")
                 import traceback
+
                 traceback.print_exc()
 
         thread = threading.Thread(target=process_in_background, daemon=True)
         thread.start()
 
         # Return created workitem as DICOM JSON
-        output.AnswerBuffer(
-            json.dumps(workitem.data),
-            "application/dicom+json"
-        )
+        output.AnswerBuffer(json.dumps(workitem.data), "application/dicom+json")
 
     except Exception as e:
-        error_message = f"Error creating workitem: {str(e)}"
+        error_message = f"Error creating workitem: {e!s}"
         print(error_message)
         output.SendHttpStatus(500, error_message)
 
 
-def GetWorkitem(output, uri, **request):
+def GetWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems/{uid}
     Retrieve workitem (RAD-83)
@@ -138,7 +143,9 @@ def GetWorkitem(output, uri, **request):
         # Extract workitem UID from URI
         # URI format: /ups-rs/workitems/{uid}
         workitem_uid = request["groups"][0] if request.get("groups") else None
-        print(f"GetWorkitem: URI={uri}, groups={request.get('groups')}, extracted UID={workitem_uid}")
+        print(
+            f"GetWorkitem: URI={uri}, groups={request.get('groups')}, extracted UID={workitem_uid}"
+        )
 
         if not workitem_uid:
             output.SendHttpStatus(400, "Missing workitem UID in URL")
@@ -158,20 +165,18 @@ def GetWorkitem(output, uri, **request):
 
         print(f"GetWorkitem: Successfully retrieved workitem {workitem_uid}")
         # Return workitem as DICOM JSON
-        output.AnswerBuffer(
-            json.dumps(workitem.data),
-            "application/dicom+json"
-        )
+        output.AnswerBuffer(json.dumps(workitem.data), "application/dicom+json")
 
     except Exception as e:
-        error_message = f"Error retrieving workitem: {str(e)}"
+        error_message = f"Error retrieving workitem: {e!s}"
         print(error_message)
         import traceback
+
         traceback.print_exc()
         output.SendHttpStatus(500, error_message)
 
 
-def UpdateWorkitemState(output, uri, **request):
+def UpdateWorkitemState(output: Any, uri: str, **request: Any) -> None:
     """
     PUT /ups-rs/workitems/{uid}/state
     Update workitem state (RAD-84/85/86)
@@ -216,18 +221,15 @@ def UpdateWorkitemState(output, uri, **request):
         print(f"Updated workitem {workitem_uid} state to {new_state}")
 
         # Return updated workitem
-        output.AnswerBuffer(
-            json.dumps(workitem.data),
-            "application/dicom+json"
-        )
+        output.AnswerBuffer(json.dumps(workitem.data), "application/dicom+json")
 
     except Exception as e:
-        error_message = f"Error updating workitem state: {str(e)}"
+        error_message = f"Error updating workitem state: {e!s}"
         print(error_message)
         output.SendHttpStatus(500, error_message)
 
 
-def QueryWorkitems(output, uri, **request):
+def QueryWorkitems(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems?state=SCHEDULED
     Query workitems (RAD-81)
@@ -254,18 +256,15 @@ def QueryWorkitems(output, uri, **request):
 
         print(f"Query returned {len(result)} workitems (state filter: {state_filter})")
 
-        output.AnswerBuffer(
-            json.dumps(result),
-            "application/dicom+json"
-        )
+        output.AnswerBuffer(json.dumps(result), "application/dicom+json")
 
     except Exception as e:
-        error_message = f"Error querying workitems: {str(e)}"
+        error_message = f"Error querying workitems: {e!s}"
         print(error_message)
         output.SendHttpStatus(500, error_message)
 
 
-def SubscribeToWorkitem(output, uri, **request):
+def SubscribeToWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems/{uid}/subscribers
     Subscribe to notifications for a specific workitem (RAD-86)
@@ -295,7 +294,9 @@ def SubscribeToWorkitem(output, uri, **request):
             return
 
         if not host_is_allowed(subscriber_url):
-            print(f"SubscribeToWorkitem: subscriber_url host not in ROUTER_HOST_ALLOWLIST: {subscriber_url}")
+            print(
+                f"SubscribeToWorkitem: subscriber_url host not in ROUTER_HOST_ALLOWLIST: {subscriber_url}"
+            )
             output.SendHttpStatus(403, "subscriber_url host not allowed")
             return
 
@@ -307,22 +308,24 @@ def SubscribeToWorkitem(output, uri, **request):
 
         # Add subscription
         from ups.subscription_storage import subscription_storage
+
         subscription_storage.add_subscription(workitem_uid, subscriber_url, deletion_lock)
 
         # Send initial notification to new subscriber
         from ups.processor import notify_subscriber
+
         notify_subscriber(workitem, subscriber_url)
 
         print(f"Subscriber {subscriber_url} subscribed to workitem {workitem_uid}")
         output.AnswerBuffer(json.dumps({"status": "subscribed"}), "application/json")
 
     except Exception as e:
-        error_message = f"Error creating subscription: {str(e)}"
+        error_message = f"Error creating subscription: {e!s}"
         print(error_message)
         output.SendHttpStatus(500, error_message)
 
 
-def UnsubscribeFromWorkitem(output, uri, **request):
+def UnsubscribeFromWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     DELETE /ups-rs/workitems/{uid}/subscribers/{subscriber_url}
     Unsubscribe from workitem notifications (RAD-86)
@@ -340,17 +343,18 @@ def UnsubscribeFromWorkitem(output, uri, **request):
             return
 
         from ups.subscription_storage import subscription_storage
+
         subscription_storage.remove_subscription(workitem_uid, subscriber_url)
 
         output.AnswerBuffer(json.dumps({"status": "unsubscribed"}), "application/json")
 
     except Exception as e:
-        error_message = f"Error removing subscription: {str(e)}"
+        error_message = f"Error removing subscription: {e!s}"
         print(error_message)
         output.SendHttpStatus(500, error_message)
 
 
-def ServeManifest(output, uri, **request):
+def ServeManifest(output: Any, uri: str, **request: Any) -> None:
     """
     GET /manifest
     Serve the model input manifest (if mounted).
@@ -361,28 +365,30 @@ def ServeManifest(output, uri, **request):
         output.SendMethodNotAllowed("GET")
         return
 
-    if not os.path.isfile(MANIFEST_PATH):
+    if not Path(MANIFEST_PATH).is_file():
         output.SendHttpStatus(404, "No manifest available")
         return
 
     try:
-        with open(MANIFEST_PATH, "r") as f:
+        with Path(MANIFEST_PATH).open() as f:
             manifest_data = f.read()
         json.loads(manifest_data)  # validate JSON
         output.AnswerBuffer(manifest_data, "application/json")
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"Error reading manifest: {e}")
         output.SendHttpStatus(500, f"Error reading manifest: {e}")
 
 
 # Helper to register all UPS routes
-def register_ups_routes():
+def register_ups_routes() -> None:
     """Register all UPS-RS REST endpoints"""
-    orthanc.RegisterRestCallback('/ups-rs/workitems$', CreateWorkitem)
-    orthanc.RegisterRestCallback('/ups-rs/workitems/([0-9.]+)$', GetWorkitem)
-    orthanc.RegisterRestCallback('/ups-rs/workitems/([0-9.]+)/state$', UpdateWorkitemState)
-    orthanc.RegisterRestCallback('/ups-rs/workitems/([0-9.]+)/subscribers$', SubscribeToWorkitem)
-    orthanc.RegisterRestCallback('/ups-rs/workitems/([0-9.]+)/subscribers/(.+)$', UnsubscribeFromWorkitem)
-    orthanc.RegisterRestCallback('/manifest$', ServeManifest)
+    orthanc.RegisterRestCallback("/ups-rs/workitems$", CreateWorkitem)
+    orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)$", GetWorkitem)
+    orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)/state$", UpdateWorkitemState)
+    orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)/subscribers$", SubscribeToWorkitem)
+    orthanc.RegisterRestCallback(
+        "/ups-rs/workitems/([0-9.]+)/subscribers/(.+)$", UnsubscribeFromWorkitem
+    )
+    orthanc.RegisterRestCallback("/manifest$", ServeManifest)
 
     print("UPS-RS REST endpoints registered (including /manifest)")

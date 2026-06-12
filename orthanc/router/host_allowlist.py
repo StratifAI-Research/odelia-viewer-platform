@@ -7,11 +7,12 @@ Non-empty   => URLs whose hostname is not in the set are rejected.
 
 See docs/production-hardening.md.
 """
+
 import os
 from urllib.parse import urlparse
 
 
-def _load_allowlist():
+def _load_allowlist() -> set[str] | None:
     raw = os.environ.get("ROUTER_HOST_ALLOWLIST", "").strip()
     if not raw:
         return None

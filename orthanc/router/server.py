@@ -1,17 +1,13 @@
-import datetime
-import io
-import json
-import os
-import time
-from datetime import datetime
 import base64
+import io
+import os
+from datetime import datetime
+from typing import Any
 
 import numpy as np
-import orthanc
-import requests
 from PIL import Image, ImageDraw, ImageFont
-from pydicom import Dataset, FileDataset, dcmread
-from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom import Dataset, FileDataset
+from pydicom.dataset import FileMetaDataset
 from pydicom.sequence import Sequence
 from pydicom.uid import (
     ComprehensiveSRStorage,
@@ -24,15 +20,15 @@ from pydicom.uid import (
 from ups.routes import register_ups_routes
 
 # Configuration
-MODEL_BACKEND_URL = os.environ.get(
-    "MODEL_BACKEND_URL", "http://breast-cancer-classification:5555"
-)
+MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://breast-cancer-classification:5555")
 AI_TEXT = os.environ.get("AI_TEXT", "PROCESSED BY AI")
 AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
-def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
+def add_text_overlay(
+    pixel_array: np.ndarray[Any, np.dtype[Any]], text: str = "PROCESSED BY AI", color: str = "red"
+) -> np.ndarray[Any, np.dtype[Any]]:
     """
     **Deprecated** — slated for removal with its only remaining caller (create_text_overlay_sc). Do not add new callers.
 
@@ -47,9 +43,10 @@ def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
             draw = ImageDraw.Draw(im)
 
             # Load font
+            font: ImageFont.FreeTypeFont | ImageFont.ImageFont
             try:
                 font = ImageFont.truetype("arial.ttf", size=50)
-            except IOError:
+            except OSError:
                 font = ImageFont.load_default()
 
             # Calculate text position using textbbox
@@ -65,40 +62,37 @@ def add_text_overlay(pixel_array, text="PROCESSED BY AI", color="red"):
         return np.stack(processed_frames)
 
     # Handle single-frame DICOM
+    if len(pixel_array.shape) == 2:
+        im = Image.fromarray(pixel_array).convert("RGB")
     else:
-        if len(pixel_array.shape) == 2:
-            im = Image.fromarray(pixel_array).convert("RGB")
-        else:
-            im = Image.fromarray(pixel_array)
+        im = Image.fromarray(pixel_array)
 
-        draw = ImageDraw.Draw(im)
-        try:
-            font = ImageFont.truetype("arial.ttf", size=50)
-        except IOError:
-            font = ImageFont.load_default()
+    draw = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype("arial.ttf", size=50)
+    except OSError:
+        font = ImageFont.load_default()
 
-        # Calculate text position using textbbox
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        position = ((im.width - text_width) // 2, (im.height - text_height) // 2)
+    # Calculate text position using textbbox
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    position = ((im.width - text_width) // 2, (im.height - text_height) // 2)
 
-        # Add overlay with specified color
-        draw.text(position, text, fill=color, font=font)
-        return np.array(im)
-
-
+    # Add overlay with specified color
+    draw.text(position, text, fill=color, font=font)
+    return np.array(im)
 
 
 def create_multiframe_attention_sc(
-    original_dicom,
-    attention_maps,
-    creation_date=None,
-    creation_time=None,
-    sr_sop_instance_uid=None,
-    slice_spacing=1.0,
-    positions_list=None,
-):
+    original_dicom: Dataset,
+    attention_maps: dict[str, Any],
+    creation_date: str | None = None,
+    creation_time: str | None = None,
+    sr_sop_instance_uid: str | None = None,
+    slice_spacing: float = 1.0,
+    positions_list: list[list[float]] | None = None,
+) -> bytes:
     """
     Create multi-frame DICOM Secondary Capture for complete attention heatmap volume
 
@@ -139,13 +133,13 @@ def create_multiframe_attention_sc(
 
     # Copy spatial reference tags for synchronization
     # These allow OHIF to sync heatmap with original series
-    if hasattr(original_dicom, 'FrameOfReferenceUID'):
+    if hasattr(original_dicom, "FrameOfReferenceUID"):
         ds.FrameOfReferenceUID = original_dicom.FrameOfReferenceUID
     else:
         ds.FrameOfReferenceUID = generate_uid()
         print("WARNING: Original DICOM missing FrameOfReferenceUID - sync may not work")
 
-    if hasattr(original_dicom, 'ImageOrientationPatient'):
+    if hasattr(original_dicom, "ImageOrientationPatient"):
         ds.ImageOrientationPatient = original_dicom.ImageOrientationPatient
     else:
         ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]  # Default axial
@@ -174,8 +168,11 @@ def create_multiframe_attention_sc(
         ds.InstanceCreationTime = datetime.now().strftime("%H%M%S.%f")[:-3]
 
     # Decode base64 RGB overlay data from MST model (already uint8, already blended)
-    overlay_b64 = attention_maps.get('data')
-    overlay_shape = tuple(attention_maps.get('shape'))  # [num_frames, rows, cols, 3]
+    overlay_b64 = attention_maps.get("data")
+    overlay_shape_raw = attention_maps.get("shape")
+    assert overlay_b64 is not None, "attention_maps must contain 'data'"
+    assert overlay_shape_raw is not None, "attention_maps must contain 'shape'"
+    overlay_shape = tuple(overlay_shape_raw)  # [num_frames, rows, cols, 3]
 
     print(f"Decoding base64 overlay data with shape: {overlay_shape}")
 
@@ -204,8 +201,8 @@ def create_multiframe_attention_sc(
     ds.PixelData = stacked_frames.tobytes()
 
     # Add per-frame spatial metadata for synchronization
-    original_position = getattr(original_dicom, 'ImagePositionPatient', None)
-    original_orientation = getattr(original_dicom, 'ImageOrientationPatient', None)
+    original_position = getattr(original_dicom, "ImagePositionPatient", None)
+    original_orientation = getattr(original_dicom, "ImageOrientationPatient", None)
 
     if original_position and original_orientation and num_frames > 1:
         # Calculate slice normal vector for position calculation
@@ -237,12 +234,15 @@ def create_multiframe_attention_sc(
             plane_position = Dataset()
 
             # Use actual position from positions_list if available, otherwise calculate
+            position: list[float]
             if positions_list and frame_idx < len(positions_list):
                 position = positions_list[frame_idx]
             else:
                 # Fallback: calculate position using spacing and normal vector
-                position = np.array(original_position) + (frame_idx * slice_spacing * slice_normal)
-                position = position.tolist()
+                calculated = np.array(original_position) + (
+                    frame_idx * slice_spacing * slice_normal
+                )
+                position = calculated.tolist()
 
             plane_position.ImagePositionPatient = position
 
@@ -276,11 +276,17 @@ def create_multiframe_attention_sc(
         ds.SharedFunctionalGroupsSequence = shared_groups
 
         if positions_list and len(positions_list) >= num_frames:
-            print(f"Added spatial metadata: {num_frames} frames using actual positions from original series")
+            print(
+                f"Added spatial metadata: {num_frames} frames using actual positions from original series"
+            )
         else:
-            print(f"Added spatial metadata: {num_frames} frames with {slice_spacing}mm calculated spacing")
+            print(
+                f"Added spatial metadata: {num_frames} frames with {slice_spacing}mm calculated spacing"
+            )
     else:
-        print(f"WARNING: Cannot calculate per-frame positions (has_position={bool(original_position)}, has_orientation={bool(original_orientation)}, frames={num_frames})")
+        print(
+            f"WARNING: Cannot calculate per-frame positions (has_position={bool(original_position)}, has_orientation={bool(original_orientation)}, frames={num_frames})"
+        )
         print("Heatmap synchronization may not work correctly")
 
     # Add reference to original image
@@ -306,16 +312,15 @@ def create_multiframe_attention_sc(
     return buffer.getvalue()
 
 
-
 def create_text_overlay_sc(
-    original_dicom,
-    text="PROCESSED BY AI",
-    color="red",
-    creation_date=None,
-    creation_time=None,
-    model_results=None,
-    sr_sop_instance_uid=None,
-):
+    original_dicom: Dataset,
+    text: str = "PROCESSED BY AI",
+    color: str = "red",
+    creation_date: str | None = None,
+    creation_time: str | None = None,
+    model_results: dict[str, Any] | None = None,
+    sr_sop_instance_uid: str | None = None,
+) -> bytes:
     """Creates DICOM SC with text overlay for bilateral classification results"""
     ds = Dataset()
     meta = FileMetaDataset()
@@ -424,7 +429,7 @@ def create_text_overlay_sc(
     return buffer.getvalue()
 
 
-def create_code_sequence(code_value, coding_scheme, code_meaning):
+def create_code_sequence(code_value: str, coding_scheme: str, code_meaning: str) -> Dataset:
     """Helper to create coded entries"""
     code_seq = Dataset()
     code_seq.CodeValue = code_value
@@ -433,19 +438,19 @@ def create_code_sequence(code_value, coding_scheme, code_meaning):
     return code_seq
 
 
-def create_measurement(value, unit, code_value, coding_scheme):
+def create_measurement(value: float, unit: str, code_value: str, coding_scheme: str) -> Dataset:
     """Helper for numeric measurements"""
     measurement = Dataset()
     measurement.NumericValue = value
     measurement.MeasurementUnitsCodeSequence = [
-        create_code_sequence(
-            code_value=code_value, coding_scheme=coding_scheme, code_meaning=unit
-        )
+        create_code_sequence(code_value=code_value, coding_scheme=coding_scheme, code_meaning=unit)
     ]
     return measurement
 
 
-def create_mst_sr(original_ds, model_results):
+def create_mst_sr(
+    original_ds: Dataset, model_results: dict[str, Any]
+) -> tuple[bytes, str, str, str]:
     """
     Create DICOM Structured Report (SR) for MST model results
 
@@ -461,12 +466,13 @@ def create_mst_sr(original_ds, model_results):
     classification = model_results.get("classification", {})
 
     # File meta info
-    file_meta = Dataset()
+    file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = ComprehensiveSRStorage
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
 
-    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+    # pydicom accepts filename_or_obj=None for in-memory datasets; the stub omits None.
+    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification
     ds.PatientName = original_ds.PatientName
@@ -570,15 +576,18 @@ def create_mst_sr(original_ds, model_results):
     return buffer.getvalue(), current_date, current_time, ds.SOPInstanceUID
 
 
-def create_bilateral_sr(original_ds, model_results):
+def create_bilateral_sr(
+    original_ds: Dataset, model_results: dict[str, Any]
+) -> tuple[bytes, str, str, str]:
     """Create DICOM Structured Report (SR) for bilateral classification model results in memory"""
     # File meta info
-    file_meta = Dataset()
+    file_meta = FileMetaDataset()
     file_meta.MediaStorageSOPClassUID = ComprehensiveSRStorage
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
 
-    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+    # pydicom accepts filename_or_obj=None for in-memory datasets; the stub omits None.
+    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification (link to original study)
     ds.PatientName = original_ds.PatientName
@@ -720,7 +729,7 @@ def create_bilateral_sr(original_ds, model_results):
     return buffer.getvalue(), current_date, current_time, ds.SOPInstanceUID
 
 
-def detect_response_format(model_results):
+def detect_response_format(model_results: dict[str, Any]) -> str:
     """
     Detect the format of AI model response
 
@@ -733,10 +742,9 @@ def detect_response_format(model_results):
 
     if has_bilateral and has_attention_maps:
         return "bilateral_with_heatmap"
-    elif has_bilateral:
+    if has_bilateral:
         return "bilateral"
-    else:
-        raise ValueError(f"Unknown response format. Keys: {list(model_results.keys())}")
+    raise ValueError(f"Unknown response format. Keys: {list(model_results.keys())}")
 
 
 # Register UPS-RS REST endpoints (UPS-based workflow)

@@ -19,7 +19,12 @@ runs:
     - name: Install dev tools
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: pip install -r requirements-dev.txt
+      # requirements-tests.txt brings the real runtime libs (numpy, pydicom, PIL,
+      # requests, ...) so mypy type-checks library boundaries instead of treating
+      # those imports as Any. Same deps the test job installs.
+      run: |
+        pip install -r requirements-dev.txt
+        pip install -r requirements-tests.txt
 
     - name: Prepare outputs dir
       shell: bash

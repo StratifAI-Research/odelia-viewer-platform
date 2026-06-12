@@ -6,7 +6,26 @@ Tests anywhere else that do not carry an explicit marker -> collection error.
 
 Rationale: orphan tests would silently skip under `-m unit`, hiding regressions.
 """
+from pathlib import Path
+
 import pytest
+
+# Real anonymized DICOM committed under orthanc/sample_data/mri (155-slice MR series).
+_SAMPLE_MRI_DIR = Path(__file__).resolve().parent.parent / "sample_data" / "mri"
+
+
+@pytest.fixture(scope="session")
+def mri_sample_dir() -> Path:
+    """Directory of the committed MRI sample series; skips if not present."""
+    if not _SAMPLE_MRI_DIR.is_dir() or not any(_SAMPLE_MRI_DIR.glob("*.dcm")):
+        pytest.skip("MRI sample data (orthanc/sample_data/mri) not available")
+    return _SAMPLE_MRI_DIR
+
+
+@pytest.fixture
+def mri_sample_file(mri_sample_dir: Path) -> Path:
+    """A single representative .dcm from the MRI sample series."""
+    return sorted(mri_sample_dir.glob("*.dcm"))[0]
 
 
 def pytest_collection_modifyitems(config, items):

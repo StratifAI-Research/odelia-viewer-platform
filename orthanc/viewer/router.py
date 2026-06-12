@@ -1,13 +1,14 @@
 import json
-import os
 import sys
+from pathlib import Path
+from typing import Any, cast
 
 import orthanc
 import requests
 
 # Ensure the directory of this script is importable for sibling modules
 try:
-    current_dir = os.path.dirname(__file__)
+    current_dir = str(Path(__file__).parent)
     if current_dir and current_dir not in sys.path:
         sys.path.insert(0, current_dir)
 except Exception:
@@ -15,7 +16,7 @@ except Exception:
 
 # Feedback endpoints
 try:
-    import feedback_routes  # type: ignore
+    import feedback_routes
 
     register_feedback_endpoints = feedback_routes.register_feedback_endpoints
 except Exception:
@@ -25,10 +26,12 @@ except Exception:
 # When unset/empty, host_is_allowed() returns True for any input — preserves
 # the current research behaviour. See docs/production-hardening.md.
 try:
-    from host_allowlist import host_is_allowed  # type: ignore
+    from host_allowlist import host_is_allowed
 except Exception:
+
     def host_is_allowed(_url: str) -> bool:  # fallback: allow all
         return True
+
 
 # UPS storage for workitem persistence
 try:
@@ -41,7 +44,7 @@ except Exception as e:
     ups_storage = None
 
 
-def FilterAIResultSeries(study_id):
+def FilterAIResultSeries(study_id: str) -> list[str]:
     """
     Get all non-AI series from a study for AI processing.
     Returns a list of series IDs that should be sent to AI models.
@@ -59,9 +62,7 @@ def FilterAIResultSeries(study_id):
 
             # Get series tags to check if it's an AI result
             try:
-                series_tags = json.loads(
-                    orthanc.RestApiGet(f"/series/{series_id}/tags?simplify")
-                )
+                series_tags = json.loads(orthanc.RestApiGet(f"/series/{series_id}/tags?simplify"))
 
                 series_description = series_tags.get("SeriesDescription", "").strip()
                 modality = series_tags.get("Modality", "").strip()
@@ -92,7 +93,7 @@ def FilterAIResultSeries(study_id):
                     original_series.append(series_id)
 
             except Exception as e:
-                print(f"Warning: Could not check series {series_id}: {str(e)}")
+                print(f"Warning: Could not check series {series_id}: {e!s}")
                 # If we can't check, assume it's original data and include it
                 original_series.append(series_id)
 
@@ -102,12 +103,12 @@ def FilterAIResultSeries(study_id):
         return original_series
 
     except Exception as e:
-        print(f"Error filtering AI result series for study {study_id}: {str(e)}")
+        print(f"Error filtering AI result series for study {study_id}: {e!s}")
         # Return empty list on error to prevent sending anything
         return []
 
 
-def HasProcessableContent(study_id):
+def HasProcessableContent(study_id: str) -> bool:
     """
     Check if study has any non-AI series that can be processed.
     Returns True if there are original series available for AI processing.
@@ -116,7 +117,7 @@ def HasProcessableContent(study_id):
     return len(original_series) > 0
 
 
-def GetStudyInstanceUID(study_id):
+def GetStudyInstanceUID(study_id: str) -> str | None:
     """Get the DICOM StudyInstanceUID from an Orthanc study ID"""
     try:
         # Get the study information
@@ -127,13 +128,13 @@ def GetStudyInstanceUID(study_id):
         if not study_instance_uid:
             print(f"Warning: StudyInstanceUID not found for study {study_id}")
             return None
-        return study_instance_uid
+        return cast("str | None", study_instance_uid)
     except Exception as e:
-        print(f"Error getting StudyInstanceUID: {str(e)}")
+        print(f"Error getting StudyInstanceUID: {e!s}")
         return None
 
 
-def ListModalities():
+def ListModalities() -> list[str]:
     """List all configured DICOM modalities"""
     try:
         modalities = json.loads(orthanc.RestApiGet("/modalities"))
@@ -143,13 +144,13 @@ def ListModalities():
             print(
                 f"  - {modality}: {modality_info.get('Host', 'unknown')}:{modality_info.get('Port', 'unknown')} (AET: {modality_info.get('AET', 'unknown')})"
             )
-        return modalities
+        return cast("list[str]", modalities)
     except Exception as e:
-        print(f"Error listing modalities: {str(e)}")
+        print(f"Error listing modalities: {e!s}")
         return []
 
 
-def SendToAiDicom(output, uri, **request):
+def SendToAiDicom(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOM protocol"""
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
@@ -191,9 +192,7 @@ def SendToAiDicom(output, uri, **request):
 
                 # First, check if the modality already exists
                 try:
-                    existing_modality = json.loads(
-                        orthanc.RestApiGet(f"/modalities/{target}")
-                    )
+                    existing_modality = json.loads(orthanc.RestApiGet(f"/modalities/{target}"))
                     print(
                         f"Modality {target} already exists with configuration: {existing_modality}"
                     )
@@ -201,7 +200,7 @@ def SendToAiDicom(output, uri, **request):
                     # Delete the existing modality to ensure a clean configuration
                     orthanc.RestApiDelete(f"/modalities/{target}")
                     print(f"Deleted existing modality {target}")
-                except:
+                except Exception:
                     # Modality doesn't exist, which is fine
                     pass
 
@@ -210,9 +209,7 @@ def SendToAiDicom(output, uri, **request):
                 if len(url_parts) >= 2:
                     host_port = url_parts[0].split(":")
                     host = host_port[0]
-                    port = (
-                        int(host_port[1]) if len(host_port) > 1 else 104
-                    )  # Default DICOM port
+                    port = int(host_port[1]) if len(host_port) > 1 else 104  # Default DICOM port
                     aet = (
                         url_parts[1] if len(url_parts) > 1 else target
                     )  # Use target name as AE Title if not specified
@@ -255,9 +252,7 @@ def SendToAiDicom(output, uri, **request):
                     }
 
                     # Add the modality configuration
-                    orthanc.RestApiPut(
-                        f"/modalities/{target}", json.dumps(modality_config)
-                    )
+                    orthanc.RestApiPut(f"/modalities/{target}", json.dumps(modality_config))
                     print(f"Successfully configured DICOM modality: {target}")
 
                     # Verify the configuration
@@ -267,13 +262,11 @@ def SendToAiDicom(output, uri, **request):
                         )
                         print(f"Verified modality configuration: {configured_modality}")
                     except Exception as e:
-                        print(
-                            f"Warning: Failed to verify modality configuration: {str(e)}"
-                        )
+                        print(f"Warning: Failed to verify modality configuration: {e!s}")
                 else:
                     print(f"Invalid target URL format: {target_url}")
             except Exception as e:
-                print(f"Warning: Failed to configure DICOM modality: {str(e)}")
+                print(f"Warning: Failed to configure DICOM modality: {e!s}")
                 # Continue anyway as the modality might already be configured
 
         # Get series to send (either by series_uids or filter AI results)
@@ -283,21 +276,15 @@ def SendToAiDicom(output, uri, **request):
             original_series = []
             for series_uid in series_uids:
                 try:
-                    lookup_result = json.loads(
-                        orthanc.RestApiPost("/tools/lookup", series_uid)
-                    )
+                    lookup_result = json.loads(orthanc.RestApiPost("/tools/lookup", series_uid))
                     series_result = [r for r in lookup_result if r["Type"] == "Series"]
                     if series_result:
                         original_series.append(series_result[0]["ID"])
-                        print(
-                            f"Found series {series_result[0]['ID']} for UID {series_uid}"
-                        )
+                        print(f"Found series {series_result[0]['ID']} for UID {series_uid}")
                     else:
                         print(f"Warning: Series UID {series_uid} not found")
                 except Exception as e:
-                    print(
-                        f"Warning: Could not lookup series UID {series_uid}: {str(e)}"
-                    )
+                    print(f"Warning: Could not lookup series UID {series_uid}: {e!s}")
         else:
             # Use existing filter (exclude AI results)
             original_series = FilterAIResultSeries(study_id)
@@ -313,20 +300,14 @@ def SendToAiDicom(output, uri, **request):
         instance_ids = []
         for series_id in original_series:
             try:
-                series_instances = json.loads(
-                    orthanc.RestApiGet(f"/series/{series_id}/instances")
-                )
+                series_instances = json.loads(orthanc.RestApiGet(f"/series/{series_id}/instances"))
                 series_instance_ids = [instance["ID"] for instance in series_instances]
                 instance_ids.extend(series_instance_ids)
                 print(f"Series {series_id} has {len(series_instance_ids)} instances")
             except Exception as e:
-                print(
-                    f"Warning: Could not get instances for series {series_id}: {str(e)}"
-                )
+                print(f"Warning: Could not get instances for series {series_id}: {e!s}")
 
-        print(
-            f"Collected {len(instance_ids)} instances from {len(original_series)} series"
-        )
+        print(f"Collected {len(instance_ids)} instances from {len(original_series)} series")
 
         # Try to send the filtered instances using DICOM modality
         try:
@@ -346,7 +327,7 @@ def SendToAiDicom(output, uri, **request):
             }
             output.AnswerBuffer(json.dumps(response_data), "application/json")
         except Exception as e:
-            error_message = f"Failed to send study using DICOM protocol: {str(e)}"
+            error_message = f"Failed to send study using DICOM protocol: {e!s}"
             print(error_message)
             error_response = {"status": "error", "message": error_message}
             output.AnswerBuffer(json.dumps(error_response), "application/json")
@@ -360,7 +341,7 @@ def SendToAiDicom(output, uri, **request):
         output.AnswerBuffer(json.dumps(error_response), "application/json")
 
 
-def SendToAiDicomWeb(output, uri, **request):
+def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOMweb protocol"""
     if request["method"] != "POST":
         output.SendMethodNotAllowed("POST")
@@ -405,8 +386,8 @@ def SendToAiDicomWeb(output, uri, **request):
                 f"SendToAiDicomWeb: Study contains {len(study_info['Series'])} series and {study_info['PatientMainDicomTags'].get('PatientName', 'Unknown')} patient"
             )
         except Exception as e:
-            print(f"SendToAiDicomWeb: Error verifying study existence: {str(e)}")
-            output.SendHttpStatus(404, f"Study with ID {study_id} not found: {str(e)}")
+            print(f"SendToAiDicomWeb: Error verifying study existence: {e!s}")
+            output.SendHttpStatus(404, f"Study with ID {study_id} not found: {e!s}")
             return
 
         # If series_uids not provided, check if study has processable content
@@ -421,9 +402,7 @@ def SendToAiDicomWeb(output, uri, **request):
 
         try:
             # Configure the DICOMweb server
-            print(
-                f"SendToAiDicomWeb: Configuring DICOMweb server {target} with URL {target_url}"
-            )
+            print(f"SendToAiDicomWeb: Configuring DICOMweb server {target} with URL {target_url}")
 
             # Create server configuration
             server_config = {
@@ -439,44 +418,32 @@ def SendToAiDicomWeb(output, uri, **request):
             )
 
             if config_response.status_code not in [200, 201, 204]:
-                error_message = (
-                    f"Error configuring DICOMweb server: {config_response.text}"
-                )
+                error_message = f"Error configuring DICOMweb server: {config_response.text}"
                 print(f"SendToAiDicomWeb: {error_message}")
                 output.SendHttpStatus(500, error_message)
                 return
 
-            print(
-                f"SendToAiDicomWeb: Successfully configured DICOMweb server: {target}"
-            )
+            print(f"SendToAiDicomWeb: Successfully configured DICOMweb server: {target}")
 
             # Get series to send (either by series_uids or filter AI results)
             if series_uids:
                 # Convert DICOM SeriesInstanceUIDs to Orthanc series IDs
-                print(
-                    f"SendToAiDicomWeb: Filtering by {len(series_uids)} specific series UIDs"
-                )
+                print(f"SendToAiDicomWeb: Filtering by {len(series_uids)} specific series UIDs")
                 original_series = []
                 for series_uid in series_uids:
                     try:
-                        lookup_result = json.loads(
-                            orthanc.RestApiPost("/tools/lookup", series_uid)
-                        )
-                        series_result = [
-                            r for r in lookup_result if r["Type"] == "Series"
-                        ]
+                        lookup_result = json.loads(orthanc.RestApiPost("/tools/lookup", series_uid))
+                        series_result = [r for r in lookup_result if r["Type"] == "Series"]
                         if series_result:
                             original_series.append(series_result[0]["ID"])
                             print(
                                 f"SendToAiDicomWeb: Found series {series_result[0]['ID']} for UID {series_uid}"
                             )
                         else:
-                            print(
-                                f"SendToAiDicomWeb: Warning - Series UID {series_uid} not found"
-                            )
+                            print(f"SendToAiDicomWeb: Warning - Series UID {series_uid} not found")
                     except Exception as e:
                         print(
-                            f"SendToAiDicomWeb: Warning - Could not lookup series UID {series_uid}: {str(e)}"
+                            f"SendToAiDicomWeb: Warning - Could not lookup series UID {series_uid}: {e!s}"
                         )
             else:
                 # Use existing filter (exclude AI results)
@@ -495,16 +462,14 @@ def SendToAiDicomWeb(output, uri, **request):
                     series_instances = json.loads(
                         orthanc.RestApiGet(f"/series/{series_id}/instances")
                     )
-                    series_instance_ids = [
-                        instance["ID"] for instance in series_instances
-                    ]
+                    series_instance_ids = [instance["ID"] for instance in series_instances]
                     instance_ids.extend(series_instance_ids)
                     print(
                         f"SendToAiDicomWeb: Series {series_id} has {len(series_instance_ids)} instances"
                     )
                 except Exception as e:
                     print(
-                        f"SendToAiDicomWeb: Warning - Could not get instances for series {series_id}: {str(e)}"
+                        f"SendToAiDicomWeb: Warning - Could not get instances for series {series_id}: {e!s}"
                     )
 
             print(
@@ -531,7 +496,7 @@ def SendToAiDicomWeb(output, uri, **request):
                     if series_dicom_uid:
                         dicom_series_uids.append(series_dicom_uid)
                 except Exception as e:
-                    print(f"Warning: Could not get SeriesInstanceUID for {series_id}: {str(e)}")
+                    print(f"Warning: Could not get SeriesInstanceUID for {series_id}: {e!s}")
 
             # Create UPS workitem on router
             try:
@@ -539,7 +504,7 @@ def SendToAiDicomWeb(output, uri, **request):
                     "study_uid": study_uid,
                     "series_uids": dicom_series_uids,
                     "wado_rs_base": "http://orthanc-viewer:8042/dicom-web",
-                    "priority": "MEDIUM"
+                    "priority": "MEDIUM",
                 }
 
                 if input_mapping:
@@ -555,7 +520,7 @@ def SendToAiDicomWeb(output, uri, **request):
                     post_url,
                     json=ups_workitem_request,
                     headers={"Content-Type": "application/json"},
-                    timeout=10
+                    timeout=10,
                 )
 
                 print(f"SendToAiDicomWeb: POST response status: {ups_response.status_code}")
@@ -566,28 +531,35 @@ def SendToAiDicomWeb(output, uri, **request):
 
                     # Subscribe to workitem notifications (RAD-86)
                     try:
-                        subscribe_url = f"{router_base_url}/ups-rs/workitems/{workitem_uid}/subscribers"
-                        subscribe_body = {
+                        subscribe_url = (
+                            f"{router_base_url}/ups-rs/workitems/{workitem_uid}/subscribers"
+                        )
+                        subscribe_body: dict[str, Any] = {
                             "subscriber_url": "http://orthanc-viewer:8042",
-                            "deletion_lock": False
+                            "deletion_lock": False,
                         }
                         subscribe_response = requests.post(
-                            subscribe_url,
-                            json=subscribe_body,
-                            timeout=5
+                            subscribe_url, json=subscribe_body, timeout=5
                         )
                         if subscribe_response.status_code == 200:
-                            print(f"SendToAiDicomWeb: Successfully subscribed to workitem {workitem_uid}")
+                            print(
+                                f"SendToAiDicomWeb: Successfully subscribed to workitem {workitem_uid}"
+                            )
                         else:
-                            print(f"SendToAiDicomWeb: Subscription failed: {subscribe_response.status_code}")
+                            print(
+                                f"SendToAiDicomWeb: Subscription failed: {subscribe_response.status_code}"
+                            )
                     except Exception as e:
-                        print(f"SendToAiDicomWeb: Error subscribing to workitem: {str(e)}")
+                        print(f"SendToAiDicomWeb: Error subscribing to workitem: {e!s}")
                 else:
-                    print(f"SendToAiDicomWeb: Failed to create UPS workitem: {ups_response.status_code} - {ups_response.text}")
+                    print(
+                        f"SendToAiDicomWeb: Failed to create UPS workitem: {ups_response.status_code} - {ups_response.text}"
+                    )
                     workitem_uid = None
             except Exception as e:
-                print(f"SendToAiDicomWeb: Error creating UPS workitem: {str(e)}")
+                print(f"SendToAiDicomWeb: Error creating UPS workitem: {e!s}")
                 import traceback
+
                 traceback.print_exc()
                 workitem_uid = None
 
@@ -595,10 +567,7 @@ def SendToAiDicomWeb(output, uri, **request):
             if workitem_uid is None:
                 error_message = "Failed to create UPS workitem on router"
                 print(f"SendToAiDicomWeb: {error_message}")
-                error_response = {
-                    "status": "error",
-                    "message": error_message
-                }
+                error_response = {"status": "error", "message": error_message}
                 output.AnswerBuffer(json.dumps(error_response), "application/json")
                 return
 
@@ -617,22 +586,20 @@ def SendToAiDicomWeb(output, uri, **request):
             }
             print(f"SendToAiDicomWeb: Returning success response with workitem_uid={workitem_uid}")
             print(f"SendToAiDicomWeb: Full response: {json.dumps(success_response)}")
-            output.AnswerBuffer(
-                json.dumps(success_response), "application/json"
-            )
+            output.AnswerBuffer(json.dumps(success_response), "application/json")
 
         except Exception as e:
-            error_message = f"Error during STOW-RS request: {str(e)}"
+            error_message = f"Error during STOW-RS request: {e!s}"
             print(f"SendToAiDicomWeb: {error_message}")
             output.SendHttpStatus(500, error_message)
 
     except Exception as e:
-        error_message = f"Error processing request: {str(e)}"
+        error_message = f"Error processing request: {e!s}"
         print(f"SendToAiDicomWeb: {error_message}")
         output.SendHttpStatus(500, error_message)
 
 
-def SendToAi(output, uri, **request):
+def SendToAi(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOMWeb protocol"""
     # This is now just a wrapper around SendToAiDicomWeb for backward compatibility
     print("giving control to SendToAiDicomWeb")
@@ -640,7 +607,7 @@ def SendToAi(output, uri, **request):
 
 
 # UPS-RS endpoints for receiving workitem updates from router
-def UPSUpdateWorkitem(output, uri, **request):
+def UPSUpdateWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     POST /ups-rs/workitems/{uid}
     Receive workitem state updates from router
@@ -650,7 +617,7 @@ def UPSUpdateWorkitem(output, uri, **request):
         return
 
     try:
-        workitem_uid = uri.split('/')[-1]
+        workitem_uid = uri.split("/")[-1]
         body = json.loads(request["body"])
 
         # Store workitem using UPS storage
@@ -661,20 +628,20 @@ def UPSUpdateWorkitem(output, uri, **request):
             state = workitem.get_state()
         else:
             # Fallback: just log if storage not available
-            state = body.get('00741000', {}).get('Value', ['UNKNOWN'])[0]
+            state = body.get("00741000", {}).get("Value", ["UNKNOWN"])[0]
 
         print(f"Received workitem update: {workitem_uid}, state: {state}")
 
         output.AnswerBuffer(json.dumps({"status": "updated"}), "application/json")
     except json.JSONDecodeError as e:
-        print(f"Error updating workitem: malformed JSON: {str(e)}")
-        output.SendHttpStatus(400, f"Malformed JSON: {str(e)}")
+        print(f"Error updating workitem: malformed JSON: {e!s}")
+        output.SendHttpStatus(400, f"Malformed JSON: {e!s}")
     except Exception as e:
-        print(f"Error updating workitem: {str(e)}")
+        print(f"Error updating workitem: {e!s}")
         output.SendHttpStatus(500, str(e))
 
 
-def UPSGetWorkitem(output, uri, **request):
+def UPSGetWorkitem(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ups-rs/workitems/{uid}
     Retrieve workitem from local storage (updated via router notifications)
@@ -684,7 +651,7 @@ def UPSGetWorkitem(output, uri, **request):
         return
 
     try:
-        workitem_uid = uri.split('/')[-1]
+        workitem_uid = uri.split("/")[-1]
         print(f"UPSGetWorkitem: Retrieving workitem {workitem_uid} from local storage")
 
         if not ups_storage:
@@ -699,13 +666,14 @@ def UPSGetWorkitem(output, uri, **request):
             output.SendHttpStatus(404, f"Workitem {workitem_uid} not found")
 
     except Exception as e:
-        print(f"Error retrieving workitem: {str(e)}")
+        print(f"Error retrieving workitem: {e!s}")
         import traceback
+
         traceback.print_exc()
         output.SendHttpStatus(500, str(e))
 
 
-def UPSWorkitemHandler(output, uri, **request):
+def UPSWorkitemHandler(output: Any, uri: str, **request: Any) -> None:
     """
     Unified handler for UPS-RS workitem endpoints
     Routes to appropriate handler based on HTTP method
@@ -718,7 +686,7 @@ def UPSWorkitemHandler(output, uri, **request):
         output.SendMethodNotAllowed("GET, POST")
 
 
-def GetAIManifest(output, uri, **request):
+def GetAIManifest(output: Any, uri: str, **request: Any) -> None:
     """
     GET /ai-manifest?target_url=http://orthanc-router:8042/dicom-web
     Proxy the model input manifest from the target router.

@@ -2,22 +2,27 @@
 MedGemma MRI Classification Service - Flask microservice
 Refactored: Thin HTTP layer delegating to model_service
 """
-import os
-import logging
-from pathlib import Path
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 
+import logging
+import os
+from pathlib import Path
+
+from config import MedGemmaConfig
+from exceptions import (
+    InferenceError,
+    ModelAuthenticationError,
+    ModelNotLoadedError,
+    ResponseParsingError,
+)
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from model_service import MedGemmaModelService
 from shared.config import StorageConfig
 from shared.security_banner import print_security_banner
-from config import MedGemmaConfig
-from model_service import MedGemmaModelService
-from exceptions import ModelNotLoadedError, ModelAuthenticationError, InferenceError, ResponseParsingError
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -37,12 +42,11 @@ def initialize_service():
     medgemma_config = MedGemmaConfig.from_env()
 
     storage_config = StorageConfig(
-        image_folder=Path(os.getenv("IMAGE_FOLDER", "./images")),
-        cleanup_on_start=True
+        image_folder=Path(os.getenv("IMAGE_FOLDER", "./images")), cleanup_on_start=True
     )
 
     # Create necessary directories
-    os.makedirs(storage_config.image_folder, exist_ok=True)
+    Path(storage_config.image_folder).mkdir(parents=True, exist_ok=True)
 
     # Initialize model service
     model_service = MedGemmaModelService(medgemma_config, storage_config)
@@ -108,11 +112,13 @@ def analyze_mri():
 
     except ResponseParsingError as e:
         logger.error(f"Response parsing error: {e}")
-        return jsonify({
-            "error": "Failed to parse model response",
-            "details": str(e),
-            "raw_response": e.raw_response[:500] if e.raw_response else None
-        }), 422
+        return jsonify(
+            {
+                "error": "Failed to parse model response",
+                "details": str(e),
+                "raw_response": e.raw_response[:500] if e.raw_response else None,
+            }
+        ), 422
 
     except InferenceError as e:
         logger.error(f"Inference error: {e}")
@@ -121,6 +127,7 @@ def analyze_mri():
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 

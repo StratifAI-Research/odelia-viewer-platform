@@ -120,3 +120,113 @@ def test_sort_dyn_adds_number_of_sequences_column():
     result = dicom2nfti_onthefly.sort_dyn(df)
     assert '_NumberOfSequences' in result.columns
     assert result['_NumberOfSequences'].iloc[0] == 3
+
+
+# --- dataset2dict / read_metadata against a REAL pydicom Dataset ---
+# Regression guard: a SIM118 autofix once rewrote `for key in ds.keys()` to
+# `for key in ds`, silently breaking every lookup because pydicom's
+# Dataset.__iter__ yields DataElement objects (not tags). The helper-only tests
+# above never exercised a real Dataset, so the suite stayed green while the
+# breast-cancer DICOM->NIfTI path was broken for all real input. These cover it.
+
+def test_dataset2dict_real_dataset(mri_sample_file):
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    result = dicom2nfti_onthefly.dataset2dict(ds)
+    assert isinstance(result, dict)
+    assert result, "dataset2dict returned an empty mapping for a real Dataset"
+    assert all(isinstance(k, str) for k in result)
+    # keyword -> value mapping must match direct tag access
+    assert result["SeriesInstanceUID"] == ds.SeriesInstanceUID
+    assert result["Modality"] == ds.Modality
+    assert "PixelData" not in result  # excluded by default
+
+
+def test_dataset2dict_excludes_requested_keywords(mri_sample_file):
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    result = dicom2nfti_onthefly.dataset2dict(ds, exclude=["Modality"])
+    assert "Modality" not in result
+    assert "SeriesInstanceUID" in result
+
+
+def test_read_metadata_returns_mapping_for_real_dicom(mri_sample_file):
+    import dicom2nfti_onthefly
+    root = mri_sample_file.parent
+    result = dicom2nfti_onthefly.read_metadata((mri_sample_file, root))
+    assert result is not None, "read_metadata must not swallow a real DICOM into None"
+    assert isinstance(result, dict)
+    assert result["_Path"] == mri_sample_file.name
+    assert "SeriesInstanceUID" in result
+
+
+def test_dataset_iter_yields_dataelements_not_tags(mri_sample_file):
+    """Lock in the pydicom footgun behind dataset2dict's `.keys()`: iterating a
+    Dataset yields DataElements, and indexing ds[<DataElement>] raises KeyError.
+    Guards the semantics independently of dataset2dict, so neither can silently
+    regress back to `for key in ds`."""
+    import pydicom
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    elem = next(iter(ds))
+    assert isinstance(elem, pydicom.dataelem.DataElement)  # NOT a tag
+    with pytest.raises(KeyError):
+        _ = ds[elem]
+    tag = next(iter(ds.keys()))
+    assert ds[tag].keyword  # tags DO index correctly
+
+
+def test_get_returns_keyword_for_standard_tag(mri_sample_file):
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file, stop_before_pixels=True)
+    assert dicom2nfti_onthefly.get(ds, pydicom.tag.Tag(0x0008, 0x0060)) == "Modality"
+
+
+def test_get_falls_back_to_name_for_keywordless_element():
+    """get() returns ds[key].name when the element has no keyword (e.g. private tag)."""
+    import pydicom
+    from pydicom.dataset import Dataset
+    import dicom2nfti_onthefly
+    ds = Dataset()
+    ds.add_new(0x00090010, "LO", "ACME")  # private creator -> empty keyword
+    tag = pydicom.tag.Tag(0x0009, 0x0010)
+    assert ds[tag].keyword == ""  # precondition for the fallback branch
+    assert dicom2nfti_onthefly.get(ds, tag) == ds[tag].name
+
+
+def test_read_metadata_logs_and_returns_none_for_unreadable_file(tmp_path, caplog):
+    """read_metadata tolerates an unreadable file by returning None, but must LOG it
+    rather than swallow silently — silent swallowing is how the dataset2dict
+    regression stayed invisible (every slice -> None with no error)."""
+    import logging
+
+    import dicom2nfti_onthefly
+    bad = tmp_path / "not_a.dcm"
+    bad.write_text("definitely not DICOM")
+    with caplog.at_level(logging.WARNING):
+        result = dicom2nfti_onthefly.read_metadata((bad, tmp_path))
+    assert result is None
+    assert any(r.levelno >= logging.WARNING for r in caplog.records), "swallowed silently"
+    assert "not_a.dcm" in caplog.text
+
+
+def test_read_metadata_over_real_series_has_consistent_series_uid(mri_sample_dir):
+    """Every slice of the sample series loads and shares one SeriesInstanceUID."""
+    import dicom2nfti_onthefly
+    files = sorted(mri_sample_dir.glob("*.dcm"))[:25]
+    metas = [dicom2nfti_onthefly.read_metadata((p, mri_sample_dir)) for p in files]
+    assert all(m is not None for m in metas)
+    assert len({m["SeriesInstanceUID"] for m in metas}) == 1
+    assert all(m["_Path"] == p.name for m, p in zip(metas, files, strict=True))
+
+
+def test_dataset2dict_excludes_pixeldata_when_present(mri_sample_file):
+    """Exclusion holds even when PixelData is actually loaded into the Dataset."""
+    import pydicom
+    import dicom2nfti_onthefly
+    ds = pydicom.dcmread(mri_sample_file)  # WITH pixels
+    assert "PixelData" in ds  # precondition: pixels present
+    result = dicom2nfti_onthefly.dataset2dict(ds)
+    assert "PixelData" not in result

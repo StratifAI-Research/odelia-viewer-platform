@@ -2,10 +2,11 @@
 Async streaming client for OpenAI-compatible /v1/chat/completions endpoint.
 Supports both Ollama and llama.cpp backends.
 """
-import json
+
 import asyncio
+import json
 import logging
-from typing import List, Dict, AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
 import aiohttp
 
@@ -18,23 +19,23 @@ class OllamaClient:
     Supports both Ollama and llama.cpp backends via backend_type.
     """
 
-    def __init__(self, base_url: str, model: str, backend_type: str = "ollama"):
+    def __init__(self, base_url: str, model: str, backend_type: str = "ollama") -> None:
         """
         Args:
             base_url: Base URL for the LLM server (e.g., "http://localhost:11434")
             model: Model name to use (e.g., "medgemma-128k")
             backend_type: "ollama" or "llamacpp"
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.model = model
         self.backend_type = backend_type
 
     async def chat_stream(
         self,
-        messages: List[dict],
-        cancel_event: Optional[asyncio.Event] = None,
-        runtime_options: Optional[dict] = None
-    ) -> AsyncGenerator[Dict[str, str], None]:
+        messages: list[dict],
+        cancel_event: asyncio.Event | None = None,
+        runtime_options: dict | None = None,
+    ) -> AsyncGenerator[dict[str, str], None]:
         """
         Stream chat completion tokens from Ollama's OpenAI-compatible endpoint.
 
@@ -56,8 +57,16 @@ class OllamaClient:
 
         # Only add supported OpenAI-compatible parameters
         if runtime_options:
-            for key in ("max_tokens", "temperature", "top_p", "stop", "seed",
-                        "presence_penalty", "frequency_penalty", "think"):
+            for key in (
+                "max_tokens",
+                "temperature",
+                "top_p",
+                "stop",
+                "seed",
+                "presence_penalty",
+                "frequency_penalty",
+                "think",
+            ):
                 if runtime_options.get(key) is not None:
                     payload[key] = runtime_options[key]
 
@@ -67,7 +76,7 @@ class OllamaClient:
         timeout = aiohttp.ClientTimeout(total=300)
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:  # noqa: SIM117
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -87,7 +96,7 @@ class OllamaClient:
                             if not raw_line:
                                 continue
 
-                            line = raw_line.decode('utf-8').strip()
+                            line = raw_line.decode("utf-8").strip()
 
                             if not line:
                                 continue
@@ -96,7 +105,7 @@ class OllamaClient:
                             if not line.startswith("data: "):
                                 continue
 
-                            data = line[len("data: "):]
+                            data = line[len("data: ") :]
 
                             if data == "[DONE]":
                                 logger.debug("SSE stream completed ([DONE])")
@@ -141,14 +150,16 @@ class OllamaClient:
         endpoint = "/health" if self.backend_type == "llamacpp" else "/api/tags"
         try:
             timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"{self.base_url}{endpoint}") as response:
-                    return response.status == 200
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(f"{self.base_url}{endpoint}") as response,
+            ):
+                return response.status == 200
         except Exception as e:
             logger.warning(f"Health check failed ({self.backend_type}): {e}")
             return False
 
-    async def list_models(self) -> List[str]:
+    async def list_models(self) -> list[str]:
         """
         List available models.
         Ollama: GET /api/tags  |  llama.cpp: GET /v1/models
@@ -174,10 +185,10 @@ class OllamaClient:
 
 
 # Global client instance
-_ollama_client: Optional[OllamaClient] = None
+_ollama_client: OllamaClient | None = None
 
 
-def get_ollama_client(base_url: str = None, model: str = None) -> OllamaClient:
+def get_ollama_client(base_url: str | None = None, model: str | None = None) -> OllamaClient:
     """
     Get the global Ollama client singleton.
 
@@ -191,6 +202,7 @@ def get_ollama_client(base_url: str = None, model: str = None) -> OllamaClient:
     global _ollama_client
     if _ollama_client is None:
         from config import get_config
+
         config = get_config()
         _ollama_client = OllamaClient(
             base_url=base_url or config.ollama_url,

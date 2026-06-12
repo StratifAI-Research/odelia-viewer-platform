@@ -6,9 +6,9 @@ configurations and is visible in `docker compose logs`.
 Suppress with `ODELIA_SUPPRESS_SECURITY_BANNER=1` once you have read
 docs/production-hardening.md and intentionally accept the posture.
 """
+
 import os
 import sys
-
 
 _BANNER_LINES = [
     "",

@@ -2,20 +2,20 @@
 Breast Cancer Model Service - Orchestrates the entire inference pipeline
 Single Responsibility: Model orchestration and inference
 """
+
 import logging
+
 import torch
-from pathlib import Path
-from monai.networks import nets
-
-from shared.timing_utils import time_operation
-from shared.config import StorageConfig
-
+import torchio as tio
 from config import BreastCancerConfig
-from exceptions import ModelNotLoadedError, InferenceError
 from dicom_converter import convert_to_unilateral_nifti
+from exceptions import InferenceError, ModelNotLoadedError
+from monai.networks import nets
 from preprocessing import get_preprocessing_pipeline, preprocess_for_side
 from response_builder import build_bilateral_classification
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
+from shared.config import StorageConfig
+from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class BreastCancerModelService:
     """Service for breast cancer model inference"""
 
-    def __init__(self, bc_config: BreastCancerConfig, storage_config: StorageConfig):
+    def __init__(self, bc_config: BreastCancerConfig, storage_config: StorageConfig) -> None:
         """
         Initialize breast cancer model service
 
@@ -46,11 +46,7 @@ class BreastCancerModelService:
 
             # Load ResNet model
             self.model = nets.ResNet(
-                "basic",
-                [2, 2, 2, 2],
-                [64, 128, 256, 512],
-                n_input_channels=2,
-                num_classes=1
+                "basic", [2, 2, 2, 2], [64, 128, 256, 512], n_input_channels=2, num_classes=1
             )
 
             # Uncomment when checkpoint is available
@@ -68,6 +64,7 @@ class BreastCancerModelService:
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -113,18 +110,17 @@ class BreastCancerModelService:
                     results[side] = side_result
                 except Exception as e:
                     logger.error(f"Error processing {side} side: {e}")
-                    results[side] = {"error": f"Processing error for {side} side: {str(e)}"}
+                    results[side] = {"error": f"Processing error for {side} side: {e!s}"}
 
             # Step 5: Build response
-            response = build_bilateral_classification(results["left"], results["right"])
-
-            return response
+            return build_bilateral_classification(results["left"], results["right"])
 
         except Exception as e:
             logger.error(f"Error during MRI analysis: {e}")
             import traceback
+
             traceback.print_exc()
-            raise InferenceError(f"Analysis failed: {str(e)}") from e
+            raise InferenceError(f"Analysis failed: {e!s}") from e
 
     def _create_retrieval_strategy(self, request_data: dict) -> RetrievalStrategy:
         """
@@ -139,14 +135,15 @@ class BreastCancerModelService:
         wado_rs_retrieval = request_data.get("wado_rs_retrieval")
 
         if not wado_rs_retrieval:
-            raise ValueError("Missing required field 'wado_rs_retrieval'. Legacy 'seriesInstanceUID' format is no longer supported.")
+            raise ValueError(
+                "Missing required field 'wado_rs_retrieval'. Legacy 'seriesInstanceUID' format is no longer supported."
+            )
 
-        return WadoRSRetrieval(
-            wado_rs_retrieval,
-            self.storage_config
-        )
+        return WadoRSRetrieval(wado_rs_retrieval, self.storage_config)
 
-    def _process_side(self, side: str, nifties: dict, transform) -> dict:
+    def _process_side(
+        self, side: str, nifties: dict[str, tio.ScalarImage], transform: tio.Compose
+    ) -> dict[str, object]:
         """
         Process one side (left or right) breast
 
@@ -177,15 +174,14 @@ class BreastCancerModelService:
             model_input = preprocess_for_side(pre, post, transform, self.bc_config.device)
 
         # Run inference
-        with time_operation(f"{side}_inference", logger):
-            with torch.inference_mode():
-                prob = torch.sigmoid(self.model(model_input)).item()
+        with time_operation(f"{side}_inference", logger), torch.inference_mode():
+            prob = torch.sigmoid(self.model(model_input)).item()
 
         logger.info(f"  {side}: Model output probability={prob:.4f}")
 
         result = {
             "prediction": "Cancerous" if prob > 0.5 else "Not Cancerous",
-            "confidence": round((prob if prob > 0.5 else 1 - prob) * 100, 2)
+            "confidence": round((prob if prob > 0.5 else 1 - prob) * 100, 2),
         }
 
         logger.info(f"  {side}: Result={result}")
@@ -201,5 +197,5 @@ class BreastCancerModelService:
         return {
             "status": "healthy",
             "model_loaded": self.model is not None,
-            "device": self.bc_config.device
+            "device": self.bc_config.device,
         }

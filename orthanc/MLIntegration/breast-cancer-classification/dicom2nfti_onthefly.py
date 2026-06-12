@@ -1,42 +1,55 @@
-import os
-from shutil import copyfile
+import logging
 import tempfile
 from pathlib import Path
+from shutil import copyfile
+
 import numpy as np
 import pandas as pd
 import pydicom
-import torchio as tio
 import torch
+import torchio as tio
+
+logger = logging.getLogger(__name__)
 
 
-def maybe_convert(x):
-    if isinstance(x, (pydicom.sequence.Sequence, pydicom.dataset.Dataset)):
+def maybe_convert(x: object) -> object:
+    if isinstance(x, pydicom.sequence.Sequence | pydicom.dataset.Dataset):
         return None  # Don't store complex nested data
-    elif isinstance(x, pydicom.multival.MultiValue):
+    if isinstance(x, pydicom.multival.MultiValue):
         return list(x)
-    elif isinstance(x, pydicom.valuerep.PersonName):
+    if isinstance(x, pydicom.valuerep.PersonName):
         return str(x)
-    elif isinstance(x, pydicom.valuerep.DSfloat):
+    if isinstance(x, pydicom.valuerep.DSfloat):
         return float(x)
-    elif isinstance(x, pydicom.valuerep.IS):
+    if isinstance(x, pydicom.valuerep.IS):
         return int(x)
     return x
 
 
-def get(ds, key):
+def get(ds: pydicom.dataset.Dataset, key: pydicom.tag.BaseTag | tuple[int, int] | int) -> str:
     keyword = ds[key].keyword
     if keyword == "":
         return ds[key].name
     return keyword
 
 
-def dataset2dict(ds, exclude=['PixelData', 'Overlay Data']):
-    return {get(ds, key): maybe_convert(ds[key].value)
-            for key in ds.keys()
-            if get(ds, key) not in exclude}
+def dataset2dict(
+    ds: pydicom.dataset.Dataset, exclude: list[str] | None = None
+) -> dict[str, object]:
+    if exclude is None:
+        exclude = ["PixelData", "Overlay Data"]
+    # NOTE: pydicom's Dataset.__iter__ yields DataElement objects, not tags, while
+    # .keys() yields BaseTag. We index ds[key] by tag, so we MUST iterate .keys().
+    # Do not let ruff SIM118 rewrite this to `for key in ds` — it silently breaks
+    # every lookup with KeyError (see test_dataset2dict_real_dataset).
+    return {
+        get(ds, key): maybe_convert(ds[key].value)
+        for key in ds.keys()  # noqa: SIM118
+        if get(ds, key) not in exclude
+    }
 
 
-def read_metadata(args):
+def read_metadata(args: tuple[Path, Path]) -> dict[str, object] | None:
     path_dcm, path_root_data = args
     try:
         # Try to read the DICOM file
@@ -44,41 +57,43 @@ def read_metadata(args):
 
         # Extract metadata
         meta_dict = dataset2dict(ds)
-        meta_dict['_Path'] = str(path_dcm.relative_to(path_root_data))
+        meta_dict["_Path"] = str(path_dcm.relative_to(path_root_data))
         return meta_dict
 
-    except Exception as e:
+    except Exception:
+        # Tolerate unreadable/non-DICOM files by skipping them, but DO NOT swallow
+        # silently: a programming bug (e.g. the dataset2dict KeyError regression)
+        # would otherwise turn every slice into None and vanish without a trace.
+        logger.warning("read_metadata: skipping unreadable DICOM %s", path_dcm, exc_info=True)
         return None
 
 
-def sort_dyn(df_dyn):
+def sort_dyn(df_dyn: pd.DataFrame) -> pd.DataFrame | None:
     # Get n unique Trigger Time and assign index 0 to the smallest and n-1 to the largest trigger time
-    df_dyn['TriggerIndex'] = df_dyn['TriggerTime'].rank(method='dense').dropna().astype(int) - 1
+    df_dyn["TriggerIndex"] = df_dyn["TriggerTime"].rank(method="dense").dropna().astype(int) - 1
 
     # Verify equal number of slices per dynamic:
     # assert np.unique(df_dyn['TriggerIndex'].value_counts().values).size == 1, "Unequal number of slices per dynamic"
-    if np.unique(df_dyn['TriggerIndex'].value_counts().values).size != 1:
+    if np.unique(df_dyn["TriggerIndex"].value_counts().values).size != 1:
         print(f"Excluding {df_dyn.name}, unequal number of slices")
-        print(df_dyn['TriggerIndex'].value_counts())
+        print(df_dyn["TriggerIndex"].value_counts())
         return None
 
         # Define the sequence name mapping based on the trigger index
-    name_mapping = {0: 'Pre'}
-    name_mapping.update({i: f'Post_{i}' for i in range(1, int(df_dyn['TriggerIndex'].max()) + 1)})
+    name_mapping = {0: "Pre"}
+    name_mapping.update({i: f"Post_{i}" for i in range(1, int(df_dyn["TriggerIndex"].max()) + 1)})
 
     # Assign names based on Trigger Index: {0:'Pre', 1:'Post_1, 2:'Post_2', ...}
-    df_dyn['_SequenceName'] = df_dyn['TriggerIndex'].map(name_mapping)
+    df_dyn["_SequenceName"] = df_dyn["TriggerIndex"].map(name_mapping)
 
     # Add the total number of dynamic sequences to the DataFrame
-    df_dyn['_NumberOfSequences'] = df_dyn['TriggerIndex'].max() + 1
+    df_dyn["_NumberOfSequences"] = df_dyn["TriggerIndex"].max() + 1
 
     # Drop the TriggerIndex column if you don't want to keep it
-    df_dyn = df_dyn.drop(columns=['TriggerIndex'])
-
-    return df_dyn
+    return df_dyn.drop(columns=["TriggerIndex"])
 
 
-def dicom2nii(item, path_data_dicom):
+def dicom2nii(item: tuple[str, list[str]], path_data_dicom: Path) -> tuple[str, tio.ScalarImage]:
     series_instance_uid, paths_dicoms = item
 
     # Create temporary folder
@@ -96,29 +111,35 @@ def dicom2nii(item, path_data_dicom):
         # Force load tensor into memory and create new image without file references
         # This ensures data persists after temp directory is deleted
         tensor_data = img.data.clone()  # Clone the tensor to memory
-        affine = img.affine.clone() if isinstance(img.affine, torch.Tensor) else torch.tensor(img.affine)
+        affine = (
+            img.affine.clone() if isinstance(img.affine, torch.Tensor) else torch.tensor(img.affine)
+        )
 
     # Create new image from in-memory tensor (no file dependencies)
     img_in_memory = tio.ScalarImage(tensor=tensor_data, affine=affine)
 
     # Create output folder
-    study_uid, series_name = series_instance_uid.split('_', 1)  # WARNING: Assumes no "_" in study_uid
+    study_uid, series_name = series_instance_uid.split(
+        "_", 1
+    )  # WARNING: Assumes no "_" in study_uid
 
     return series_name, img_in_memory
 
 
-def dicom_to_unilateral_nifti(dicom_folder: Path, nifti_output_folder=None):
+def dicom_to_unilateral_nifti(
+    dicom_folder: Path, nifti_output_folder: Path | None = None
+) -> dict[str, tio.ScalarImage]:
     """
     Receives a dicom folder in which all dicom files are used to create the according nifti file in a unilateral version.
     If parameter nifti_output_folder is not None, the generated nifti file is saved under the provided path.
     nifti_output_folder will be created in case it does not already exist.
     """
     if nifti_output_folder:
-        os.makedirs(nifti_output_folder, exist_ok=True)
+        nifti_output_folder.mkdir(parents=True, exist_ok=True)
 
     # Read all Dicoms
     metadata_list = []
-    for path_dcm in dicom_folder.rglob('*.dcm'):
+    for path_dcm in dicom_folder.rglob("*.dcm"):
         metadata = read_metadata((path_dcm, dicom_folder))
         metadata_list.append(metadata)
 
@@ -128,26 +149,28 @@ def dicom_to_unilateral_nifti(dicom_folder: Path, nifti_output_folder=None):
 
     # For T1: seperate dynamic
     df = sort_dyn(df)  # Will add column '_SequenceName' and '_NumberOfSequences'
-    df['_SeriesInstanceUID'] = df['SeriesInstanceUID'] + '_' + df['_SequenceName']
+    df["_SeriesInstanceUID"] = df["SeriesInstanceUID"] + "_" + df["_SequenceName"]
 
     # For T2:
     # df['_SeriesInstanceUID'] = df['SeriesInstanceUID']+'_'+"T2"
 
     target_shape = (512, 512, 32)
     left_right_split = {
-        'right': tio.Crop((256, 0, 0, 0, 0, 0)),
-        'left': tio.Crop((0, 256, 0, 0, 0, 0)),
+        "right": tio.Crop((256, 0, 0, 0, 0, 0)),
+        "left": tio.Crop((0, 256, 0, 0, 0, 0)),
     }
 
     # DIOCM to TorchIO
     nifties = {}
-    series_paths = df.groupby('_SeriesInstanceUID')['_Path'].apply(lambda x: x.to_list())
+    series_paths = df.groupby("_SeriesInstanceUID")["_Path"].apply(lambda x: x.to_list())
     for series_path in series_paths.items():
         series_name, img = dicom2nii(series_path, dicom_folder)
         # img.save(f'{series_name}.nii.gz') # Optional save
 
         # Split
-        padding_value = img.data.min().item()  # padding_mode='minimum' calcs minimum per axis, but we want it globally
+        padding_value = (
+            img.data.min().item()
+        )  # padding_mode='minimum' calcs minimum per axis, but we want it globally
         crop_or_pad = tio.CropOrPad(target_shape, padding_mode=padding_value)
         cropped_img = crop_or_pad(img)
 

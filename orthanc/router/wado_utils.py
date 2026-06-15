@@ -22,6 +22,9 @@ def retrieve_series_metadata_sorted(
         - list_of_positions: list of ImagePositionPatient [x,y,z] for each frame in order
         - slice_spacing: calculated spacing as fallback (float)
     """
+    if not wado_rs_retrieval:
+        raise ValueError("wado_rs_retrieval is empty; expected at least one series retrieval entry")
+
     first_retrieval = wado_rs_retrieval[0]
     base_url = first_retrieval["retrieval_url"].split("/studies/")[0]
 

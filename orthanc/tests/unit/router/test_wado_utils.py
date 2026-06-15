@@ -35,14 +35,16 @@ def test_retrieve_series_metadata_sorts_by_instance_number(wado_fake):
     assert spacing >= 0.0
 
 
-def test_retrieve_series_metadata_empty_list_raises_index_error():
-    """Empty wado_rs_retrieval raises IndexError on `first_retrieval = wado_rs_retrieval[0]`.
+def test_retrieve_series_metadata_empty_list_raises_value_error():
+    """B7 (ODV-193): empty wado_rs_retrieval is invalid input and must be rejected
+    up front with a clear ValueError, not an opaque IndexError from
+    `first_retrieval = wado_rs_retrieval[0]`.
 
-    Pinned to a single exception class per IEC 62304 §5.5.2 (validation contracts must
-    specify one outcome). A refactor that introduces upfront validation raising ValueError
-    will fail this test and force a deliberate spec decision."""
+    Pinned to a single exception class per IEC 62304 §5.5.2 (validation contracts
+    must specify one outcome). This supersedes the previous IndexError contract as a
+    deliberate spec decision."""
     from wado_utils import retrieve_series_metadata_sorted
-    with pytest.raises(IndexError):
+    with pytest.raises(ValueError, match="empty"):
         retrieve_series_metadata_sorted([])
 
 

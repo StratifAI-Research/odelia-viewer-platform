@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -341,6 +342,57 @@ def SendToAiDicom(output: Any, uri: str, **request: Any) -> None:
         output.AnswerBuffer(json.dumps(error_response), "application/json")
 
 
+def _is_valid_server_name(target: str) -> bool:
+    """A DICOMweb server name is interpolated into an Orthanc REST path
+    (/dicom-web/servers/{target}), so restrict it to a strict allowlist. This
+    blocks path injection (slashes, dots, traversal) and other URL-altering
+    characters from the request body.
+    """
+    return bool(target) and re.fullmatch(r"[A-Za-z0-9_-]+", target) is not None
+
+
+def _configure_dicomweb_server(
+    target: str, target_url: str, username: str, password: str
+) -> None:
+    """Register/update a DICOMweb server on the local Orthanc over its internal
+    REST channel. Using orthanc.RestApiPut (rather than a plaintext requests.put
+    to a hard-coded localhost endpoint) keeps credentials off the wire and needs
+    no socket timeout. Raises on failure.
+    """
+    server_config = {
+        "Url": target_url,
+        "Username": username,
+        "Password": password,
+        "HttpHeaders": {},
+    }
+    orthanc.RestApiPut(f"/dicom-web/servers/{target}", json.dumps(server_config))
+
+
+def _classify_ups_creation(status_code: int, response: Any) -> tuple[str | None, str]:
+    """Classify the router's UPS-workitem-create response.
+
+    Distinguishes a clean rejection from a partial state so callers can detect
+    when a workitem may have been created on the router but its UID never came
+    back (an orphan we cannot track or roll back).
+
+    Returns (workitem_uid, outcome):
+        - "created":  2xx and a workitem UID was returned.
+        - "partial":  2xx but no parseable UID — a workitem may exist on the
+                      router and is now orphaned.
+        - "rejected": non-2xx — the router refused; no side effect expected.
+    """
+    if status_code not in (200, 201):
+        return None, "rejected"
+    try:
+        data = response.json()
+        workitem_uid = data.get("00080018", {}).get("Value", [None])[0]
+    except (ValueError, AttributeError, KeyError, TypeError):
+        workitem_uid = None
+    if workitem_uid is None:
+        return None, "partial"
+    return workitem_uid, "created"
+
+
 def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
     """REST endpoint to send a study to target server using DICOMweb protocol"""
     if request["method"] != "POST":
@@ -366,6 +418,11 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
         if not study_id or not target:
             print("SendToAiDicomWeb: Missing required parameters")
             output.SendHttpStatus(400, "Missing study_id or target in request body")
+            return
+
+        if not _is_valid_server_name(target):
+            print(f"SendToAiDicomWeb: Invalid target server name: {target!r}")
+            output.SendHttpStatus(400, "Invalid target server name")
             return
 
         if not target_url:
@@ -401,24 +458,19 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
             return
 
         try:
-            # Configure the DICOMweb server
+            # Configure the DICOMweb server over Orthanc's internal REST channel
+            # (keeps credentials off the wire; no plaintext localhost HTTP call).
             print(f"SendToAiDicomWeb: Configuring DICOMweb server {target} with URL {target_url}")
 
-            # Create server configuration
-            server_config = {
-                "Url": target_url,
-                "Username": body.get("username", ""),
-                "Password": body.get("password", ""),
-                "HttpHeaders": {},
-            }
-
-            # Configure the server using direct HTTP request
-            config_response = requests.put(
-                f"http://localhost:8042/dicom-web/servers/{target}", json=server_config
-            )
-
-            if config_response.status_code not in [200, 201, 204]:
-                error_message = f"Error configuring DICOMweb server: {config_response.text}"
+            try:
+                _configure_dicomweb_server(
+                    target,
+                    target_url,
+                    body.get("username", ""),
+                    body.get("password", ""),
+                )
+            except Exception as e:
+                error_message = f"Error configuring DICOMweb server: {e!s}"
                 print(f"SendToAiDicomWeb: {error_message}")
                 output.SendHttpStatus(500, error_message)
                 return
@@ -524,9 +576,10 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
                 )
 
                 print(f"SendToAiDicomWeb: POST response status: {ups_response.status_code}")
-                if ups_response.status_code in [200, 201]:
-                    ups_workitem_data = ups_response.json()
-                    workitem_uid = ups_workitem_data.get("00080018", {}).get("Value", [None])[0]
+                workitem_uid, ups_outcome = _classify_ups_creation(
+                    ups_response.status_code, ups_response
+                )
+                if ups_outcome == "created":
                     print(f"SendToAiDicomWeb: Created UPS workitem on router: {workitem_uid}")
 
                     # Subscribe to workitem notifications (RAD-86)
@@ -551,23 +604,46 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
                             )
                     except Exception as e:
                         print(f"SendToAiDicomWeb: Error subscribing to workitem: {e!s}")
-                else:
+                elif ups_outcome == "partial":
+                    # Router accepted the create (2xx) but returned no UID: a workitem
+                    # may have been created on the router and is now orphaned. We have
+                    # no UID to roll it back, so log loudly to make it detectable.
+                    print(
+                        f"SendToAiDicomWeb: PARTIAL STATE — router returned "
+                        f"{ups_response.status_code} but no workitem UID; a UPS workitem "
+                        f"may have been created on the router for study {study_uid} and is "
+                        f"now orphaned. Manual reconciliation may be required."
+                    )
+                else:  # rejected
                     print(
                         f"SendToAiDicomWeb: Failed to create UPS workitem: {ups_response.status_code} - {ups_response.text}"
                     )
-                    workitem_uid = None
             except Exception as e:
                 print(f"SendToAiDicomWeb: Error creating UPS workitem: {e!s}")
                 import traceback
 
                 traceback.print_exc()
                 workitem_uid = None
+                ups_outcome = "error"
 
-            # Check if workitem creation succeeded
+            # Check if workitem creation succeeded. A partial state (router created a
+            # workitem but its UID was lost) is reported distinctly so callers can
+            # detect the orphan rather than treating it as a clean failure.
             if workitem_uid is None:
-                error_message = "Failed to create UPS workitem on router"
+                if ups_outcome == "partial":
+                    error_message = (
+                        "UPS workitem may have been created on the router but its UID was "
+                        "not returned (partial state); manual reconciliation may be required"
+                    )
+                    error_response = {
+                        "status": "partial_error",
+                        "message": error_message,
+                        "study_id": study_id,
+                    }
+                else:
+                    error_message = "Failed to create UPS workitem on router"
+                    error_response = {"status": "error", "message": error_message}
                 print(f"SendToAiDicomWeb: {error_message}")
-                error_response = {"status": "error", "message": error_message}
                 output.AnswerBuffer(json.dumps(error_response), "application/json")
                 return
 

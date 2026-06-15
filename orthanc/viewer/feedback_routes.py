@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 from typing import Any
 
@@ -175,23 +177,16 @@ def FeedbackExportCsv(output: Any, uri: str, **request: Any) -> None:
         header, rows_iter = feedback_db.export_rows_csv(
             since, until, model_name, model_version, scope
         )
-        lines = [header]
+        # Use csv.writer so values containing commas, quotes, or newlines are
+        # properly quoted/escaped instead of corrupting the column layout.
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\n")
+        writer.writerow(header.rstrip("\n").split(","))
         for r in rows_iter:
-            # Ensure proper CSV escaping by replacing potential commas/newlines in fields if any
-            # Our schema contains simple fields; keep minimal
-            fields = [
-                str(r[0]),
-                str(r[1]),
-                str(r[2]),
-                str(r[3]),
-                str(r[4]),
-                str(int(r[5])),
-                str(int(r[6])),
-                str(r[7]),
-                str(r[8]),
-            ]
-            lines.append(",".join(fields) + "\n")
-        output.AnswerBuffer("".join(lines), "text/csv")
+            writer.writerow(
+                [r[0], r[1], r[2], r[3], r[4], int(r[5]), int(r[6]), r[7], r[8]]
+            )
+        output.AnswerBuffer(buf.getvalue(), "text/csv")
     except Exception as e:
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))
 

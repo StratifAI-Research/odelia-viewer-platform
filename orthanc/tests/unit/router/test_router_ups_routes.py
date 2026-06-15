@@ -113,6 +113,23 @@ def test_create_workitem_missing_study_uid_returns_400(out, routes):
     assert out.status == 400
 
 
+def test_create_workitem_empty_series_uids_returns_400(out, routes):
+    """B3: an empty series_uids list yields no WADO-RS retrieval targets and would
+    crash downstream at retrieval[0]. Reject it at intake with 400."""
+    body = json.dumps({"study_uid": "1.2.3", "series_uids": []}).encode()
+    with mock.patch('ups.routes.process_workitem'):
+        routes.CreateWorkitem(out, '/ups-rs/workitems', method='POST', body=body, groups=[])
+    assert out.status == 400
+
+
+def test_create_workitem_missing_series_uids_returns_400(out, routes):
+    """B3: series_uids omitted entirely is equally unprocessable -> 400."""
+    body = json.dumps({"study_uid": "1.2.3"}).encode()
+    with mock.patch('ups.routes.process_workitem'):
+        routes.CreateWorkitem(out, '/ups-rs/workitems', method='POST', body=body, groups=[])
+    assert out.status == 400
+
+
 def test_create_workitem_happy_path_returns_200(out, routes):
     body = json.dumps({
         "study_uid": "1.2.3",
@@ -225,6 +242,38 @@ def test_update_workitem_state_happy_path(out, routes):
     assert retrieved.get_state() == "IN_PROGRESS"
 
 
+def test_update_workitem_state_progress_info_is_text_not_ds(out, routes):
+    """B1: progress_info is free text. It must be recorded as the Procedure Step
+    Progress *Description* (00741006, VR ST) and must never be stuffed into the
+    numeric Procedure Step Progress DS tag (00741004), which only accepts a
+    decimal string."""
+    wi = _make_workitem()
+    from ups.storage import ups_storage
+    ups_storage.store_workitem(wi)
+    body = json.dumps(
+        {"state": "IN_PROGRESS", "progress_info": "Processing the study"}
+    ).encode()
+    routes.UpdateWorkitemState(
+        out, f'/ups-rs/workitems/{wi.workitem_uid}/state',
+        method='PUT', body=body, groups=[wi.workitem_uid],
+    )
+    assert out.status == 200
+
+    stored = ups_storage.get_workitem(wi.workitem_uid).data
+    progress_seq = stored.get("00741002", {}).get("Value", [])
+    progress_item = progress_seq[0] if progress_seq else {}
+
+    # Free text must NOT be written to the numeric DS progress tag.
+    assert "00741004" not in progress_item, (
+        "free-text progress_info leaked into DS tag 00741004"
+    )
+    # It SHOULD be recorded as the progress description (ST).
+    assert (
+        progress_item.get("00741006", {}).get("Value", [None])[0]
+        == "Processing the study"
+    )
+
+
 # ---------------------------------------------------------------------------
 # QueryWorkitems
 # ---------------------------------------------------------------------------
@@ -273,6 +322,23 @@ def test_query_workitems_empty_returns_empty_list(out, routes):
     routes.QueryWorkitems(out, '/ups-rs/workitems', method='GET', body=b'', get={})
     assert out.status == 200
     assert json.loads(out.body) == []
+
+
+def test_query_workitems_state_filter_as_bare_string(out, routes):
+    """B2: when the query param arrives as a bare string (not a list), the filter
+    must use the whole value, not its first character. Indexing [0] on a str would
+    turn 'SCHEDULED' into 'S' and silently match nothing."""
+    wi = _make_workitem()
+    from ups.storage import ups_storage
+    ups_storage.store_workitem(wi)  # state SCHEDULED
+    routes.QueryWorkitems(
+        out, '/ups-rs/workitems', method='GET', body=b'',
+        get={"state": "SCHEDULED"},
+    )
+    assert out.status == 200
+    result = json.loads(out.body)
+    assert len(result) == 1
+    assert result[0]["00080018"]["Value"][0] == wi.workitem_uid
 
 
 # ---------------------------------------------------------------------------

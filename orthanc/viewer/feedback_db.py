@@ -3,7 +3,7 @@ import os
 import sqlite3
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,20 @@ def _ensure_dir(path: str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def _apply_wal(cx: sqlite3.Connection) -> None:
+    """Enable WAL journaling and verify it actually took effect.
+
+    Real failures (the PRAGMA erroring, or the database refusing WAL) surface as
+    exceptions rather than being swallowed, so a silently degraded journal mode
+    cannot go unnoticed. Does not log — callers open many connections, so per-
+    connection chatter is avoided.
+    """
+    row = cx.execute("PRAGMA journal_mode=WAL;").fetchone()
+    mode = row[0] if row is not None else ""
+    if str(mode).lower() != "wal":
+        raise RuntimeError(f"WAL requested but journal_mode is {mode!r}")
+
+
 def _connect() -> sqlite3.Connection:
     # check_same_thread=False to allow usage from handler threads
     cx = sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000.0, check_same_thread=False)
@@ -38,13 +52,7 @@ def _connect() -> sqlite3.Connection:
     cx.execute("PRAGMA foreign_keys=ON;")
     # WAL and busy timeout
     if ENABLE_WAL:
-        try:
-            row = cx.execute("PRAGMA journal_mode=WAL;").fetchone()
-            mode: str = row[0] if row is not None else ""
-            assert mode.lower() == "wal", f"journal_mode is {mode}"
-            print(mode)
-        except Exception as e:
-            print(e)
+        _apply_wal(cx)
     cx.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS};")
     return cx
 
@@ -374,6 +382,58 @@ def register_result(
         cx.close()
 
 
+def _build_export_query(
+    since: str | None,
+    until: str | None,
+    model_name: str | None,
+    model_version: str | None,
+    scope: str,
+) -> tuple[str, list[str]]:
+    """Build the export SELECT + bound args for the requested scope.
+
+    history scope reads the append-only feedback_event table (alias ``e``);
+    current scope reads the v_feedback_current view (alias ``c``). The created_at
+    filter is built against whichever alias the scope selects, so the two query
+    variants are constructed explicitly rather than string-rewriting ``e.`` into
+    ``c.`` (which was fragile and easy to break).
+    """
+    row_alias = "c" if scope == "current" else "e"
+    clauses: list[str] = []
+    args: list[str] = []
+    if since:
+        clauses.append(f"{row_alias}.created_at >= ?")
+        args.append(since)
+    if until:
+        clauses.append(f"{row_alias}.created_at <= ?")
+        args.append(until)
+    if model_name:
+        clauses.append("r.model_name = ?")
+        args.append(model_name)
+    if model_version:
+        clauses.append("r.model_version = ?")
+        args.append(model_version)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    if scope == "current":
+        sql = f"""
+            SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
+                   c.user_id, c.verdict_L, c.verdict_R, c.created_at, c.submission_kind
+            FROM v_feedback_current c
+            JOIN ai_result_ref r ON r.id = c.ai_result_id
+            {where}
+            ORDER BY c.created_at ASC
+        """
+    else:
+        sql = f"""
+            SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
+                   e.user_id, e.verdict_L, e.verdict_R, e.created_at, e.submission_kind
+            FROM feedback_event e
+            JOIN ai_result_ref r ON r.id = e.ai_result_id
+            {where}
+            ORDER BY e.created_at ASC
+        """
+    return sql, args
+
+
 def export_rows_ndjson(
     since: str | None = None,
     until: str | None = None,
@@ -384,39 +444,7 @@ def export_rows_ndjson(
     initialize()
     cx = _connect()
     try:
-        clauses = []
-        args: list[str] = []
-        if since:
-            clauses.append("e.created_at >= ?")
-            args.append(since)
-        if until:
-            clauses.append("e.created_at <= ?")
-            args.append(until)
-        if model_name:
-            clauses.append("r.model_name = ?")
-            args.append(model_name)
-        if model_version:
-            clauses.append("r.model_version = ?")
-            args.append(model_version)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        if scope == "current":
-            sql = f"""
-                SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
-                       c.user_id, c.verdict_L, c.verdict_R, c.created_at, c.submission_kind
-                FROM v_feedback_current c
-                JOIN ai_result_ref r ON r.id = c.ai_result_id
-                {where.replace("e.", "c.")}
-                ORDER BY c.created_at ASC
-            """
-        else:
-            sql = f"""
-                SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
-                       e.user_id, e.verdict_L, e.verdict_R, e.created_at, e.submission_kind
-                FROM feedback_event e
-                JOIN ai_result_ref r ON r.id = e.ai_result_id
-                {where}
-                ORDER BY e.created_at ASC
-            """
+        sql, args = _build_export_query(since, until, model_name, model_version, scope)
         for r in cx.execute(sql, args):
             # Manual JSON to avoid importing json here; caller will add newlines
             obj = {
@@ -444,48 +472,18 @@ def export_rows_csv(
 ) -> tuple[str, Iterable[sqlite3.Row]]:
     header = "study_uid,model_name,model_version,result_ts,user_id,verdict_L,verdict_R,created_at,submission_kind\n"
     initialize()
+    # Materialize within a bounded connection lifetime: a lazy generator over a
+    # connection opened here could leak the connection if the caller never
+    # iterates it (or close it mid-stream under lazy consumption). The export is
+    # bounded, so fetching all rows and closing deterministically is safe.
     cx = _connect()
+    try:
+        sql, args = _build_export_query(since, until, model_name, model_version, scope)
+        rows = cx.execute(sql, args).fetchall()
+    finally:
+        cx.close()
 
-    def _iter() -> Generator[sqlite3.Row, None, None]:
-        try:
-            clauses = []
-            args: list[str] = []
-            if since:
-                clauses.append("e.created_at >= ?")
-                args.append(since)
-            if until:
-                clauses.append("e.created_at <= ?")
-                args.append(until)
-            if model_name:
-                clauses.append("r.model_name = ?")
-                args.append(model_name)
-            if model_version:
-                clauses.append("r.model_version = ?")
-                args.append(model_version)
-            where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-            if scope == "current":
-                sql = f"""
-                    SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
-                           c.user_id, c.verdict_L, c.verdict_R, c.created_at, c.submission_kind
-                    FROM v_feedback_current c
-                    JOIN ai_result_ref r ON r.id = c.ai_result_id
-                    {where.replace("e.", "c.")}
-                    ORDER BY c.created_at ASC
-                """
-            else:
-                sql = f"""
-                    SELECT r.study_uid, r.model_name, r.model_version, r.result_ts,
-                           e.user_id, e.verdict_L, e.verdict_R, e.created_at, e.submission_kind
-                    FROM feedback_event e
-                    JOIN ai_result_ref r ON r.id = e.ai_result_id
-                    {where}
-                    ORDER BY e.created_at ASC
-                """
-            yield from cx.execute(sql, args)
-        finally:
-            cx.close()
-
-    return header, _iter()
+    return header, rows
 
 
 def health() -> dict[str, Any]:

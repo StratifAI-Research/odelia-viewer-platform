@@ -173,3 +173,48 @@ def test_save_dicom_bytes_to_folder_propagates_open_error(tmp_path, monkeypatch)
 
     with pytest.raises(OSError, match="No space left"):
         save_dicom_bytes_to_folder([b"DCMP"], "1.2.840.7", cfg)
+
+
+# ---------------------------------------------------------------------------
+# resolve_within  (ODV-203: defence-in-depth path-containment barrier)
+# ---------------------------------------------------------------------------
+
+class TestResolveWithin:
+    """resolve_within keeps externally-influenced paths inside an allowed base.
+
+    This is the local barrier the ML inference services apply to the
+    request-derived DICOM folder before any filesystem use, so CodeQL's
+    py/path-injection flow is sanitised at the sink (ODV-203).
+    """
+
+    def test_returns_resolved_child(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, "series-1") == (tmp_path / "series-1").resolve()
+
+    def test_accepts_nested_child(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, "a/b/c") == (tmp_path / "a" / "b" / "c").resolve()
+
+    def test_accepts_base_itself(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, ".") == tmp_path.resolve()
+
+    def test_accepts_absolute_path_inside_base(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        inside = tmp_path / "child"
+        assert resolve_within(tmp_path, inside) == inside.resolve()
+
+    def test_rejects_parent_traversal(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "../escape")
+
+    def test_rejects_embedded_traversal(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "ok/../../escape")
+
+    def test_rejects_absolute_path_outside_base(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "/etc/passwd")

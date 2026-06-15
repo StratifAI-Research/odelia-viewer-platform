@@ -38,6 +38,28 @@ def validate_series_uid(series_uid: str) -> str:
     return series_uid
 
 
+def resolve_within(base: str | Path, candidate: str | Path) -> Path:
+    """
+    Resolve ``candidate`` and guarantee it stays inside ``base``.
+
+    Defence-in-depth barrier for any externally-influenced filesystem path
+    (e.g. a request-derived DICOM folder): normalises ``..`` and symlinks and
+    raises ``ValueError`` if the result escapes ``base``. Returns the resolved
+    absolute path on success.
+
+    Callers MUST use the returned value (not the original input) for subsequent
+    filesystem operations, otherwise the barrier does not hold.
+    """
+    base_resolved = Path(base).resolve()
+    candidate_path = Path(candidate)
+    if not candidate_path.is_absolute():
+        candidate_path = base_resolved / candidate_path
+    resolved = candidate_path.resolve()
+    if not resolved.is_relative_to(base_resolved):
+        raise ValueError(f"path escapes base directory: {candidate!r}")
+    return resolved
+
+
 def create_series_folder(
     series_uid: str, storage_config: StorageConfig, clean: bool = True
 ) -> Path:
@@ -53,7 +75,11 @@ def create_series_folder(
         Path to created series folder
     """
     validate_series_uid(series_uid)
-    series_folder = Path(storage_config.image_folder) / series_uid
+    # Defence-in-depth: even if validate_series_uid is ever relaxed, guarantee the
+    # resolved folder cannot escape the configured image root (ODV-203).
+    series_folder = resolve_within(
+        storage_config.image_folder, Path(storage_config.image_folder) / series_uid
+    )
 
     # Clean up if exists and clean=True
     if series_folder.exists() and clean:

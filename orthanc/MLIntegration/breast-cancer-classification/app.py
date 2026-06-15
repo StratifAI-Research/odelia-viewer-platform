@@ -12,6 +12,7 @@ from dicom2nfti_onthefly import dicom_to_unilateral_nifti
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from monai.networks import nets
+from shared.dicom_storage import validate_series_uid
 from torchio import Image, Subject
 from torchio.transforms.transform import TypeMaskingMethod
 
@@ -129,6 +130,9 @@ def download_series_dicom(series_id: str, series_uid: str) -> str:
     """
     logger.info(f"Preparing to download DICOM series: {series_uid}")
 
+    # Reject path-traversal payloads before using the UID as a path component.
+    series_uid = validate_series_uid(series_uid)
+
     # Check if the folder already exists
     series_folder = str(Path(IMAGE_FOLDER) / series_uid)
     if Path(series_folder).exists():
@@ -215,6 +219,9 @@ def analyze_mri():
             # Extract series UID from first dataset
             series_uid = str(datasets[0].SeriesInstanceUID)
 
+            # Reject path-traversal payloads before using the UID as a path component.
+            series_uid = validate_series_uid(series_uid)
+
             # Save datasets to folder for processing
             dicom_folder = str(Path(IMAGE_FOLDER) / series_uid)
             if Path(dicom_folder).exists():
@@ -230,16 +237,18 @@ def analyze_mri():
 
             logger.info(f"Saved {len(datasets)} DICOM files to {dicom_folder}")
 
-        except Exception as e:
-            logger.error(f"Error with WADO-RS retrieval: {e!s}")
-            import traceback
-
-            traceback.print_exc()
-            return jsonify({"error": f"WADO-RS retrieval failed: {e!s}"}), 500
+        except Exception:
+            logger.exception("Error with WADO-RS retrieval")
+            return jsonify({"error": "WADO-RS retrieval failed"}), 500
 
     elif series_uid_legacy:
         # LEGACY format with direct Orthanc retrieval
         series_uid = str(series_uid_legacy)
+        try:
+            series_uid = validate_series_uid(series_uid)
+        except ValueError:
+            logger.error(f"Invalid seriesInstanceUID: {series_uid!r}")
+            return jsonify({"error": "Invalid seriesInstanceUID"}), 400
         logger.info(f"Using legacy format with seriesInstanceUID: {series_uid}")
 
         try:
@@ -267,12 +276,9 @@ def analyze_mri():
                 return jsonify({"error": "No instances found for the given SeriesInstanceUID"}), 404
             logger.info(f"DICOM files downloaded to: {dicom_folder}")
 
-        except Exception as e:
-            logger.error(f"Error with legacy retrieval: {e!s}")
-            import traceback
-
-            traceback.print_exc()
-            return jsonify({"error": f"Legacy retrieval failed: {e!s}"}), 500
+        except Exception:
+            logger.exception("Error with legacy retrieval")
+            return jsonify({"error": "Legacy retrieval failed"}), 500
     else:
         logger.error("No seriesInstanceUID or wado_rs_retrieval provided")
         return jsonify({"error": "No seriesInstanceUID or wado_rs_retrieval provided"}), 400
@@ -293,9 +299,9 @@ def analyze_mri():
             logger.info(
                 f"Successfully converted to NIfTI. Available images: {list(nifties.keys())}"
             )
-        except Exception as e:
-            logger.error(f"Failed to convert DICOM to NIfTI: {e!s}", exc_info=True)
-            return jsonify({"error": f"DICOM to NIfTI conversion failed: {e!s}"}), 500
+        except Exception:
+            logger.exception("Failed to convert DICOM to NIfTI")
+            return jsonify({"error": "DICOM to NIfTI conversion failed"}), 500
 
         # Step 4: Prepare preprocessing
         logger.info("Step 4: Preparing preprocessing transforms...")
@@ -355,25 +361,25 @@ def analyze_mri():
                 logger.info(f"TIMING: {side}_total: {side_duration:.2f}ms")
                 logger.info(f"  {side}: Result={results[side]}")
 
-            except KeyError as e:
+            except KeyError:
                 side_duration = (time.time() - side_start) * 1000
                 logger.info(f"TIMING: {side}_total_error: {side_duration:.2f}ms")
-                logger.error(f"Missing data for {side} side: {e}", exc_info=True)
-                results[side] = {"error": f"Missing data for {side} side: {e}"}
-            except Exception as e:
+                logger.exception(f"Missing data for {side} side")
+                results[side] = {"error": f"Missing data for {side} side"}
+            except Exception:
                 side_duration = (time.time() - side_start) * 1000
                 logger.info(f"TIMING: {side}_total_error: {side_duration:.2f}ms")
-                logger.error(f"Error processing {side} side: {e}", exc_info=True)
-                results[side] = {"error": f"Processing error for {side} side: {e!s}"}
+                logger.exception(f"Error processing {side} side")
+                results[side] = {"error": f"Processing error for {side} side"}
 
         overall_duration = (time.time() - overall_start) * 1000
         logger.info(f"TIMING: total_analysis: {overall_duration:.2f}ms")
         logger.info(f"Analysis complete. Final results: {results}")
         return jsonify(results)
 
-    except Exception as e:
-        logger.error(f"Unexpected error during MRI analysis: {e!s}", exc_info=True)
-        return jsonify({"error": f"Analysis failed: {e!s}"}), 500
+    except Exception:
+        logger.exception("Unexpected error during MRI analysis")
+        return jsonify({"error": "Analysis failed"}), 500
 
 
 # --- Main ---

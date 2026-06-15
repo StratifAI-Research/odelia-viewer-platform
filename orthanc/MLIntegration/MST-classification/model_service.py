@@ -21,6 +21,7 @@ from preprocessing import generate_attention_overlays, prepare_for_inference
 from response_builder import build_bilateral_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
 from shared.config import StorageConfig
+from shared.dicom_storage import resolve_within
 from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,10 @@ class MSTModelService:
                 retrieval_strategy = self._create_retrieval_strategy(request_data)
                 dicom_folder, series_uid = retrieval_strategy.retrieve()
 
+            # Defence-in-depth: keep the request-derived folder within the image
+            # root before any filesystem use (ODV-203 path-injection barrier).
+            dicom_folder = resolve_within(self.storage_config.image_folder, dicom_folder)
+
             with time_operation("dicom_to_nifti_conversion", logger):
                 nifti_path = convert_series_to_nifti(dicom_folder)
 
@@ -267,7 +272,11 @@ class MSTModelService:
                 "series_uid": info["series_uid"],
             }
         ]
-        return WadoRSRetrieval(wado_entry, self.storage_config).retrieve()
+        dicom_folder, series_uid = WadoRSRetrieval(wado_entry, self.storage_config).retrieve()
+        # Defence-in-depth: keep the request-derived folder within the image root
+        # before any filesystem use (ODV-203 path-injection barrier).
+        dicom_folder = resolve_within(self.storage_config.image_folder, dicom_folder)
+        return dicom_folder, series_uid
 
     def _create_retrieval_strategy(self, request_data: dict) -> RetrievalStrategy:
         """Create retrieval strategy for legacy flat requests."""

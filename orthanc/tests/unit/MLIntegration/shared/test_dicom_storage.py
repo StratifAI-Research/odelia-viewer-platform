@@ -228,3 +228,35 @@ class TestResolveWithin:
         (tmp_path / "evil").symlink_to(outside)
         with pytest.raises(ValueError, match="escapes"):
             resolve_within(tmp_path, "evil/secret.dcm")
+
+
+# ---------------------------------------------------------------------------
+# ODV-203 happy path: the new barriers must NOT break legitimate upload /
+# folder creation for a real anonymized DICOM series.
+# ---------------------------------------------------------------------------
+
+def test_real_mri_series_upload_and_folder_creation(tmp_path, mri_sample_dir):
+    """save_datasets_to_folder (→ create_series_folder + resolve_within) must
+    still create the folder and write every slice for a real DICOM series, and
+    the resulting folder must pass the model_service path-injection guard."""
+    from shared.config import StorageConfig
+    from shared.dicom_storage import resolve_within, save_datasets_to_folder
+
+    files = sorted(mri_sample_dir.glob("*.dcm"))
+    datasets = [pydicom.dcmread(str(f), force=True) for f in files]
+    series_uid = str(datasets[0].SeriesInstanceUID)
+
+    cfg = StorageConfig(image_folder=tmp_path)
+    folder = save_datasets_to_folder(datasets, series_uid, cfg)
+
+    # folder created under the image root with every slice written
+    assert folder.is_dir()
+    assert folder == (tmp_path / series_uid).resolve()
+    assert len(list(folder.glob("*.dcm"))) == len(datasets)
+
+    # the model_service ODV-203 guard accepts the legitimately-created folder
+    assert resolve_within(tmp_path, folder) == folder
+
+    # a written slice is valid, re-readable DICOM with the same series UID
+    reread = pydicom.dcmread(str(sorted(folder.glob("*.dcm"))[0]), force=True)
+    assert str(reread.SeriesInstanceUID) == series_uid

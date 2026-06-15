@@ -40,24 +40,24 @@ def validate_series_uid(series_uid: str) -> str:
 
 def resolve_within(base: str | Path, candidate: str | Path) -> Path:
     """
-    Resolve ``candidate`` and guarantee it stays inside ``base``.
+    Return ``candidate`` joined under / resolved against ``base``, guaranteeing
+    the result stays inside ``base``; raise ``ValueError`` otherwise.
 
-    Defence-in-depth barrier for any externally-influenced filesystem path
-    (e.g. a request-derived DICOM folder): normalises ``..`` and symlinks and
-    raises ``ValueError`` if the result escapes ``base``. Returns the resolved
-    absolute path on success.
-
-    Callers MUST use the returned value (not the original input) for subsequent
-    filesystem operations, otherwise the barrier does not hold.
+    A relative ``candidate`` is joined under ``base``; an absolute ``candidate``
+    must already be inside ``base``. Containment is purely *lexical*: any ``..``
+    component is rejected and containment is checked with ``Path.is_relative_to``.
+    It never calls ``.resolve()`` / touches the filesystem and never follows
+    symlinks, so it is safe to call on request-influenced input.
+    ``validate_series_uid()`` remains the primary barrier (it already forbids
+    ``..``, ``/`` and non-numeric components); this is defence-in-depth on the
+    assembled path.
     """
-    base_resolved = Path(base).resolve()
+    base_abs = Path(base).absolute()
     candidate_path = Path(candidate)
-    if not candidate_path.is_absolute():
-        candidate_path = base_resolved / candidate_path
-    resolved = candidate_path.resolve()
-    if not resolved.is_relative_to(base_resolved):
+    target = candidate_path if candidate_path.is_absolute() else base_abs / candidate_path
+    if ".." in target.parts or not target.is_relative_to(base_abs):
         raise ValueError(f"path escapes base directory: {candidate!r}")
-    return resolved
+    return target
 
 
 def create_series_folder(
@@ -76,10 +76,8 @@ def create_series_folder(
     """
     validate_series_uid(series_uid)
     # Defence-in-depth: even if validate_series_uid is ever relaxed, guarantee the
-    # resolved folder cannot escape the configured image root (ODV-203).
-    series_folder = resolve_within(
-        storage_config.image_folder, Path(storage_config.image_folder) / series_uid
-    )
+    # assembled folder cannot escape the configured image root (ODV-203).
+    series_folder = resolve_within(storage_config.image_folder, series_uid)
 
     # Clean up if exists and clean=True
     if series_folder.exists() and clean:

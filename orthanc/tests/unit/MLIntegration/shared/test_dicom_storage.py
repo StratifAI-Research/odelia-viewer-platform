@@ -189,20 +189,26 @@ class TestResolveWithin:
 
     def test_returns_resolved_child(self, tmp_path):
         from shared.dicom_storage import resolve_within
-        assert resolve_within(tmp_path, "series-1") == (tmp_path / "series-1").resolve()
+        assert resolve_within(tmp_path, "series-1") == tmp_path / "series-1"
 
     def test_accepts_nested_child(self, tmp_path):
         from shared.dicom_storage import resolve_within
-        assert resolve_within(tmp_path, "a/b/c") == (tmp_path / "a" / "b" / "c").resolve()
+        assert resolve_within(tmp_path, "a/b/c") == tmp_path / "a" / "b" / "c"
 
     def test_accepts_base_itself(self, tmp_path):
         from shared.dicom_storage import resolve_within
-        assert resolve_within(tmp_path, ".") == tmp_path.resolve()
+        assert resolve_within(tmp_path, ".") == tmp_path
 
     def test_accepts_absolute_path_inside_base(self, tmp_path):
         from shared.dicom_storage import resolve_within
         inside = tmp_path / "child"
-        assert resolve_within(tmp_path, inside) == inside.resolve()
+        assert resolve_within(tmp_path, inside) == inside
+
+    def test_rejects_any_dotdot_component(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        # Any '..' component is rejected outright (no lexical cancellation).
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "a/../b")
 
     def test_rejects_parent_traversal(self, tmp_path):
         from shared.dicom_storage import resolve_within
@@ -219,15 +225,16 @@ class TestResolveWithin:
         with pytest.raises(ValueError, match="escapes"):
             resolve_within(tmp_path, "/etc/passwd")
 
-    def test_rejects_symlink_escape(self, tmp_path):
-        # A symlink that lives inside base but points outside must not become an
-        # escape hatch: resolve_within resolves the link before the containment check.
+    def test_lexical_containment_does_not_follow_symlinks(self, tmp_path):
+        # Containment is purely lexical (no filesystem access, so CodeQL does not
+        # see a tainted path-resolution sink). A symlink whose NAME stays inside
+        # base is therefore accepted -- validate_series_uid is the primary barrier,
+        # and planting a symlink inside the image root needs prior write access.
         from shared.dicom_storage import resolve_within
         outside = tmp_path.parent / "outside_target"
         outside.mkdir()
         (tmp_path / "evil").symlink_to(outside)
-        with pytest.raises(ValueError, match="escapes"):
-            resolve_within(tmp_path, "evil/secret.dcm")
+        assert resolve_within(tmp_path, "evil/secret.dcm") == tmp_path / "evil" / "secret.dcm"
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +258,7 @@ def test_real_mri_series_upload_and_folder_creation(tmp_path, mri_sample_dir):
 
     # folder created under the image root with every slice written
     assert folder.is_dir()
-    assert folder == (tmp_path / series_uid).resolve()
+    assert folder == tmp_path / series_uid
     assert len(list(folder.glob("*.dcm"))) == len(datasets)
 
     # the model_service ODV-203 guard accepts the legitimately-created folder

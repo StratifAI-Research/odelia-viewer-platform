@@ -218,3 +218,13 @@ class TestResolveWithin:
         from shared.dicom_storage import resolve_within
         with pytest.raises(ValueError, match="escapes"):
             resolve_within(tmp_path, "/etc/passwd")
+
+    def test_rejects_symlink_escape(self, tmp_path):
+        # A symlink that lives inside base but points outside must not become an
+        # escape hatch: resolve_within resolves the link before the containment check.
+        from shared.dicom_storage import resolve_within
+        outside = tmp_path.parent / "outside_target"
+        outside.mkdir()
+        (tmp_path / "evil").symlink_to(outside)
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "evil/secret.dcm")

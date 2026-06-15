@@ -220,7 +220,11 @@ def analyze_mri():
             series_uid = str(datasets[0].SeriesInstanceUID)
 
             # Reject path-traversal payloads before using the UID as a path component.
-            series_uid = validate_series_uid(series_uid)
+            try:
+                series_uid = validate_series_uid(series_uid)
+            except ValueError:
+                logger.error(f"Invalid SeriesInstanceUID in retrieved DICOM: {series_uid!r}")
+                return jsonify({"error": "Invalid SeriesInstanceUID"}), 400
 
             # Save datasets to folder for processing
             dicom_folder = str(Path(IMAGE_FOLDER) / series_uid)

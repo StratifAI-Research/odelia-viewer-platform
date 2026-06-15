@@ -21,7 +21,7 @@ from preprocessing import generate_attention_overlays, prepare_for_inference
 from response_builder import build_bilateral_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
 from shared.config import StorageConfig
-from shared.dicom_storage import resolve_within
+from shared.dicom_storage import PathContainmentError, resolve_within
 from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,7 @@ class MSTModelService:
 
             # Defence-in-depth: keep the request-derived folder within the image
             # root before any filesystem use (ODV-203 path-injection barrier).
-            dicom_folder = resolve_within(self.storage_config.image_folder, dicom_folder)
+            dicom_folder = self._resolve_within(dicom_folder)
 
             with time_operation("dicom_to_nifti_conversion", logger):
                 nifti_path = convert_series_to_nifti(dicom_folder)
@@ -247,6 +247,22 @@ class MSTModelService:
 
         return build_bilateral_response(probs, attention_maps, self.model_info)
 
+    def _resolve_within(self, candidate: Path) -> Path:
+        """
+        Apply the ODV-203 path-injection barrier to a request-derived folder.
+
+        A containment failure is mapped to ``InferenceError`` (not ``ValueError``)
+        so it routes to the generic 500 handler instead of the client-facing 400 --
+        the rejected path is logged server-side only and never surfaced to the
+        client. This matches the breast/medgemma services, where the barrier is
+        funnelled into a generic 500.
+        """
+        try:
+            return resolve_within(self.storage_config.image_folder, candidate)
+        except PathContainmentError as e:
+            logger.warning("Path containment barrier rejected request-derived folder: %s", e)
+            raise InferenceError("path containment check failed") from e
+
     def _retrieve_role(self, input_mapping: dict, role_key: str) -> tuple[Path, str]:
         """
         Retrieve a single input role's DICOM series via WADO-RS.
@@ -275,7 +291,7 @@ class MSTModelService:
         dicom_folder, series_uid = WadoRSRetrieval(wado_entry, self.storage_config).retrieve()
         # Defence-in-depth: keep the request-derived folder within the image root
         # before any filesystem use (ODV-203 path-injection barrier).
-        dicom_folder = resolve_within(self.storage_config.image_folder, dicom_folder)
+        dicom_folder = self._resolve_within(dicom_folder)
         return dicom_folder, series_uid
 
     def _create_retrieval_strategy(self, request_data: dict) -> RetrievalStrategy:

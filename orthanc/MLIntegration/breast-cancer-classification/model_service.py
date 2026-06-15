@@ -113,9 +113,9 @@ class BreastCancerModelService:
                 try:
                     side_result = self._process_side(side, nifties, transform)
                     results[side] = side_result
-                except Exception as e:
-                    logger.error(f"Error processing {side} side: {e}")
-                    results[side] = {"error": f"Processing error for {side} side: {e!s}"}
+                except Exception:
+                    logger.exception(f"Error processing {side} side")
+                    results[side] = {"error": f"Processing error for {side} side"}
 
             # Step 5: Build response
             return build_bilateral_classification(results["left"], results["right"])

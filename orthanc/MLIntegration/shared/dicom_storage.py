@@ -38,6 +38,13 @@ def validate_series_uid(series_uid: str) -> str:
     return series_uid
 
 
+class PathContainmentError(ValueError):
+    """Raised when a candidate path escapes its allowed base directory.
+
+    Subclasses ValueError so existing ``except ValueError`` callers keep working.
+    """
+
+
 def resolve_within(base: str | Path, candidate: str | Path) -> Path:
     """
     Return ``candidate`` joined under / resolved against ``base``, guaranteeing
@@ -56,7 +63,7 @@ def resolve_within(base: str | Path, candidate: str | Path) -> Path:
     candidate_path = Path(candidate)
     target = candidate_path if candidate_path.is_absolute() else base_abs / candidate_path
     if ".." in target.parts or not target.is_relative_to(base_abs):
-        raise ValueError(f"path escapes base directory: {candidate!r}")
+        raise PathContainmentError(f"path escapes base directory: {candidate!r}")
     return target
 
 

@@ -38,6 +38,35 @@ def validate_series_uid(series_uid: str) -> str:
     return series_uid
 
 
+class PathContainmentError(ValueError):
+    """Raised when a candidate path escapes its allowed base directory.
+
+    Subclasses ValueError so existing ``except ValueError`` callers keep working.
+    """
+
+
+def resolve_within(base: str | Path, candidate: str | Path) -> Path:
+    """
+    Return ``candidate`` joined under / resolved against ``base``, guaranteeing
+    the result stays inside ``base``; raise ``ValueError`` otherwise.
+
+    A relative ``candidate`` is joined under ``base``; an absolute ``candidate``
+    must already be inside ``base``. Containment is purely *lexical*: any ``..``
+    component is rejected and containment is checked with ``Path.is_relative_to``.
+    It never calls ``.resolve()`` / touches the filesystem and never follows
+    symlinks, so it is safe to call on request-influenced input.
+    ``validate_series_uid()`` remains the primary barrier (it already forbids
+    ``..``, ``/`` and non-numeric components); this is defence-in-depth on the
+    assembled path.
+    """
+    base_abs = Path(base).absolute()
+    candidate_path = Path(candidate)
+    target = candidate_path if candidate_path.is_absolute() else base_abs / candidate_path
+    if ".." in target.parts or not target.is_relative_to(base_abs):
+        raise PathContainmentError(f"path escapes base directory: {candidate!r}")
+    return target
+
+
 def create_series_folder(
     series_uid: str, storage_config: StorageConfig, clean: bool = True
 ) -> Path:
@@ -50,10 +79,13 @@ def create_series_folder(
         clean: If True, remove existing folder before creating new one
 
     Returns:
-        Path to created series folder
+        Path to created series folder. Always absolute (resolved under the image
+        root by ``resolve_within``), even when ``image_folder`` is relative.
     """
     validate_series_uid(series_uid)
-    series_folder = Path(storage_config.image_folder) / series_uid
+    # Defence-in-depth: even if validate_series_uid is ever relaxed, guarantee the
+    # assembled folder cannot escape the configured image root (ODV-203).
+    series_folder = resolve_within(storage_config.image_folder, series_uid)
 
     # Clean up if exists and clean=True
     if series_folder.exists() and clean:

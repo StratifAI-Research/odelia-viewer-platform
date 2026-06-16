@@ -173,3 +173,97 @@ def test_save_dicom_bytes_to_folder_propagates_open_error(tmp_path, monkeypatch)
 
     with pytest.raises(OSError, match="No space left"):
         save_dicom_bytes_to_folder([b"DCMP"], "1.2.840.7", cfg)
+
+
+# ---------------------------------------------------------------------------
+# resolve_within  (ODV-203: defence-in-depth path-containment barrier)
+# ---------------------------------------------------------------------------
+
+class TestResolveWithin:
+    """resolve_within keeps externally-influenced paths inside an allowed base.
+
+    This is the local barrier the ML inference services apply to the
+    request-derived DICOM folder before any filesystem use, so CodeQL's
+    py/path-injection flow is sanitised at the sink (ODV-203).
+    """
+
+    def test_returns_resolved_child(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, "series-1") == tmp_path / "series-1"
+
+    def test_accepts_nested_child(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, "a/b/c") == tmp_path / "a" / "b" / "c"
+
+    def test_accepts_base_itself(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        assert resolve_within(tmp_path, ".") == tmp_path
+
+    def test_accepts_absolute_path_inside_base(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        inside = tmp_path / "child"
+        assert resolve_within(tmp_path, inside) == inside
+
+    def test_rejects_any_dotdot_component(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        # Any '..' component is rejected outright (no lexical cancellation).
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "a/../b")
+
+    def test_rejects_parent_traversal(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "../escape")
+
+    def test_rejects_embedded_traversal(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "ok/../../escape")
+
+    def test_rejects_absolute_path_outside_base(self, tmp_path):
+        from shared.dicom_storage import resolve_within
+        with pytest.raises(ValueError, match="escapes"):
+            resolve_within(tmp_path, "/etc/passwd")
+
+    def test_lexical_containment_does_not_follow_symlinks(self, tmp_path):
+        # Containment is purely lexical (no filesystem access, so CodeQL does not
+        # see a tainted path-resolution sink). A symlink whose NAME stays inside
+        # base is therefore accepted -- validate_series_uid is the primary barrier,
+        # and planting a symlink inside the image root needs prior write access.
+        from shared.dicom_storage import resolve_within
+        outside = tmp_path.parent / "outside_target"
+        outside.mkdir()
+        (tmp_path / "evil").symlink_to(outside)
+        assert resolve_within(tmp_path, "evil/secret.dcm") == tmp_path / "evil" / "secret.dcm"
+
+
+# ---------------------------------------------------------------------------
+# ODV-203 happy path: the new barriers must NOT break legitimate upload /
+# folder creation for a real anonymized DICOM series.
+# ---------------------------------------------------------------------------
+
+def test_real_mri_series_upload_and_folder_creation(tmp_path, mri_sample_dir):
+    """save_datasets_to_folder (→ create_series_folder + resolve_within) must
+    still create the folder and write every slice for a real DICOM series, and
+    the resulting folder must pass the model_service path-injection guard."""
+    from shared.config import StorageConfig
+    from shared.dicom_storage import resolve_within, save_datasets_to_folder
+
+    files = sorted(mri_sample_dir.glob("*.dcm"))
+    datasets = [pydicom.dcmread(str(f), force=True) for f in files]
+    series_uid = str(datasets[0].SeriesInstanceUID)
+
+    cfg = StorageConfig(image_folder=tmp_path)
+    folder = save_datasets_to_folder(datasets, series_uid, cfg)
+
+    # folder created under the image root with every slice written
+    assert folder.is_dir()
+    assert folder == tmp_path / series_uid
+    assert len(list(folder.glob("*.dcm"))) == len(datasets)
+
+    # the model_service ODV-203 guard accepts the legitimately-created folder
+    assert resolve_within(tmp_path, folder) == folder
+
+    # a written slice is valid, re-readable DICOM with the same series UID
+    reread = pydicom.dcmread(str(sorted(folder.glob("*.dcm"))[0]), force=True)
+    assert str(reread.SeriesInstanceUID) == series_uid

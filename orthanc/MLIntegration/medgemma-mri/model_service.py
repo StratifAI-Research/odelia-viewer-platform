@@ -18,6 +18,7 @@ from response_builder import build_bilateral_response
 from response_parser import parse_bilateral_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
 from shared.config import StorageConfig
+from shared.dicom_storage import resolve_within
 from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,10 @@ class MedGemmaModelService:
             with time_operation("retrieve_dicom", logger):
                 retrieval_strategy = self._create_retrieval_strategy(request_data)
                 dicom_folder, series_uid = retrieval_strategy.retrieve()
+
+            # Defence-in-depth: keep the request-derived folder within the image
+            # root before any filesystem use (ODV-203 path-injection barrier).
+            dicom_folder = resolve_within(self.storage_config.image_folder, dicom_folder)
 
             # Step 2: Extract central slices as PIL images
             with time_operation("extract_slices", logger):

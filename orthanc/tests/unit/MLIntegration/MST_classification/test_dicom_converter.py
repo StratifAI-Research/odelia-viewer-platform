@@ -111,7 +111,7 @@ def _raise_runtime(msg):
     return _r
 
 
-def test_convert_series_to_nifti_translates_runtime_error_to_value_error(monkeypatch, tmp_path):
+def test_convert_series_to_nifti_translates_runtime_error_to_inference_error(monkeypatch, tmp_path):
     import dicom_converter
     monkeypatch.setattr(dicom_converter, "dicom_to_nifti", _raise_runtime("low-level sitk failure"))
     with pytest.raises(dicom_converter.InferenceError, match="Conversion failed: low-level sitk failure"):

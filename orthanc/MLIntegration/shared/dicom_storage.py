@@ -79,7 +79,8 @@ def create_series_folder(
         clean: If True, remove existing folder before creating new one
 
     Returns:
-        Path to created series folder
+        Path to created series folder. Always absolute (resolved under the image
+        root by ``resolve_within``), even when ``image_folder`` is relative.
     """
     validate_series_uid(series_uid)
     # Defence-in-depth: even if validate_series_uid is ever relaxed, guarantee the

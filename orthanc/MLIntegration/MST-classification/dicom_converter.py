@@ -26,7 +26,7 @@ def convert_series_to_nifti(dicom_folder: Path) -> Path:
         Path to created NIfTI file
 
     Raises:
-        ValueError: If conversion fails
+        InferenceError: If conversion fails
     """
     logger.info(f"Converting DICOM series to NIfTI: {dicom_folder}")
 
@@ -57,7 +57,7 @@ def convert_multiphase_to_subtraction_nifti(dicom_folder: Path) -> Path:
         Path to created subtraction NIfTI file
 
     Raises:
-        ValueError: If conversion fails or fewer than 2 temporal phases
+        InferenceError: If conversion fails or fewer than 2 temporal phases
     """
     logger.info(f"Converting multi-phase DICOM to subtraction NIfTI: {dicom_folder}")
 
@@ -88,7 +88,7 @@ def compute_subtraction_nifti(pre_nifti: Path, post_nifti: Path) -> Path:
         Path to created subtraction NIfTI file
 
     Raises:
-        ValueError: If computation fails
+        InferenceError: If computation fails
     """
     logger.info(f"Computing subtraction: {post_nifti} - {pre_nifti}")
 

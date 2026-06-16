@@ -5,7 +5,12 @@ Per-series image cache with LRU eviction
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +21,8 @@ class CachedSeries:
 
     series_uid: str
     base64_images: list[str]  # Central slices as base64 PNG
-    created_at: datetime = field(default_factory=datetime.now)
-    last_accessed: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=_utcnow)
+    last_accessed: datetime = field(default_factory=_utcnow)
 
 
 class ImageCache:
@@ -56,7 +61,7 @@ class ImageCache:
 
         # Update last accessed time
         cached = self._cache[series_uid]
-        cached.last_accessed = datetime.now()
+        cached.last_accessed = _utcnow()
 
         logger.debug(f"Cache hit for series: {series_uid}")
         return cached

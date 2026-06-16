@@ -52,6 +52,47 @@ def test_basic_health_endpoint_returns_status_healthy(tmp_path, monkeypatch):
     assert r.json() == {"status": "healthy"}
 
 
+# ---------- CORS configuration ----------
+
+def _cors_kwargs(app_module):
+    from fastapi.middleware.cors import CORSMiddleware
+    for m in app_module.app.user_middleware:
+        if m.cls is CORSMiddleware:
+            return dict(m.kwargs)
+    raise AssertionError("CORSMiddleware not configured on app")
+
+
+def test_cors_default_does_not_allow_wildcard_origin(tmp_path, monkeypatch):
+    """Default app (no CORS env) must NOT use allow_origins=['*'] with credentials."""
+    monkeypatch.delenv("CHAT_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("CHAT_CORS_DEV_ALLOW_ALL", raising=False)
+    _app, _client = _fresh_app(tmp_path, monkeypatch)
+    kwargs = _cors_kwargs(_app)
+    assert "*" not in kwargs["allow_origins"]
+    assert kwargs["allow_origins"]            # non-empty known set
+    # Credentials only allowed alongside a non-wildcard origin list.
+    if kwargs.get("allow_credentials"):
+        assert "*" not in kwargs["allow_origins"]
+
+
+def test_cors_origins_configurable_via_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHAT_ALLOWED_ORIGINS", "https://a.example, https://b.example")
+    monkeypatch.delenv("CHAT_CORS_DEV_ALLOW_ALL", raising=False)
+    _app, _client = _fresh_app(tmp_path, monkeypatch)
+    kwargs = _cors_kwargs(_app)
+    assert kwargs["allow_origins"] == ["https://a.example", "https://b.example"]
+
+
+def test_cors_dev_wildcard_drops_credentials(tmp_path, monkeypatch):
+    """Dev escape hatch may allow '*' but must NOT also send credentials."""
+    monkeypatch.setenv("CHAT_CORS_DEV_ALLOW_ALL", "1")
+    monkeypatch.delenv("CHAT_ALLOWED_ORIGINS", raising=False)
+    _app, _client = _fresh_app(tmp_path, monkeypatch)
+    kwargs = _cors_kwargs(_app)
+    assert kwargs["allow_origins"] == ["*"]
+    assert kwargs["allow_credentials"] is False
+
+
 # ---------- lifespan startup ----------
 
 def test_app_lifespan_runs_startup_and_shutdown(tmp_path, monkeypatch):
@@ -161,6 +202,18 @@ def test_debug_config_put_invalid_slice_strategy_returns_422(tmp_path, monkeypat
     assert any("slice_strategy" in str(d).lower() for d in detail)
 
 
+def test_debug_config_put_rejects_overlong_system_prompt_with_422(tmp_path, monkeypatch):
+    """An over-max system_prompt must be rejected (422), not silently accepted."""
+    import models
+    _app, client = _fresh_app(tmp_path, monkeypatch)
+    r = client.put("/debug/config", json={
+        "system_prompt": "x" * (models.MAX_SYSTEM_PROMPT_LEN + 1),
+    })
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert any("system_prompt" in str(d).lower() for d in detail)
+
+
 # ---------- /debug/cache ----------
 
 def test_debug_cache_delete_clears_and_reports_count(tmp_path, monkeypatch):
@@ -220,13 +273,13 @@ def test_debug_sessions_delete_missing_returns_404(tmp_path, monkeypatch):
 
 
 def test_debug_sessions_cleanup_removes_only_stale(tmp_path, monkeypatch):
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     _app, client = _fresh_app(tmp_path, monkeypatch)
     from session_manager import get_session_manager
     sm = get_session_manager()
     sm.create_session("fresh")
     stale = sm.create_session("stale")
-    stale.last_activity = datetime.now() - timedelta(minutes=180)
+    stale.last_activity = datetime.now(timezone.utc) - timedelta(minutes=180)
     r = client.post("/debug/sessions/cleanup?max_age_minutes=60")
     assert r.status_code == 200
     assert r.json() == {"removed_sessions": 1, "max_age_minutes": 60}

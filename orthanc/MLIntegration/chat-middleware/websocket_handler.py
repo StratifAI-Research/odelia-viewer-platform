@@ -5,7 +5,7 @@ WebSocket handler for chat sessions
 import asyncio
 import contextlib
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from config import get_config
 from fastapi import WebSocket, WebSocketDisconnect
@@ -14,6 +14,7 @@ from models import ClientMessage, ClientMessageType, ServerMessageType
 from ollama_client import get_ollama_client
 from preprocessing import preprocess_series
 from prompt_builder import get_prompt_builder
+from pydantic import ValidationError
 from runtime_config import get_runtime_config
 from session_manager import Session, get_session_manager
 
@@ -48,9 +49,18 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
 
         # Process incoming messages - DO NOT await tasks here to allow cancellation
         async for message in websocket.iter_json():
+            # Validate the untrusted payload in isolation: a malformed/unexpected
+            # message must not crash the handler or drop the connection.
             try:
                 msg = ClientMessage(**message)
+            except (ValidationError, TypeError) as e:
+                logger.warning(f"Rejected malformed client message: {e}")
+                await send_message(
+                    websocket, ServerMessageType.ERROR, content=f"Invalid message: {e!s}"
+                )
+                continue
 
+            try:
                 if msg.type == ClientMessageType.CHAT:
                     # Cancel any existing generation before starting new one
                     if session.active_task and not session.active_task.done():
@@ -149,7 +159,7 @@ async def handle_chat(
         logger.info(f"Chat already cancelled for session {session.session_id}")
         return
 
-    session.last_activity = datetime.now()
+    session.last_activity = datetime.now(UTC)
 
     try:
         # 1. Ensure all requested series are cached (preprocess if needed)
@@ -187,8 +197,8 @@ async def handle_chat(
                         CachedSeries(
                             series_uid=series_uid,
                             base64_images=images,
-                            created_at=datetime.now(),
-                            last_accessed=datetime.now(),
+                            created_at=datetime.now(UTC),
+                            last_accessed=datetime.now(UTC),
                         ),
                     )
                 except Exception as e:

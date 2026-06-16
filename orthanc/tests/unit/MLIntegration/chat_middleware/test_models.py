@@ -88,6 +88,23 @@ def test_debug_config_update_accepts_nested_preprocessing():
     assert upd.preprocessing.num_slices == 3
 
 
+def test_debug_config_update_rejects_overlong_system_prompt():
+    import pydantic
+    import pytest
+
+    import models
+    too_long = "x" * (models.MAX_SYSTEM_PROMPT_LEN + 1)
+    with pytest.raises(pydantic.ValidationError):
+        models.DebugConfigUpdate(system_prompt=too_long)
+
+
+def test_debug_config_update_accepts_max_length_system_prompt():
+    import models
+    at_limit = "x" * models.MAX_SYSTEM_PROMPT_LEN
+    upd = models.DebugConfigUpdate(system_prompt=at_limit)
+    assert upd.system_prompt == at_limit
+
+
 def test_session_info_required_fields():
     import models
     info = models.SessionInfo(

@@ -7,7 +7,12 @@ import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +23,8 @@ class Session:
 
     session_id: str
     conversation_history: list[dict] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    last_activity: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=_utcnow)
+    last_activity: datetime = field(default_factory=_utcnow)
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     active_task: asyncio.Task | None = field(default=None)
@@ -126,7 +131,7 @@ class SessionManager:
             return
 
         session.conversation_history.append({"role": role, "content": content})
-        session.last_activity = datetime.now()
+        session.last_activity = _utcnow()
         logger.debug(f"Appended {role} message to session {session_id}")
 
     def get_history(self, session_id: str) -> list[dict]:
@@ -189,7 +194,7 @@ class SessionManager:
         Returns:
             Number of sessions removed
         """
-        now = datetime.now()
+        now = _utcnow()
         stale_ids = []
 
         for session_id, session in self.sessions.items():

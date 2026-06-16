@@ -357,7 +357,7 @@ def analyze_mri():
 
                 logger.info(f"  {side}: Model output probability={prob:.4f}")
                 results[side] = {
-                    "prediction": "Cancerous" if prob > 0.5 else "Not Cancerous",
+                    "prediction": "Malignant" if prob > 0.5 else "Benign",
                     "confidence": round(prob if prob > 0.5 else 1 - prob, 4) * 100,
                 }
 

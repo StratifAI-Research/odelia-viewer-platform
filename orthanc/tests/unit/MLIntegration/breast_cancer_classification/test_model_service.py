@@ -59,3 +59,40 @@ def test_per_side_failure_returns_generic_error(tmp_path, monkeypatch):
     for side in ("left", "right"):
         assert captured[side] == {"error": f"Processing error for {side} side"}
         assert secret not in str(captured[side])
+
+
+# Clinical prediction vocabulary the router SR builder maps to SNOMED CT.
+# Mirror of router/server.py create_bilateral_sr; predictions outside this set
+# fall through to the Unknown SNOMED code.
+_SR_RECOGNIZED_PREDICTIONS = {"Malignant", "Benign", "No lesion"}
+
+
+@pytest.mark.parametrize("prob,expected", [(0.92, "Malignant"), (0.10, "Benign")])
+def test_process_side_emits_sr_recognized_prediction(prob, expected, tmp_path, monkeypatch):
+    """_process_side must emit a prediction in the SR builder's clinical vocabulary,
+    so it maps to a non-Unknown SNOMED code downstream."""
+    import contextlib
+
+    import model_service as ms
+    from shared.config import StorageConfig
+
+    monkeypatch.setattr(ms, "preprocess_for_side", lambda *a, **k: MagicMock())
+
+    class _SigmoidResult:
+        def item(self) -> float:
+            return prob
+
+    monkeypatch.setattr(ms.torch, "sigmoid", lambda *a, **k: _SigmoidResult(), raising=False)
+    monkeypatch.setattr(ms.torch, "inference_mode", contextlib.nullcontext, raising=False)
+
+    service = ms.BreastCancerModelService(
+        MagicMock(), StorageConfig(image_folder=tmp_path, cleanup_on_start=False)
+    )
+    service.model = MagicMock()
+    service.bc_config = MagicMock(device="cpu")
+
+    nifties = {"Pre_left": MagicMock(), "Post_1_left": MagicMock()}
+    result = service._process_side("left", nifties, MagicMock())
+
+    assert result["prediction"] == expected
+    assert result["prediction"] in _SR_RECOGNIZED_PREDICTIONS

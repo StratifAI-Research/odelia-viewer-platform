@@ -72,11 +72,11 @@ def analyze_mri():
     Returns:
     {
         "left": {
-            "prediction": "Cancerous" | "Not Cancerous",
+            "prediction": "Malignant" | "Benign",
             "confidence": 87.5
         },
         "right": {
-            "prediction": "Cancerous" | "Not Cancerous",
+            "prediction": "Malignant" | "Benign",
             "confidence": 65.2
         }
     }

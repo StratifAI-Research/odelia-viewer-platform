@@ -185,7 +185,7 @@ class BreastCancerModelService:
         logger.info(f"  {side}: Model output probability={prob:.4f}")
 
         result = {
-            "prediction": "Cancerous" if prob > 0.5 else "Not Cancerous",
+            "prediction": "Malignant" if prob > 0.5 else "Benign",
             "confidence": round((prob if prob > 0.5 else 1 - prob) * 100, 2),
         }
 

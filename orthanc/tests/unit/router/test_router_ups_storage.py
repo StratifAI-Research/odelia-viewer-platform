@@ -193,7 +193,7 @@ def test_store_twice_no_duplicate_in_list(storage, workitem):
 
 
 # ---------------------------------------------------------------------------
-# B5 (ODV-193): concurrent stores must not lose index entries
+# Concurrent stores must not lose index entries
 # ---------------------------------------------------------------------------
 
 def test_concurrent_stores_do_not_lose_index_entries(storage):

@@ -114,8 +114,8 @@ def test_create_workitem_missing_study_uid_returns_400(out, routes):
 
 
 def test_create_workitem_empty_series_uids_returns_400(out, routes):
-    """B3: an empty series_uids list yields no WADO-RS retrieval targets and would
-    crash downstream at retrieval[0]. Reject it at intake with 400."""
+    """An empty series_uids list yields no WADO-RS retrieval targets and would
+    crash downstream at retrieval[0]; reject it at intake with 400."""
     body = json.dumps({"study_uid": "1.2.3", "series_uids": []}).encode()
     with mock.patch('ups.routes.process_workitem'):
         routes.CreateWorkitem(out, '/ups-rs/workitems', method='POST', body=body, groups=[])
@@ -123,7 +123,7 @@ def test_create_workitem_empty_series_uids_returns_400(out, routes):
 
 
 def test_create_workitem_missing_series_uids_returns_400(out, routes):
-    """B3: series_uids omitted entirely is equally unprocessable -> 400."""
+    """series_uids omitted entirely is equally unprocessable -> 400."""
     body = json.dumps({"study_uid": "1.2.3"}).encode()
     with mock.patch('ups.routes.process_workitem'):
         routes.CreateWorkitem(out, '/ups-rs/workitems', method='POST', body=body, groups=[])
@@ -243,10 +243,9 @@ def test_update_workitem_state_happy_path(out, routes):
 
 
 def test_update_workitem_state_progress_info_is_text_not_ds(out, routes):
-    """B1: progress_info is free text. It must be recorded as the Procedure Step
-    Progress *Description* (00741006, VR ST) and must never be stuffed into the
-    numeric Procedure Step Progress DS tag (00741004), which only accepts a
-    decimal string."""
+    """progress_info is free text: it must be recorded as the Procedure Step
+    Progress Description (00741006, VR ST), never stuffed into the numeric
+    Procedure Step Progress DS tag (00741004), which only accepts a decimal string."""
     wi = _make_workitem()
     from ups.storage import ups_storage
     ups_storage.store_workitem(wi)
@@ -325,9 +324,9 @@ def test_query_workitems_empty_returns_empty_list(out, routes):
 
 
 def test_query_workitems_state_filter_as_bare_string(out, routes):
-    """B2: when the query param arrives as a bare string (not a list), the filter
-    must use the whole value, not its first character. Indexing [0] on a str would
-    turn 'SCHEDULED' into 'S' and silently match nothing."""
+    """When the state query param arrives as a bare string (not a list), the
+    filter must use the whole value, not its first character: indexing [0] on a
+    str would turn 'SCHEDULED' into 'S' and silently match nothing."""
     wi = _make_workitem()
     from ups.storage import ups_storage
     ups_storage.store_workitem(wi)  # state SCHEDULED

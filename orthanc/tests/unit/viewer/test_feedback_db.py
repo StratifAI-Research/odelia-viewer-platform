@@ -35,8 +35,8 @@ def test_health_reports_db_ready(fb):
 
 
 # ---------------------------------------------------------------------------
-# C1 (ODV-193): WAL setup must be verified, must not spam stdout per connection,
-# and must surface real failures instead of swallowing them.
+# WAL setup must be verified, must not spam stdout per connection, and must
+# surface real failures instead of swallowing them.
 # ---------------------------------------------------------------------------
 
 class _FakeCx:
@@ -74,8 +74,8 @@ def test_connect_does_not_print_journal_mode_each_call(fb, capsys):
 
 
 def test_export_rows_csv_closes_connection_even_if_not_iterated(fb, monkeypatch):
-    """C3 (ODV-193): export_rows_csv must not leak the DB connection when the
-    caller never iterates the returned rows."""
+    """export_rows_csv must not leak the DB connection when the caller never
+    iterates the returned rows."""
     opened = []
     real_connect = fb._connect
 
@@ -115,9 +115,9 @@ def test_export_rows_csv_returns_rows_with_comma_safe_values(fb):
 
 
 def test_export_current_scope_with_since_filter_uses_correct_alias(fb):
-    """C4 (ODV-193): scope=current combined with a created_at (since) filter must
-    produce a valid query against the current-view alias (c.created_at), returning
-    the latest row — not error on a stale e.created_at reference. Exercises the
+    """scope=current combined with a created_at (since) filter must produce a
+    valid query against the current-view alias (c.created_at), returning the
+    latest row — not error on a stale e.created_at reference. Exercises the
     alias-selection path for both ndjson and csv exports."""
     fb.submit_feedback(_payload())                          # initial
     fb.submit_feedback(_payload(verdict_L=-1, edited=True))  # edit -> current row

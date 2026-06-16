@@ -172,7 +172,7 @@ def test_get_index_returns_empty_list_when_index_value_is_corrupt():
 
 
 # ---------------------------------------------------------------------------
-# B5 (ODV-193): concurrent stores must not lose index entries
+# Concurrent stores must not lose index entries
 # ---------------------------------------------------------------------------
 
 def test_concurrent_stores_do_not_lose_index_entries(storage):

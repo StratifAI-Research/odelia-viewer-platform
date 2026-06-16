@@ -36,13 +36,11 @@ def test_retrieve_series_metadata_sorts_by_instance_number(wado_fake):
 
 
 def test_retrieve_series_metadata_empty_list_raises_value_error():
-    """B7 (ODV-193): empty wado_rs_retrieval is invalid input and must be rejected
-    up front with a clear ValueError, not an opaque IndexError from
-    `first_retrieval = wado_rs_retrieval[0]`.
+    """Empty wado_rs_retrieval is invalid input and must be rejected up front with
+    a clear ValueError, not an opaque IndexError from `wado_rs_retrieval[0]`.
 
     Pinned to a single exception class per IEC 62304 §5.5.2 (validation contracts
-    must specify one outcome). This supersedes the previous IndexError contract as a
-    deliberate spec decision."""
+    must specify one outcome)."""
     from wado_utils import retrieve_series_metadata_sorted
     with pytest.raises(ValueError, match="empty"):
         retrieve_series_metadata_sorted([])

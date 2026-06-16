@@ -664,7 +664,7 @@ def _bind_dicomweb_study_state(rest_fake, study_id="STD", series_id="S-orig",
     instances + /series/<id> for SeriesInstanceUID — everything SendToAiDicomWeb needs to reach
     the workitem POST."""
     import json as _json
-    # DICOMweb server config now goes over the internal RestApiPut channel (E2/E3).
+    # DICOMweb server config goes over the internal RestApiPut channel.
     rest_fake.responses[("PUT", f"/dicom-web/servers/{target}")] = b"{}"
     # FilterAIResultSeries path (returns series_id as non-AI) — reuse the existing helper.
     _bind_series_listing(rest_fake, study_id, [series_id], ai=False)
@@ -975,15 +975,7 @@ def test_send_to_ai_dicom_succeeds_without_target_url(out, router, rest_fake):
 
 
 # ---------------------------------------------------------------------------
-# B6 (ODV-193): partial-state detection for UPS workitem creation
-#
-# SendToAiDicomWeb POSTs to the router to create a UPS workitem. If the router
-# answers 2xx but no workitem UID can be read back, a workitem may have been
-# created on the router and is now orphaned (untracked, not rolled back). The
-# viewer must distinguish that PARTIAL state from a clean rejection so callers
-# (and operators) can detect it. The classification is extracted into the pure
-# helper _classify_ups_creation so it can be tested without the full network
-# pipeline (see module docstring re: DI refactor).
+# Partial-state detection for UPS workitem creation (_classify_ups_creation)
 # ---------------------------------------------------------------------------
 
 class _FakeRouterResponse:
@@ -1030,14 +1022,9 @@ def test_classify_ups_creation_rejected_when_non_2xx(router):
 
 
 # ---------------------------------------------------------------------------
-# E1/E2/E3 (ODV-193): DICOMweb server configuration hardening
-#
-# SendToAiDicomWeb registers a DICOMweb server on the LOCAL Orthanc before
-# sending. The old code interpolated the request-body `target` straight into a
-# URL path (path injection, E1) and PUT credentials over a hard-coded plaintext
-# http://localhost:8042 with no timeout (E2/E3). Fixes:
-#   - validate the server name with a strict allowlist regex
-#   - configure via orthanc.RestApiPut (internal channel), not requests.put
+# DICOMweb server configuration: the server name is validated (strict allowlist,
+# blocking path injection) and configured via orthanc.RestApiPut (internal
+# channel, no plaintext credentials or timeout-less HTTP).
 # ---------------------------------------------------------------------------
 
 import pytest as _pytest
@@ -1057,8 +1044,8 @@ def test_is_valid_server_name_rejects_injection(router, name):
 
 
 def test_send_to_ai_dicomweb_invalid_target_returns_400(out, router):
-    """E1: a path-injection `target` is rejected up front (before any Orthanc
-    calls), so it can never reach the server-config URL path."""
+    """A path-injection `target` is rejected up front (before any Orthanc call),
+    so it can never reach the server-config URL path."""
     router.SendToAiDicomWeb(
         out, "/send-to-ai-dicomweb",
         method="POST",
@@ -1071,7 +1058,7 @@ def test_send_to_ai_dicomweb_invalid_target_returns_400(out, router):
 
 
 def test_configure_dicomweb_server_uses_internal_rest_put(router, rest_fake):
-    """E2/E3: server config (incl. credentials) goes over Orthanc's internal REST
+    """Server config (incl. credentials) goes over Orthanc's internal REST
     channel, not a plaintext localhost HTTP request."""
     rest_fake.responses[("PUT", "/dicom-web/servers/myserver")] = b"{}"
     router._configure_dicomweb_server(

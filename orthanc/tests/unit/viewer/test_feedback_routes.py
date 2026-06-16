@@ -254,8 +254,8 @@ def test_export_csv_wrong_method_returns_405(out, fb_routes):
 
 
 def test_export_csv_escapes_fields_containing_commas(out, fb_routes):
-    """C2 (ODV-193): a field value containing a comma must be quoted so the CSV
-    parses back to the same fields, instead of leaking an extra column."""
+    """A field value containing a comma must be quoted so the CSV parses back to
+    the same fields, instead of leaking an extra column."""
     payload = {**_valid_submit(), "user_id": "Doe, John"}
     fb_routes.FeedbackSubmit(
         out, "/feedback/submit", method="POST", body=json.dumps(payload)

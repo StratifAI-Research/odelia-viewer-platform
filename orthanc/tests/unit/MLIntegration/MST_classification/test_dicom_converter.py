@@ -52,7 +52,7 @@ def test_convert_series_to_nifti_raises_if_file_not_created(tmp_path, _stub_dico
     _stub_dicom_utils.dicom_to_nifti.return_value = str(tmp_path / "nonexistent.nii.gz")
 
     import dicom_converter
-    with pytest.raises(ValueError, match="NIfTI file was not created"):
+    with pytest.raises(dicom_converter.InferenceError, match="NIfTI file was not created"):
         dicom_converter.convert_series_to_nifti(tmp_path)
 
 
@@ -72,7 +72,7 @@ def test_convert_multiphase_to_subtraction_nifti_raises_if_file_missing(tmp_path
     _stub_dicom_utils.dicom_to_nifti_subtraction.return_value = str(tmp_path / "missing.nii.gz")
 
     import dicom_converter
-    with pytest.raises(ValueError, match="Subtraction NIfTI was not created"):
+    with pytest.raises(dicom_converter.InferenceError, match="Subtraction NIfTI was not created"):
         dicom_converter.convert_multiphase_to_subtraction_nifti(tmp_path)
 
 
@@ -95,13 +95,14 @@ def test_compute_subtraction_nifti_raises_if_file_missing(tmp_path, _stub_dicom_
     _stub_dicom_utils.compute_subtraction_from_nifti.return_value = str(tmp_path / "missing.nii.gz")
 
     import dicom_converter
-    with pytest.raises(ValueError, match="Subtraction NIfTI was not created"):
+    with pytest.raises(dicom_converter.InferenceError, match="Subtraction NIfTI was not created"):
         dicom_converter.compute_subtraction_nifti(tmp_path / "pre.nii.gz", tmp_path / "post.nii.gz")
 
 
 # ---------------------------------------------------------------------------
 # M3: wrapper catches non-ValueError underlying exceptions and re-raises as
-# ValueError("...: <orig msg>") — pins the error-translation contract.
+# InferenceError("...: <orig msg>") — a server-side processing failure (500),
+# never a client 400. ODV-203: keeps internal exception text out of 400 bodies.
 # ---------------------------------------------------------------------------
 
 def _raise_runtime(msg):
@@ -110,22 +111,22 @@ def _raise_runtime(msg):
     return _r
 
 
-def test_convert_series_to_nifti_translates_runtime_error_to_value_error(monkeypatch, tmp_path):
+def test_convert_series_to_nifti_translates_runtime_error_to_inference_error(monkeypatch, tmp_path):
     import dicom_converter
     monkeypatch.setattr(dicom_converter, "dicom_to_nifti", _raise_runtime("low-level sitk failure"))
-    with pytest.raises(ValueError, match="Conversion failed: low-level sitk failure"):
+    with pytest.raises(dicom_converter.InferenceError, match="Conversion failed: low-level sitk failure"):
         dicom_converter.convert_series_to_nifti(tmp_path)
 
 
 def test_convert_multiphase_to_subtraction_translates_runtime_error(monkeypatch, tmp_path):
     import dicom_converter
     monkeypatch.setattr(dicom_converter, "dicom_to_nifti_subtraction", _raise_runtime("phase mismatch"))
-    with pytest.raises(ValueError, match="Multi-phase conversion failed: phase mismatch"):
+    with pytest.raises(dicom_converter.InferenceError, match="Multi-phase conversion failed: phase mismatch"):
         dicom_converter.convert_multiphase_to_subtraction_nifti(tmp_path)
 
 
 def test_compute_subtraction_nifti_translates_runtime_error(monkeypatch, tmp_path):
     import dicom_converter
     monkeypatch.setattr(dicom_converter, "compute_subtraction_from_nifti", _raise_runtime("io error"))
-    with pytest.raises(ValueError, match="Subtraction failed: io error"):
+    with pytest.raises(dicom_converter.InferenceError, match="Subtraction failed: io error"):
         dicom_converter.compute_subtraction_nifti(tmp_path / "a.nii.gz", tmp_path / "b.nii.gz")

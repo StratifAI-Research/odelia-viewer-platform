@@ -183,9 +183,7 @@ def FeedbackExportCsv(output: Any, uri: str, **request: Any) -> None:
         writer = csv.writer(buf, lineterminator="\n")
         writer.writerow(header.rstrip("\n").split(","))
         for r in rows_iter:
-            writer.writerow(
-                [r[0], r[1], r[2], r[3], r[4], int(r[5]), int(r[6]), r[7], r[8]]
-            )
+            writer.writerow([r[0], r[1], r[2], r[3], r[4], int(r[5]), int(r[6]), r[7], r[8]])
         output.AnswerBuffer(buf.getvalue(), "text/csv")
     except Exception as e:
         output.SendHttpStatus(500, json.dumps({"code": 500, "message": str(e)}))

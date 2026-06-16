@@ -351,9 +351,7 @@ def _is_valid_server_name(target: str) -> bool:
     return bool(target) and re.fullmatch(r"[A-Za-z0-9_-]+", target) is not None
 
 
-def _configure_dicomweb_server(
-    target: str, target_url: str, username: str, password: str
-) -> None:
+def _configure_dicomweb_server(target: str, target_url: str, username: str, password: str) -> None:
     """Register/update a DICOMweb server on the local Orthanc over its internal
     REST channel. Using orthanc.RestApiPut (rather than a plaintext requests.put
     to a hard-coded localhost endpoint) keeps credentials off the wire and needs

@@ -100,11 +100,11 @@ def analyze_mri():
 
     except ModelNotLoadedError as e:
         logger.error(f"Model not loaded: {e}")
-        return jsonify({"error": "Model not loaded", "details": str(e)}), 503
+        return jsonify({"error": "Model not loaded"}), 503
 
     except ModelAuthenticationError as e:
         logger.error(f"Authentication error: {e}")
-        return jsonify({"error": "Authentication failed", "details": str(e)}), 401
+        return jsonify({"error": "Authentication failed"}), 401
 
     except ValueError as e:
         logger.error(f"Invalid request: {e}")
@@ -122,14 +122,11 @@ def analyze_mri():
 
     except InferenceError as e:
         logger.error(f"Inference error: {e}")
-        return jsonify({"error": "Inference failed", "details": str(e)}), 500
+        return jsonify({"error": "Inference failed"}), 500
 
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+    except Exception:
+        logger.exception("Unexpected error during MRI analysis")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":

@@ -93,14 +93,11 @@ def analyze_mri():
 
     except InferenceError as e:
         logger.error(f"Inference error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Inference failed"}), 500
 
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return jsonify({"error": f"Internal server error: {e!s}"}), 500
+    except Exception:
+        logger.exception("Unexpected error during MRI analysis")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":

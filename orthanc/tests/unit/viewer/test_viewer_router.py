@@ -1013,6 +1013,15 @@ def test_classify_ups_creation_partial_when_2xx_but_body_not_json(router):
     assert workitem_uid is None
 
 
+def test_classify_ups_creation_partial_when_uid_value_array_empty(router):
+    """Tag present but its Value array is empty -> still no UID, so partial (the
+    empty list is returned as-is, the [None] default does not apply)."""
+    resp = _FakeRouterResponse(201, {"00080018": {"Value": []}})
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "partial"
+    assert workitem_uid is None
+
+
 def test_classify_ups_creation_rejected_when_non_2xx(router):
     """Non-2xx means the router refused; no workitem side effect is expected."""
     resp = _FakeRouterResponse(500, {"00080018": {"Value": ["should.be.ignored"]}})

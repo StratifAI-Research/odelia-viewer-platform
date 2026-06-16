@@ -384,7 +384,7 @@ def _classify_ups_creation(status_code: int, response: Any) -> tuple[str | None,
     try:
         data = response.json()
         workitem_uid = data.get("00080018", {}).get("Value", [None])[0]
-    except (ValueError, AttributeError, KeyError, TypeError):
+    except (ValueError, AttributeError, KeyError, TypeError, IndexError):
         workitem_uid = None
     if workitem_uid is None:
         return None, "partial"

@@ -98,8 +98,7 @@ def test_export_rows_csv_closes_connection_even_if_not_iterated(fb, monkeypatch)
 
     monkeypatch.setattr(fb, "_connect", _tracking_connect)
 
-    header, rows = fb.export_rows_csv()
-    # Intentionally do NOT iterate `rows`.
+    fb.export_rows_csv()  # build the export but deliberately never consume the rows
     assert opened, "export_rows_csv should have opened a connection"
     assert all(c.closed for c in opened), "connection leaked: not closed without iteration"
 

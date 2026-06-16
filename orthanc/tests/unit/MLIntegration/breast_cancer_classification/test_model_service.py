@@ -61,15 +61,11 @@ def test_per_side_failure_returns_generic_error(tmp_path, monkeypatch):
         assert secret not in str(captured[side])
 
 
-# Clinical prediction vocabulary the router SR builder maps to SNOMED CT.
-# Mirror of router/server.py create_bilateral_sr; predictions outside this set
-# fall through to the Unknown SNOMED code.
-_SR_RECOGNIZED_PREDICTIONS = {"Malignant", "Benign", "No lesion"}
-
-
+# The binary model emits only "Malignant"/"Benign" (sigmoid, two-class); both map to
+# non-Unknown SNOMED codes in the router SR builder.
 @pytest.mark.parametrize("prob,expected", [(0.92, "Malignant"), (0.10, "Benign")])
 def test_process_side_emits_sr_recognized_prediction(prob, expected, tmp_path, monkeypatch):
-    """_process_side must emit a prediction in the SR builder's clinical vocabulary,
+    """_process_side must emit one of the binary model's two clinical labels,
     so it maps to a non-Unknown SNOMED code downstream."""
     import contextlib
 
@@ -95,4 +91,3 @@ def test_process_side_emits_sr_recognized_prediction(prob, expected, tmp_path, m
     result = service._process_side("left", nifties, MagicMock())
 
     assert result["prediction"] == expected
-    assert result["prediction"] in _SR_RECOGNIZED_PREDICTIONS

@@ -352,10 +352,11 @@ _SNOMED_BENIGN = "108369006"
 _SNOMED_NO_LESION = "373572006"
 _SNOMED_UNKNOWN = "261665006"
 
-# Prediction strings the breast-cancer model emits -> expected SNOMED code.
-# The model standardizes on the SR builder's clinical vocabulary; these strings
-# must round-trip to a clinical SNOMED code, never the Unknown fallback.
-_MODEL_PREDICTION_TO_SNOMED = {
+# The SR builder's full recognized vocabulary -> expected SNOMED code.
+# Covers all clinical strings the builder maps; each must round-trip to a clinical
+# SNOMED code, never the Unknown fallback. ("No lesion" is MST/MedGemma vocabulary,
+# not emitted by the binary breast-cancer model, but the builder still handles it.)
+_PREDICTION_TO_SNOMED = {
     "Malignant": _SNOMED_MALIGNANT,
     "Benign": _SNOMED_BENIGN,
     "No lesion": _SNOMED_NO_LESION,
@@ -375,14 +376,14 @@ def _prediction_code_values(parsed):
     return values
 
 
-@pytest.mark.parametrize("model_prediction,expected_code", list(_MODEL_PREDICTION_TO_SNOMED.items()))
-def test_create_bilateral_sr_model_prediction_maps_to_clinical_snomed(srv, model_prediction, expected_code):
-    """Round-trip: a breast-cancer model prediction string must reach a clinical
+@pytest.mark.parametrize("prediction,expected_code", list(_PREDICTION_TO_SNOMED.items()))
+def test_create_bilateral_sr_prediction_maps_to_clinical_snomed(srv, prediction, expected_code):
+    """Round-trip: every recognized prediction string must reach a clinical
     SNOMED code in the SR, never the Unknown fallback."""
     ds = _minimal_dicom()
     results = {
-        "left": {"prediction": model_prediction, "confidence": 80.0},
-        "right": {"prediction": model_prediction, "confidence": 80.0},
+        "left": {"prediction": prediction, "confidence": 80.0},
+        "right": {"prediction": prediction, "confidence": 80.0},
     }
     sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, results)
     from pydicom import dcmread
@@ -390,10 +391,10 @@ def test_create_bilateral_sr_model_prediction_maps_to_clinical_snomed(srv, model
     codes = _prediction_code_values(parsed)
     assert codes, "no SCT prediction codes found in SR"
     assert _SNOMED_UNKNOWN not in codes, (
-        f"prediction {model_prediction!r} fell through to Unknown SNOMED code"
+        f"prediction {prediction!r} fell through to Unknown SNOMED code"
     )
     assert all(c == expected_code for c in codes), (
-        f"prediction {model_prediction!r} mapped to {codes}, expected {expected_code}"
+        f"prediction {prediction!r} mapped to {codes}, expected {expected_code}"
     )
 
 

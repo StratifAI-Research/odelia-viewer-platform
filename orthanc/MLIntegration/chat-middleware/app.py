@@ -29,7 +29,11 @@ def _cors_settings() -> dict:
     origins = (
         [o.strip() for o in raw.split(",") if o.strip()] if raw else list(DEFAULT_ALLOWED_ORIGINS)
     )
-    return {"allow_origins": origins, "allow_credentials": True}
+    # A literal "*" in the allowlist is kept (don't surprise the operator) but
+    # must never ship with credentials — browsers reject "*" + credentials, and
+    # it would defeat the allowlist. Coerce credentials off, like the dev flag.
+    allow_credentials = "*" not in origins
+    return {"allow_origins": origins, "allow_credentials": allow_credentials}
 
 
 # Configure logging

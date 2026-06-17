@@ -63,6 +63,39 @@ def test_apply_wal_succeeds_silently_when_wal(fb, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_connect_closes_connection_when_wal_setup_raises(fb, monkeypatch):
+    """If post-open setup (_apply_wal) raises, _connect must close the opened
+    sqlite connection before re-raising — no connection leak."""
+    closed = []
+    real_connect = fb.sqlite3.connect
+
+    class _Tracked:
+        def __init__(self, cx):
+            object.__setattr__(self, "_cx", cx)
+
+        def __getattr__(self, name):
+            return getattr(self._cx, name)
+
+        def close(self):
+            closed.append(True)
+            self._cx.close()
+
+    def _tracking_connect(*a, **kw):
+        return _Tracked(real_connect(*a, **kw))
+
+    monkeypatch.setattr(fb.sqlite3, "connect", _tracking_connect)
+
+    def _boom(_cx):
+        raise RuntimeError("WAL refused")
+
+    monkeypatch.setattr(fb, "_apply_wal", _boom)
+    monkeypatch.setattr(fb, "ENABLE_WAL", True)
+
+    with pytest.raises(RuntimeError):
+        fb._connect()
+    assert closed, "opened connection was not closed on WAL setup failure (leak)"
+
+
 def test_connect_does_not_print_journal_mode_each_call(fb, capsys):
     capsys.readouterr()  # drain anything from fixture setup
     cx = fb._connect()

@@ -29,6 +29,22 @@ def _stub_heavy_deps(torch_stub, torchio_stub, sitk_stub, monkeypatch) -> Iterat
     yield
 
 
+def test_health_reports_weights_not_loaded_when_load_disabled(tmp_path):
+    """Checkpoint loading is intentionally disabled (random weights), so /health
+    must NOT imply the model is ready for valid predictions."""
+    import model_service as ms
+    from shared.config import StorageConfig
+
+    service = ms.BreastCancerModelService(
+        MagicMock(device="cpu"),
+        StorageConfig(image_folder=tmp_path, cleanup_on_start=False),
+    )
+    service.initialize_model()
+    health = service.get_health_status()
+    assert health["weights_loaded"] is False
+    assert health["model_loaded"] is False
+
+
 def test_per_side_failure_returns_generic_error(tmp_path, monkeypatch):
     import model_service as ms
     from shared.config import StorageConfig

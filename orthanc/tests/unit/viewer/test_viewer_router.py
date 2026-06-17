@@ -716,6 +716,36 @@ def test_send_to_ai_dicomweb_happy_path_creates_workitem_and_returns_success(out
     assert any("/subscribers" in u for u in urls)
 
 
+def test_send_to_ai_dicomweb_partial_state_returns_partial_error(out, router, rest_fake, monkeypatch):
+    """Router accepts the create (201) but returns no UID -> _classify_ups_creation
+    yields 'partial'; the handler must emit the partial_error response shape so the
+    orphaned-workitem condition is detectable end-to-end (not a clean error)."""
+    import json as _json
+    from unittest import mock as _mock
+    _bind_dicomweb_study_state(rest_fake)
+
+    # 201 with an empty / UID-less body -> partial.
+    workitem_response = _mock.MagicMock(status_code=201, json=lambda: {})
+    posts = []
+    def _post(url, **kw):
+        posts.append((url, kw))
+        return workitem_response
+    monkeypatch.setattr(router.requests, "post", _post)
+    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+
+    body = b'{"study_id": "STD", "target": "P", "target_url": "http://router:8042/dicom-web"}'
+    router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
+
+    # Partial-error is reported via AnswerBuffer (status 200, JSON body).
+    assert out.status == 200
+    resp = _json.loads(out.body)
+    assert resp["status"] == "partial_error"
+    assert resp["study_id"] == "STD"
+    assert "reconciliation" in resp["message"].lower()
+    # No subscribe POST should happen without a UID.
+    assert not any("/subscribers" in u for u, _ in posts)
+
+
 def test_send_to_ai_dicomweb_happy_path_passes_input_mapping_through(out, router, rest_fake, monkeypatch):
     """If body has input_mapping + input_configuration_id, they appear in the workitem POST body."""
     import json as _json

@@ -242,6 +242,34 @@ def test_update_workitem_state_happy_path(out, routes):
     assert retrieved.get_state() == "IN_PROGRESS"
 
 
+def test_update_workitem_state_invalid_state_returns_400(out, routes):
+    """An unknown state must be rejected with 400, not written into the CS tag."""
+    wi = _make_workitem()
+    from ups.storage import ups_storage
+    ups_storage.store_workitem(wi)
+    body = json.dumps({"state": "BOGUS"}).encode()
+    routes.UpdateWorkitemState(
+        out, f'/ups-rs/workitems/{wi.workitem_uid}/state',
+        method='PUT', body=body, groups=[wi.workitem_uid],
+    )
+    assert out.status == 400
+    # State must be unchanged in storage.
+    assert ups_storage.get_workitem(wi.workitem_uid).get_state() == "SCHEDULED"
+
+
+def test_update_workitem_state_non_string_progress_info_returns_400(out, routes):
+    """progress_info, when present, must be a string."""
+    wi = _make_workitem()
+    from ups.storage import ups_storage
+    ups_storage.store_workitem(wi)
+    body = json.dumps({"state": "IN_PROGRESS", "progress_info": 123}).encode()
+    routes.UpdateWorkitemState(
+        out, f'/ups-rs/workitems/{wi.workitem_uid}/state',
+        method='PUT', body=body, groups=[wi.workitem_uid],
+    )
+    assert out.status == 400
+
+
 def test_update_workitem_state_progress_info_is_text_not_ds(out, routes):
     """progress_info is free text: it must be recorded as the Procedure Step
     Progress Description (00741006, VR ST), never stuffed into the numeric

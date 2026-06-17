@@ -47,14 +47,19 @@ def _apply_wal(cx: sqlite3.Connection) -> None:
 def _connect() -> sqlite3.Connection:
     # check_same_thread=False to allow usage from handler threads
     cx = sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000.0, check_same_thread=False)
-    cx.row_factory = sqlite3.Row
-    # Enforce foreign keys
-    cx.execute("PRAGMA foreign_keys=ON;")
-    # WAL and busy timeout
-    if ENABLE_WAL:
-        _apply_wal(cx)
-    cx.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS};")
-    return cx
+    try:
+        cx.row_factory = sqlite3.Row
+        # Enforce foreign keys
+        cx.execute("PRAGMA foreign_keys=ON;")
+        # WAL and busy timeout
+        if ENABLE_WAL:
+            _apply_wal(cx)
+        cx.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS};")
+        return cx
+    except Exception:
+        # Post-open setup failed (e.g. WAL refused); don't leak the connection.
+        cx.close()
+        raise
 
 
 def _run_ddl(cx: sqlite3.Connection) -> None:

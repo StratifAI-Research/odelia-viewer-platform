@@ -211,6 +211,15 @@ def UpdateWorkitemState(output: Any, uri: str, **request: Any) -> None:
             output.SendHttpStatus(400, "Missing state in request body")
             return
 
+        valid_states = {"SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED"}
+        if new_state not in valid_states:
+            output.SendHttpStatus(400, f"Invalid state: {new_state}")
+            return
+
+        if progress_info is not None and not isinstance(progress_info, str):
+            output.SendHttpStatus(400, "progress_info must be a string")
+            return
+
         # Retrieve workitem
         workitem = ups_storage.get_workitem(workitem_uid)
 

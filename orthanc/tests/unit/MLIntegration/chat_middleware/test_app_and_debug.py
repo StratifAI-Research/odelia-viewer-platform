@@ -83,6 +83,26 @@ def test_cors_origins_configurable_via_env(tmp_path, monkeypatch):
     assert kwargs["allow_origins"] == ["https://a.example", "https://b.example"]
 
 
+def test_cors_wildcard_in_allowlist_forces_credentials_off(tmp_path, monkeypatch):
+    """A literal '*' in CHAT_ALLOWED_ORIGINS must keep '*' but force
+    allow_credentials=False (never ship wildcard + credentials)."""
+    monkeypatch.setenv("CHAT_ALLOWED_ORIGINS", "*")
+    monkeypatch.delenv("CHAT_CORS_DEV_ALLOW_ALL", raising=False)
+    _app, _client = _fresh_app(tmp_path, monkeypatch)
+    kwargs = _cors_kwargs(_app)
+    assert "*" in kwargs["allow_origins"]
+    assert kwargs["allow_credentials"] is False
+
+
+def test_cors_normal_allowlist_keeps_credentials(tmp_path, monkeypatch):
+    """A non-wildcard allowlist keeps credentials enabled."""
+    monkeypatch.setenv("CHAT_ALLOWED_ORIGINS", "https://a.example")
+    monkeypatch.delenv("CHAT_CORS_DEV_ALLOW_ALL", raising=False)
+    _app, _client = _fresh_app(tmp_path, monkeypatch)
+    kwargs = _cors_kwargs(_app)
+    assert kwargs["allow_credentials"] is True
+
+
 def test_cors_dev_wildcard_drops_credentials(tmp_path, monkeypatch):
     """Dev escape hatch may allow '*' but must NOT also send credentials."""
     monkeypatch.setenv("CHAT_CORS_DEV_ALLOW_ALL", "1")

@@ -345,10 +345,14 @@ def SendToAiDicom(output: Any, uri: str, **request: Any) -> None:
 def _is_valid_server_name(target: str) -> bool:
     """A DICOMweb server name is interpolated into an Orthanc REST path
     (/dicom-web/servers/{target}), so restrict it to a strict allowlist. This
-    blocks path injection (slashes, dots, traversal) and other URL-altering
-    characters from the request body.
+    blocks path injection (slashes, dots, traversal, percent-encoding) and other
+    URL-altering or control characters from the request body.
+
+    The allowlist permits spaces because real configured model names are human
+    display names (e.g. "MST AI model", "MedGemma Vision-Language Model"); it
+    still excludes `/ \\ . %` and control chars, so traversal stays impossible.
     """
-    return bool(target) and re.fullmatch(r"[A-Za-z0-9_-]+", target) is not None
+    return bool(target) and re.fullmatch(r"[A-Za-z0-9 _-]+", target) is not None
 
 
 def _configure_dicomweb_server(target: str, target_url: str, username: str, password: str) -> None:

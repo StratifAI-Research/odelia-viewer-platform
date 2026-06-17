@@ -1039,14 +1039,45 @@ def test_classify_ups_creation_rejected_when_non_2xx(router):
 import pytest as _pytest
 
 
-@_pytest.mark.parametrize("name", ["mst", "PACS", "my_server-1", "a", "A1_b-2"])
+# Real configured model names (config/app-config.js aiEndpoints[].name and the
+# docker-compose AI_NAME envs) contain spaces — they must pass validation, plus
+# simple slugs.
+@_pytest.mark.parametrize(
+    "name",
+    [
+        "MST AI model",
+        "MedGemma Vision-Language Model",
+        "mst-ai",
+        "orthanc_router",
+        "mst",
+        "PACS",
+        "my_server-1",
+        "a",
+        "A1_b-2",
+    ],
+)
 def test_is_valid_server_name_accepts_simple_names(router, name):
     assert router._is_valid_server_name(name) is True
 
 
 @_pytest.mark.parametrize(
     "name",
-    ["", "../tools/execute", "a/b", "a.b", "a b", "a;b", "a?x=1", "..", "srv/", "/srv"],
+    [
+        "",
+        "../etc",
+        "a/b",
+        "a..b",
+        "..",
+        "a.b",
+        "x\\y",
+        "name%2e%2e",
+        "../tools/execute",
+        "a;b",
+        "a?x=1",
+        "srv/",
+        "/srv",
+        "a\x00b",
+    ],
 )
 def test_is_valid_server_name_rejects_injection(router, name):
     assert router._is_valid_server_name(name) is False
@@ -1064,6 +1095,39 @@ def test_send_to_ai_dicomweb_invalid_target_returns_400(out, router):
     )
     assert out.status == 400
     assert "target" in out.body
+
+
+def test_send_to_ai_dicomweb_real_model_name_passes_validation_gate(out, router, rest_fake, monkeypatch):
+    """A real configured model name (contains spaces) must get past the
+    _is_valid_server_name 400 gate and reach the happy path."""
+    import json as _json
+    from unittest import mock as _mock
+
+    target = "MST AI model"
+    _bind_dicomweb_study_state(rest_fake, target=target)
+
+    workitem_response = _mock.MagicMock(
+        status_code=201,
+        json=lambda: {"00080018": {"Value": ["1.2.3.WORKITEM"]}},
+    )
+    subscribe_response = _mock.MagicMock(status_code=200)
+
+    def _post(url, **kw):
+        if "/subscribers" in url:
+            return subscribe_response
+        return workitem_response
+
+    monkeypatch.setattr(router.requests, "post", _post)
+    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+
+    body = _json.dumps(
+        {"study_id": "STD", "target": target, "target_url": "http://router:8042/dicom-web"}
+    ).encode()
+    router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
+
+    # Not a 400 from the invalid-target gate; the real name is accepted.
+    assert out.status == 200
+    assert "Invalid target server name" not in (out.body or "")
 
 
 def test_configure_dicomweb_server_uses_internal_rest_put(router, rest_fake):

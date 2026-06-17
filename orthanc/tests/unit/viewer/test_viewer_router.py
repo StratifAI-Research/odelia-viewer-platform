@@ -720,7 +720,6 @@ def test_send_to_ai_dicomweb_partial_state_returns_partial_error(out, router, re
     """Router accepts the create (201) but returns no UID -> _classify_ups_creation
     yields 'partial'; the handler must emit the partial_error response shape so the
     orphaned-workitem condition is detectable end-to-end (not a clean error)."""
-    import json as _json
     from unittest import mock as _mock
     _bind_dicomweb_study_state(rest_fake)
 
@@ -738,7 +737,7 @@ def test_send_to_ai_dicomweb_partial_state_returns_partial_error(out, router, re
 
     # Partial-error is reported via AnswerBuffer (status 200, JSON body).
     assert out.status == 200
-    resp = _json.loads(out.body)
+    resp = json.loads(out.body)
     assert resp["status"] == "partial_error"
     assert resp["study_id"] == "STD"
     assert "reconciliation" in resp["message"].lower()

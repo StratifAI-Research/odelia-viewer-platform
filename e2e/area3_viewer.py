@@ -64,7 +64,7 @@ def run():
                     time.sleep(0.1)
                 time.sleep(0.6)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
             rec.shot(pg, "after_zoom", "Viewer: after zoom attempt", full=True)
 
             # window/level via middle-ish drag (left drag adjusts W/L by default tool)
@@ -75,7 +75,7 @@ def run():
                 pg.mouse.up()
                 time.sleep(0.6)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
             rec.shot(pg, "after_wl", "Viewer: after window/level (left-drag) interaction", full=True)
 
             if n_canvas > 0 and in_viewer:
@@ -89,7 +89,7 @@ def run():
             try:
                 rec.shot(pg, "exception", f"Viewer exception: {repr(e)[:80]}", full=True)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         b.close()
     rec.write_summary(status, notes)
     log("AREA viewer", status, notes)

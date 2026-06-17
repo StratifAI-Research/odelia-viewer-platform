@@ -25,7 +25,7 @@ with sync_playwright() as p:
                     el.first.click(timeout=3000, force=True); opened = True
                     log("chat tab via", sel); break
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         time.sleep(2)
         # Confirm we're on the chat panel (look for the prompt text / input)
         on_chat = pg.get_by_text("Ask about this study", exact=False).count() > 0 \
@@ -78,7 +78,7 @@ with sync_playwright() as p:
                     if el.count() and el.first.is_visible():
                         el.first.click(timeout=3000); clicked_send = True; break
                 except Exception:
-                    pass
+                    pass  # best-effort; non-fatal so the walkthrough always finishes and reports
             if not clicked_send:
                 ta.first.press("Enter")
             sent = True

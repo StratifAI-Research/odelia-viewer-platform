@@ -45,7 +45,7 @@ with sync_playwright() as p:
                     el.first.click(timeout=4000); submitted_click = True
                     log("clicked Submit Feedback"); break
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         # wait for the network call(s)
         for _ in range(10):
             time.sleep(1.5)

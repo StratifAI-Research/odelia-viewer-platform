@@ -1,4 +1,5 @@
-"""Area 2: worklist — study list renders; UKA_1/MR/155 study listed; filters/columns present."""
+"""Area 2: worklist — study list renders; UKA_1/MR study listed; filters/columns present."""
+import re
 import time
 from _helpers import sync_playwright, browser, login, Recorder, log
 
@@ -20,9 +21,16 @@ def run():
             n_rows = pg.locator("tr").count()
             has_uka = "UKA_1" in body
             has_mr = "MR" in body
-            # actual instance count for this study is 157 (155 MR + SC + SR);
-            # the loaded MR series is 155 instances. Accept either.
-            has_inst = ("155" in body) or ("157" in body)
+            # The study's instance count grows as AI result series (SR/heatmap)
+            # accumulate, so don't assert a fixed number — just that the study row
+            # shows a positive instance count.
+            study_row = pg.locator("tr", has_text="UKA_1").first
+            row_text = study_row.inner_text() if study_row.count() else ""
+            # Instances is the last column, so the trailing number in the row is the
+            # count (avoids matching the "1" in the UKA_1 MRN/accession cells).
+            nums = re.findall(r"\d+", row_text)
+            inst_count = int(nums[-1]) if nums else 0
+            has_inst = inst_count > 0
 
             # column headers are styled divs, not <th>; check by header label text.
             header_labels = ["Patient Name", "MRN", "Study Date", "Description", "Modality", "Instances"]
@@ -34,7 +42,7 @@ def run():
             checks = {
                 "MRN UKA_1 present": has_uka,
                 "MR modality present": has_mr,
-                "instance count (155/157) present": has_inst,
+                "study instance count shown (>0)": has_inst,
                 "all column headers present": len(present_headers) == len(header_labels),
                 "filter inputs present": filter_inputs > 0,
             }
@@ -42,7 +50,7 @@ def run():
             if not failed:
                 status = "PASS"
                 notes = (f"All worklist checks passed: study MRN UKA_1, MR modality, "
-                         f"157 instances, {len(present_headers)} column headers, "
+                         f"{inst_count} instances, {len(present_headers)} column headers, "
                          f"{filter_inputs} filter inputs. ({n_rows} rows)")
             elif has_uka and has_mr:
                 status = "NOTE"
@@ -56,7 +64,7 @@ def run():
             try:
                 rec.shot(pg, "exception", f"Worklist exception: {repr(e)[:80]}", full=True)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         b.close()
     rec.write_summary(status, notes)
     log("AREA worklist", status, notes)

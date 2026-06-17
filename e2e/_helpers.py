@@ -50,7 +50,7 @@ class Recorder:
                         "/feedback", "/chat"]):
                     self.ups.append((r.status, r.request.method, r.url[-80:]))
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         pg.on("response", onr)
 
     def shot(self, pg, label, caption, full=False, clip=None):
@@ -137,7 +137,7 @@ def dismiss_banner(pg):
             b.first.click(timeout=2500)
             return True
     except Exception:
-        pass
+        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
     return False
 
 
@@ -154,7 +154,7 @@ def login(pg):
     try:
         pg.wait_for_load_state("networkidle", timeout=45000)
     except Exception:
-        pass
+        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
     time.sleep(5)
     dismiss_banner(pg)
 
@@ -168,7 +168,7 @@ def open_study(pg):
     try:
         pg.wait_for_load_state("networkidle", timeout=60000)
     except Exception:
-        pass
+        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
     time.sleep(10)
     dismiss_banner(pg)
     time.sleep(1)
@@ -186,5 +186,5 @@ def advance(pg, names):
                 el.first.click(timeout=4000)
                 return n
         except Exception:
-            pass
+            pass  # best-effort; non-fatal so the walkthrough always finishes and reports
     return None

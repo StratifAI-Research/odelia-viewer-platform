@@ -81,7 +81,7 @@ def run():
                 if ad.count():
                     ad.first.click(timeout=3000)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
             time.sleep(1)
             try:
                 # the map-series <select> is the series selector; choose first real option
@@ -212,7 +212,7 @@ def run():
             try:
                 rec_send.shot(pg, "exception", f"Send-to-AI exception: {repr(e)[:80]}", full=True)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         b.close()
     rec_send.write_summary(send_status, send_notes)
     rec_res.write_summary(res_status, res_notes)

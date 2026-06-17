@@ -23,7 +23,7 @@ def run():
             try:
                 pg.wait_for_load_state("networkidle", timeout=45000)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
             time.sleep(5)
             dismiss_banner(pg)
             # success = landed in app (worklist rows present, not on login form)
@@ -42,7 +42,7 @@ def run():
             try:
                 rec.shot(pg, "exception", f"Auth: state at exception: {repr(e)[:80]}", full=True)
             except Exception:
-                pass
+                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
         b.close()
     rec.write_summary(status, notes)
     log("AREA auth", status, notes)

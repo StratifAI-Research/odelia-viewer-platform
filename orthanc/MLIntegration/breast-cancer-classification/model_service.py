@@ -50,9 +50,16 @@ class BreastCancerModelService:
                 "basic", [2, 2, 2, 2], [64, 128, 256, 512], n_input_channels=2, num_classes=1
             )
 
-            # Uncomment when checkpoint is available
+            # Checkpoint loading is intentionally disabled: this is legacy/example
+            # code, not wired into the viewer. To use it, provide MODEL_PATH weights,
+            # uncomment the load below, and add the service to the viewer config.
             # checkpoint = torch.load(self.bc_config.model_path, map_location=torch.device(self.bc_config.device))
             # self.model.load_state_dict(checkpoint)
+            logger.warning(
+                "Breast-cancer model weights are NOT loaded (checkpoint loading "
+                "disabled): predictions come from RANDOM weights and are NOT clinically "
+                "valid. Legacy/example service, not wired into the viewer."
+            )
 
             self.model.to(self.bc_config.device)
             self.model.eval()

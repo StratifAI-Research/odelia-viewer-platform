@@ -664,8 +664,10 @@ def _bind_dicomweb_study_state(rest_fake, study_id="STD", series_id="S-orig",
     instances + /series/<id> for SeriesInstanceUID — everything SendToAiDicomWeb needs to reach
     the workitem POST."""
     import json as _json
-    # DICOMweb server config goes over the internal RestApiPut channel.
-    rest_fake.responses[("PUT", f"/dicom-web/servers/{target}")] = b"{}"
+    from urllib.parse import quote as _quote
+    # DICOMweb server config goes over the internal RestApiPut channel. The
+    # server-name path segment is URL-encoded, so bind the encoded key.
+    rest_fake.responses[("PUT", f"/dicom-web/servers/{_quote(target, safe='')}")] = b"{}"
     # FilterAIResultSeries path (returns series_id as non-AI) — reuse the existing helper.
     _bind_series_listing(rest_fake, study_id, [series_id], ai=False)
     rest_fake.responses[("GET", f"/studies/{study_id}")] = _json.dumps(
@@ -1155,3 +1157,30 @@ def test_configure_dicomweb_server_does_not_use_requests(router, rest_fake, monk
 
     monkeypatch.setattr(router.requests, "put", _boom)
     router._configure_dicomweb_server("s", "http://x", "", "")  # must not raise
+
+
+def test_configure_dicomweb_server_url_encodes_name_with_spaces(router, rest_fake):
+    """The server-name path SEGMENT must be percent-encoded. A raw space in the
+    Orthanc REST path yields (17, 'Unknown resource') -> HTTP 500 (ODV-193).
+    """
+    # Bind only the ENCODED path; if the code emits a raw space, the dispatch
+    # misses this binding and rest_fake raises (test fails) — pinning the fix.
+    rest_fake.responses[("PUT", "/dicom-web/servers/MST%20AI%20model")] = b"{}"
+    router._configure_dicomweb_server(
+        "MST AI model", "http://pacs:8042/dicom-web", "user", "pw"
+    )
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT"]
+    assert len(put_calls) == 1
+    assert put_calls[0][1] == "/dicom-web/servers/MST%20AI%20model"
+    # Credentials still ride the internal channel (no plaintext requests.put).
+    body = json.loads(put_calls[0][2])
+    assert body["Username"] == "user"
+    assert body["Password"] == "pw"
+
+
+def test_configure_dicomweb_server_leaves_slug_unchanged(router, rest_fake):
+    """A space-free slug round-trips unchanged through quote(safe='')."""
+    rest_fake.responses[("PUT", "/dicom-web/servers/testslug")] = b"{}"
+    router._configure_dicomweb_server("testslug", "http://x", "", "")
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT"]
+    assert put_calls[0][1] == "/dicom-web/servers/testslug"

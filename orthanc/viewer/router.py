@@ -3,6 +3,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import quote
 
 import orthanc
 import requests
@@ -367,7 +368,11 @@ def _configure_dicomweb_server(target: str, target_url: str, username: str, pass
         "Password": password,
         "HttpHeaders": {},
     }
-    orthanc.RestApiPut(f"/dicom-web/servers/{target}", json.dumps(server_config))
+    # URL-encode the server-name path SEGMENT: real model names contain spaces
+    # (e.g. "MST AI model") and a raw space in the internal Orthanc REST path
+    # yields (17, 'Unknown resource') -> HTTP 500 (ODV-193).
+    server_segment = quote(target, safe="")
+    orthanc.RestApiPut(f"/dicom-web/servers/{server_segment}", json.dumps(server_config))
 
 
 def _classify_ups_creation(status_code: int, response: Any) -> tuple[str | None, str]:

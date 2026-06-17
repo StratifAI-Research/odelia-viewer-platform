@@ -107,7 +107,7 @@ def test_export_rows_csv_returns_rows_with_comma_safe_values(fb):
     """Sanity: materialized rows still carry full field values (used by the CSV
     route's csv.writer for escaping)."""
     fb.submit_feedback(_payload(user="Doe, John"))
-    header, rows = fb.export_rows_csv()
+    _, rows = fb.export_rows_csv()
     rows = list(rows)
     assert len(rows) == 1
     assert rows[0][4] == "Doe, John"

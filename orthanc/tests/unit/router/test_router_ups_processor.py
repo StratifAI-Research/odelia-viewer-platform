@@ -436,7 +436,6 @@ def test_process_workitem_cancels_on_empty_upload_set(proc, fake_workitem, monke
     monkeypatch.setattr(proc.ups_storage, 'store_workitem', _capture)
     monkeypatch.setattr(proc, 'notify_all_subscribers', lambda *a, **kw: None)
 
-    model_resp = SimpleNamespace(status_code=200, text="ok", json=lambda: {})
     posts = []
     def _post(url, **kw):
         posts.append((url, kw))

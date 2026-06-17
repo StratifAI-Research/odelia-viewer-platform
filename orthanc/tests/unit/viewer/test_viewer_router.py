@@ -1104,7 +1104,6 @@ def test_send_to_ai_dicomweb_invalid_target_returns_400(out, router):
 def test_send_to_ai_dicomweb_real_model_name_passes_validation_gate(out, router, rest_fake, monkeypatch):
     """A real configured model name (contains spaces) must get past the
     _is_valid_server_name 400 gate and reach the happy path."""
-    import json as _json
     from unittest import mock as _mock
 
     target = "MST AI model"
@@ -1124,7 +1123,7 @@ def test_send_to_ai_dicomweb_real_model_name_passes_validation_gate(out, router,
     monkeypatch.setattr(router.requests, "post", _post)
     monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
 
-    body = _json.dumps(
+    body = json.dumps(
         {"study_id": "STD", "target": target, "target_url": "http://router:8042/dicom-web"}
     ).encode()
     router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)

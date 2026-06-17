@@ -121,6 +121,9 @@ def _install_orthanc_stub():
 
     # ---- REST + DICOM: default raises; tests bind via fixtures ----
     m.RestApiGet = m.RestApiPost = m.RestApiPut = m.RestApiDelete = _no_orthanc_handler
+    # Plugin-aware variant: plugin-registered routes (e.g. /dicom-web/...) are only
+    # reachable through the *AfterPlugins dispatchers.
+    m.RestApiPutAfterPlugins = _no_orthanc_handler
     m.GetDicomForInstance = _no_orthanc_handler
 
     # ---- Logging: capture into m._log_calls so tests can assert on log-only side effects ----
@@ -182,6 +185,7 @@ def _reset_orthanc_state() -> Iterator[None]:
     orthanc._log_calls.clear()
     # restore default raisers in case a prior test bound a fake
     orthanc.RestApiGet = orthanc.RestApiPost = orthanc.RestApiPut = orthanc.RestApiDelete = _no_orthanc_handler
+    orthanc.RestApiPutAfterPlugins = _no_orthanc_handler
     orthanc.GetDicomForInstance = _no_orthanc_handler
     # Evict modules that load under the same bare name from both viewer/ and router/
     # subtrees. Without this, the second side imports a stale module reference from
@@ -220,6 +224,9 @@ def rest_fake() -> Any:
     orthanc.RestApiPost = lambda uri, body=b'': _dispatch('POST', uri, body)
     orthanc.RestApiPut = lambda uri, body=b'': _dispatch('PUT', uri, body)
     orthanc.RestApiDelete = lambda uri: _dispatch('DELETE', uri)
+    # Plugin-aware PUT (reaches plugin-registered routes like /dicom-web/...).
+    # Distinct method label so tests can assert which dispatcher was used.
+    orthanc.RestApiPutAfterPlugins = lambda uri, body=b'': _dispatch('PUT_AFTER_PLUGINS', uri, body)
 
     return type('RestFake', (), {'calls': calls, 'responses': responses})()
 

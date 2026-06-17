@@ -3,7 +3,6 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import quote
 
 import orthanc
 import requests
@@ -357,10 +356,14 @@ def _is_valid_server_name(target: str) -> bool:
 
 
 def _configure_dicomweb_server(target: str, target_url: str, username: str, password: str) -> None:
-    """Register/update a DICOMweb server on the local Orthanc over its internal
-    REST channel. Using orthanc.RestApiPut (rather than a plaintext requests.put
-    to a hard-coded localhost endpoint) keeps credentials off the wire and needs
-    no socket timeout. Raises on failure.
+    """Register/update a DICOMweb server on the local Orthanc over the internal
+    REST channel. /dicom-web/servers is a DICOMweb-plugin route, so it must go
+    through the plugin-aware dispatcher (RestApiPutAfterPlugins); the core-only
+    RestApiPut never sees plugin routes and 500s with (17, 'Unknown resource').
+    The raw name is used in the path: the after-plugins dispatcher does not
+    URL-decode (an encoded name would register a literally-encoded server) and
+    _is_valid_server_name already blocks '/'. Internal channel keeps credentials
+    off the wire (no plaintext requests.put). Raises on failure.
     """
     server_config = {
         "Url": target_url,
@@ -368,11 +371,7 @@ def _configure_dicomweb_server(target: str, target_url: str, username: str, pass
         "Password": password,
         "HttpHeaders": {},
     }
-    # URL-encode the server-name path SEGMENT: real model names contain spaces
-    # (e.g. "MST AI model") and a raw space in the internal Orthanc REST path
-    # yields (17, 'Unknown resource') -> HTTP 500 (ODV-193).
-    server_segment = quote(target, safe="")
-    orthanc.RestApiPut(f"/dicom-web/servers/{server_segment}", json.dumps(server_config))
+    orthanc.RestApiPutAfterPlugins(f"/dicom-web/servers/{target}", json.dumps(server_config))
 
 
 def _classify_ups_creation(status_code: int, response: Any) -> tuple[str | None, str]:

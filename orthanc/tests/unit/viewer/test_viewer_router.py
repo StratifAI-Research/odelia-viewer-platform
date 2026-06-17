@@ -624,7 +624,7 @@ def test_send_to_ai_dicomweb_study_no_processable_content_returns_400(out, route
 
 
 def test_send_to_ai_dicomweb_dicomweb_server_config_failure_returns_500(out, router, rest_fake):
-    """When the internal RestApiPut to /dicom-web/servers/<target> fails, respond 500."""
+    """When the plugin-aware internal PUT to /dicom-web/servers/<target> fails, respond 500."""
     import json as _json
     rest_fake.responses[("GET", "/studies/STD")] = _json.dumps(
         {"Series": ["S-orig"], "PatientMainDicomTags": {"PatientName": "X"}}
@@ -634,7 +634,7 @@ def test_send_to_ai_dicomweb_dicomweb_server_config_failure_returns_500(out, rou
     def _raise_put(_body):
         raise RuntimeError("config error")
 
-    rest_fake.responses[("PUT", "/dicom-web/servers/P")] = _raise_put
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = _raise_put
 
     body = b'{"study_id": "STD", "target": "P", "target_url": "http://x/dicom-web"}'
     router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
@@ -664,10 +664,9 @@ def _bind_dicomweb_study_state(rest_fake, study_id="STD", series_id="S-orig",
     instances + /series/<id> for SeriesInstanceUID — everything SendToAiDicomWeb needs to reach
     the workitem POST."""
     import json as _json
-    from urllib.parse import quote as _quote
-    # DICOMweb server config goes over the internal RestApiPut channel. The
-    # server-name path segment is URL-encoded, so bind the encoded key.
-    rest_fake.responses[("PUT", f"/dicom-web/servers/{_quote(target, safe='')}")] = b"{}"
+    # DICOMweb server config goes over the plugin-aware internal channel
+    # (RestApiPutAfterPlugins) with the RAW server name in the path.
+    rest_fake.responses[("PUT_AFTER_PLUGINS", f"/dicom-web/servers/{target}")] = b"{}"
     # FilterAIResultSeries path (returns series_id as non-AI) — reuse the existing helper.
     _bind_series_listing(rest_fake, study_id, [series_id], ai=False)
     rest_fake.responses[("GET", f"/studies/{study_id}")] = _json.dumps(
@@ -754,7 +753,7 @@ def test_send_to_ai_dicomweb_no_series_after_filter_returns_400(out, router, res
         {"Series": ["S-any"], "PatientMainDicomTags": {"PatientName": "X"},
          "MainDicomTags": {"StudyInstanceUID": "1.2.3.STUDY"}}
     ).encode()
-    rest_fake.responses[("PUT", "/dicom-web/servers/P")] = b"{}"
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = b"{}"
 
     # series_uids provided -> takes the lookup path; lookup returns no Series-type entries.
     rest_fake.responses[("POST", "/tools/lookup")] = _json.dumps([{"Type": "Study", "ID": "X"}]).encode()
@@ -778,7 +777,7 @@ def test_send_to_ai_dicomweb_returns_500_when_study_instance_uid_missing(out, ro
         {"SeriesDescription": "Axial T1", "Modality": "MR"}
     ).encode()
     rest_fake.responses[("GET", "/series/S-orig/instances")] = _json.dumps([{"ID": "I1"}]).encode()
-    rest_fake.responses[("PUT", "/dicom-web/servers/P")] = b"{}"
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = b"{}"
 
     body = b'{"study_id": "STD", "target": "P", "target_url": "http://router:8042/dicom-web"}'
     router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
@@ -1034,8 +1033,11 @@ def test_classify_ups_creation_rejected_when_non_2xx(router):
 
 # ---------------------------------------------------------------------------
 # DICOMweb server configuration: the server name is validated (strict allowlist,
-# blocking path injection) and configured via orthanc.RestApiPut (internal
-# channel, no plaintext credentials or timeout-less HTTP).
+# blocking path injection) and configured via orthanc.RestApiPutAfterPlugins
+# (plugin-aware internal channel — /dicom-web/servers is a DICOMweb-plugin route,
+# invisible to the core-only RestApiPut). The RAW name is passed in the path; the
+# after-plugins dispatcher does not URL-decode, and _is_valid_server_name already
+# blocks '/'. No plaintext credentials or timeout-less HTTP.
 # ---------------------------------------------------------------------------
 
 import pytest as _pytest
@@ -1132,14 +1134,17 @@ def test_send_to_ai_dicomweb_real_model_name_passes_validation_gate(out, router,
     assert "Invalid target server name" not in (out.body or "")
 
 
-def test_configure_dicomweb_server_uses_internal_rest_put(router, rest_fake):
-    """Server config (incl. credentials) goes over Orthanc's internal REST
-    channel, not a plaintext localhost HTTP request."""
-    rest_fake.responses[("PUT", "/dicom-web/servers/myserver")] = b"{}"
+def test_configure_dicomweb_server_uses_plugin_aware_internal_put(router, rest_fake):
+    """Server config (incl. credentials) goes over the plugin-aware internal
+    channel (RestApiPutAfterPlugins) — the core-only RestApiPut cannot see the
+    DICOMweb-plugin /dicom-web/servers route. Not a plaintext localhost HTTP request."""
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/myserver")] = b"{}"
     router._configure_dicomweb_server(
         "myserver", "http://pacs:8042/dicom-web", "user", "pw"
     )
-    put_calls = [c for c in rest_fake.calls if c[0] == "PUT"]
+    # The core RestApiPut must NOT be used (it would 500 with 'Unknown resource').
+    assert [c for c in rest_fake.calls if c[0] == "PUT"] == []
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
     assert len(put_calls) == 1
     assert put_calls[0][1] == "/dicom-web/servers/myserver"
     body = json.loads(put_calls[0][2])
@@ -1150,7 +1155,7 @@ def test_configure_dicomweb_server_uses_internal_rest_put(router, rest_fake):
 
 def test_configure_dicomweb_server_does_not_use_requests(router, rest_fake, monkeypatch):
     """The credentials must not traverse a plaintext requests.put call."""
-    rest_fake.responses[("PUT", "/dicom-web/servers/s")] = b"{}"
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/s")] = b"{}"
 
     def _boom(*a, **k):
         raise AssertionError("must not use requests.put for local DICOMweb config")
@@ -1159,19 +1164,20 @@ def test_configure_dicomweb_server_does_not_use_requests(router, rest_fake, monk
     router._configure_dicomweb_server("s", "http://x", "", "")  # must not raise
 
 
-def test_configure_dicomweb_server_url_encodes_name_with_spaces(router, rest_fake):
-    """The server-name path SEGMENT must be percent-encoded. A raw space in the
-    Orthanc REST path yields (17, 'Unknown resource') -> HTTP 500 (ODV-193).
-    """
-    # Bind only the ENCODED path; if the code emits a raw space, the dispatch
-    # misses this binding and rest_fake raises (test fails) — pinning the fix.
-    rest_fake.responses[("PUT", "/dicom-web/servers/MST%20AI%20model")] = b"{}"
+def test_configure_dicomweb_server_passes_raw_name_with_spaces(router, rest_fake):
+    """The server name is passed RAW in the path (no percent-encoding). The
+    after-plugins dispatcher does not URL-decode, so an encoded name would
+    register a literally-named "MST%20AI%20model" server. The route regex
+    accepts spaces (only '/' breaks it, and _is_valid_server_name blocks '/')."""
+    # Bind only the RAW path; if the code percent-encodes, the dispatch misses
+    # this binding and rest_fake raises (test fails) — pinning the fix.
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/MST AI model")] = b"{}"
     router._configure_dicomweb_server(
         "MST AI model", "http://pacs:8042/dicom-web", "user", "pw"
     )
-    put_calls = [c for c in rest_fake.calls if c[0] == "PUT"]
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
     assert len(put_calls) == 1
-    assert put_calls[0][1] == "/dicom-web/servers/MST%20AI%20model"
+    assert put_calls[0][1] == "/dicom-web/servers/MST AI model"
     # Credentials still ride the internal channel (no plaintext requests.put).
     body = json.loads(put_calls[0][2])
     assert body["Username"] == "user"
@@ -1179,8 +1185,8 @@ def test_configure_dicomweb_server_url_encodes_name_with_spaces(router, rest_fak
 
 
 def test_configure_dicomweb_server_leaves_slug_unchanged(router, rest_fake):
-    """A space-free slug round-trips unchanged through quote(safe='')."""
-    rest_fake.responses[("PUT", "/dicom-web/servers/testslug")] = b"{}"
+    """A space-free slug is passed through unchanged."""
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/testslug")] = b"{}"
     router._configure_dicomweb_server("testslug", "http://x", "", "")
-    put_calls = [c for c in rest_fake.calls if c[0] == "PUT"]
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
     assert put_calls[0][1] == "/dicom-web/servers/testslug"

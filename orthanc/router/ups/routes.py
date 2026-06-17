@@ -63,6 +63,10 @@ def CreateWorkitem(output: Any, uri: str, **request: Any) -> None:
             output.SendHttpStatus(400, "Missing study_uid in request body")
             return
 
+        if not series_uids:
+            output.SendHttpStatus(400, "Missing or empty series_uids in request body")
+            return
+
         if not host_is_allowed(wado_rs_base):
             print(f"CreateWorkitem: wado_rs_base host not in ROUTER_HOST_ALLOWLIST: {wado_rs_base}")
             output.SendHttpStatus(403, "wado_rs_base host not allowed")
@@ -207,6 +211,15 @@ def UpdateWorkitemState(output: Any, uri: str, **request: Any) -> None:
             output.SendHttpStatus(400, "Missing state in request body")
             return
 
+        valid_states = {"SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED"}
+        if new_state not in valid_states:
+            output.SendHttpStatus(400, f"Invalid state: {new_state}")
+            return
+
+        if progress_info is not None and not isinstance(progress_info, str):
+            output.SendHttpStatus(400, "progress_info must be a string")
+            return
+
         # Retrieve workitem
         workitem = ups_storage.get_workitem(workitem_uid)
 
@@ -214,8 +227,10 @@ def UpdateWorkitemState(output: Any, uri: str, **request: Any) -> None:
             output.SendHttpStatus(404, f"Workitem {workitem_uid} not found")
             return
 
-        # Update state
-        workitem.update_state(new_state, progress_info)
+        # Update state. progress_info is free text, so route it to the progress
+        # *description* (ST) — passing it positionally would land it in the numeric
+        # Procedure Step Progress DS tag, which only accepts a decimal string.
+        workitem.update_state(new_state, progress_description=progress_info)
         ups_storage.store_workitem(workitem)
 
         print(f"Updated workitem {workitem_uid} state to {new_state}")
@@ -244,9 +259,15 @@ def QueryWorkitems(output: Any, uri: str, **request: Any) -> None:
         return
 
     try:
-        # Parse query parameters
+        # Parse query parameters. Orthanc may hand a query param as either a bare
+        # string or a list of strings; normalize both so a value like "COMPLETED"
+        # is never indexed down to its first character ("C").
         get_params = request.get("get", {})
-        state_filter = get_params.get("state", [None])[0] if "state" in get_params else None
+        state_param = get_params.get("state")
+        if isinstance(state_param, list | tuple):
+            state_filter = state_param[0] if state_param else None
+        else:
+            state_filter = state_param
 
         # Query workitems
         workitems = ups_storage.list_workitems(state=state_filter)

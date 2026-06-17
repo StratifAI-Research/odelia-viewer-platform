@@ -307,7 +307,18 @@ def process_workitem(workitem: UPSWorkitem) -> None:
             ups_storage.store_workitem(workitem)
             notify_all_subscribers(workitem)
 
+            # No DICOM output means inference produced nothing deliverable.
+            # Reporting that as success would misrepresent a failed run.
+            if not dicom_objects_to_upload:
+                error_msg = "No AI output produced; nothing to upload to viewer"
+                print(error_msg)
+                workitem.update_state("CANCELED", cancellation_reason=error_msg)
+                ups_storage.store_workitem(workitem)
+                notify_all_subscribers(workitem)
+                return
+
             upload_start = time.time()
+            upload_failures = []
             for dicom_bytes, desc in dicom_objects_to_upload:
                 upload_item_start = time.time()
                 response = requests.post(
@@ -323,9 +334,20 @@ def process_workitem(workitem: UPSWorkitem) -> None:
                     print(f"AI {desc} uploaded to viewer")
                 else:
                     print(f"Failed to upload {desc}: {response.status_code}")
+                    upload_failures.append(f"{desc} (HTTP {response.status_code})")
 
             upload_duration = (time.time() - upload_start) * 1000
             print(f"TIMING: upload_all_to_viewer: {upload_duration:.2f}ms")
+
+            # Any failed object is a delivery failure. Partial delivery must not
+            # be reported as success on a medical device.
+            if upload_failures:
+                error_msg = "Failed to upload AI results to viewer: " + ", ".join(upload_failures)
+                print(error_msg)
+                workitem.update_state("CANCELED", cancellation_reason=error_msg)
+                ups_storage.store_workitem(workitem)
+                notify_all_subscribers(workitem)
+                return
 
         except Exception as e:
             error_msg = f"Error processing results: {e!s}"

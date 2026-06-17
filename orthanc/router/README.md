@@ -37,11 +37,11 @@ The plugin expects the AI model backend to provide a REST API endpoint at `/anal
 ```json
 {
   "left": {
-    "prediction": "Cancerous" or "Not Cancerous",
+    "prediction": "Malignant" or "Benign",
     "confidence": 95.7
   },
   "right": {
-    "prediction": "Cancerous" or "Not Cancerous",
+    "prediction": "Malignant" or "Benign",
     "confidence": 98.2
   }
 }

@@ -1,5 +1,7 @@
 """Unit tests for viewer/feedback_routes.py — REST handler functions."""
+import csv
 import importlib
+import io
 import json
 from types import ModuleType
 
@@ -249,6 +251,24 @@ def test_export_csv_returns_200(out, fb_routes):
 def test_export_csv_wrong_method_returns_405(out, fb_routes):
     fb_routes.FeedbackExportCsv(out, "/feedback/export.csv", method="DELETE", body=b"")
     assert out.status == 405
+
+
+def test_export_csv_escapes_fields_containing_commas(out, fb_routes):
+    """A field value containing a comma must be quoted so the CSV parses back to
+    the same fields, instead of leaking an extra column."""
+    payload = {**_valid_submit(), "user_id": "Doe, John"}
+    fb_routes.FeedbackSubmit(
+        out, "/feedback/submit", method="POST", body=json.dumps(payload)
+    )
+    out2 = type(out)()
+    fb_routes.FeedbackExportCsv(out2, "/feedback/export.csv", method="GET", get={})
+    assert out2.status == 200
+
+    rows = list(csv.reader(io.StringIO(out2.body)))
+    header, data = rows[0], rows[1]
+    assert len(data) == len(header)  # comma in user_id must not add a column
+    user_id_idx = header.index("user_id")
+    assert data[user_id_idx] == "Doe, John"
 
 
 # ---------------------------------------------------------------------------

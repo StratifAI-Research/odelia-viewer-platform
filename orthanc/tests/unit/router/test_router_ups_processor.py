@@ -353,3 +353,135 @@ def test_process_workitem_bilateral_with_heatmap_uploads_sr_and_sc(proc, fake_wo
     assert b"SR_BYTES" in upload_payloads
     assert b"SC_BYTES" in upload_payloads
     assert len(upload_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# #6: failed / empty upload must NOT be reported as COMPLETED
+# ---------------------------------------------------------------------------
+
+def test_process_workitem_cancels_on_non_200_upload(proc, fake_workitem, monkeypatch):
+    """A non-200 upload response must end the workitem CANCELED, not COMPLETED."""
+    states = []
+    real_store = proc.ups_storage.store_workitem
+    def _capture(wi):
+        states.append(wi.get_state())
+        real_store(wi)
+    monkeypatch.setattr(proc.ups_storage, 'store_workitem', _capture)
+    monkeypatch.setattr(proc, 'notify_all_subscribers', lambda *a, **kw: None)
+
+    model_resp = SimpleNamespace(
+        status_code=200, text="ok",
+        json=lambda: {"left": {"prediction": "Benign", "confidence": 95.0},
+                       "right": {"prediction": "Malignant", "confidence": 80.0}},
+    )
+    upload_resp = SimpleNamespace(status_code=500, text="viewer down", json=lambda: {})
+    def _post(url, **kw):
+        if "/instances" in url:
+            return upload_resp
+        return model_resp
+    monkeypatch.setattr('ups.processor.requests.post', _post)
+    monkeypatch.setattr(proc, 'retrieve_series_metadata_sorted',
+                        lambda urls: _make_minimal_metadata())
+    _install_fake_server(monkeypatch, response_format="bilateral")
+
+    proc.process_workitem(fake_workitem)
+
+    assert states[-1] == 'CANCELED', f"expected final CANCELED, got states={states}"
+    assert 'COMPLETED' not in states, f"failed upload must not be reported COMPLETED, got {states}"
+
+
+def test_process_workitem_cancels_on_partial_upload_failure(proc, fake_workitem, monkeypatch):
+    """If one object uploads (200) but another fails (non-200), end CANCELED, not COMPLETED."""
+    states = []
+    real_store = proc.ups_storage.store_workitem
+    def _capture(wi):
+        states.append(wi.get_state())
+        real_store(wi)
+    monkeypatch.setattr(proc.ups_storage, 'store_workitem', _capture)
+    monkeypatch.setattr(proc, 'notify_all_subscribers', lambda *a, **kw: None)
+
+    model_resp = SimpleNamespace(
+        status_code=200, text="ok",
+        json=lambda: {
+            "left": {"prediction": "Benign", "confidence": 95.0},
+            "right": {"prediction": "Malignant", "confidence": 80.0},
+            "attention_maps": {"data": "BASE64DATA", "shape": [5, 16, 16, 3], "dtype": "uint8"},
+        },
+    )
+    ok_resp = SimpleNamespace(status_code=200, text="ok", json=lambda: {})
+    bad_resp = SimpleNamespace(status_code=502, text="bad gateway", json=lambda: {})
+    def _post(url, **kw):
+        if "/instances" in url:
+            # First object (SR) succeeds, second (SC) fails.
+            return ok_resp if kw.get("data") == b"SR_BYTES" else bad_resp
+        return model_resp
+    monkeypatch.setattr('ups.processor.requests.post', _post)
+    monkeypatch.setattr(proc, 'retrieve_series_metadata_sorted',
+                        lambda urls: _make_minimal_metadata())
+    _install_fake_server(monkeypatch, response_format="bilateral_with_heatmap")
+
+    proc.process_workitem(fake_workitem)
+
+    assert states[-1] == 'CANCELED', f"partial upload failure must be CANCELED, got {states}"
+    assert 'COMPLETED' not in states
+
+
+def test_process_workitem_cancels_on_empty_upload_set(proc, fake_workitem, monkeypatch):
+    """No DICOM objects produced (unknown response format) -> CANCELED, not COMPLETED."""
+    states = []
+    real_store = proc.ups_storage.store_workitem
+    def _capture(wi):
+        states.append(wi.get_state())
+        real_store(wi)
+    monkeypatch.setattr(proc.ups_storage, 'store_workitem', _capture)
+    monkeypatch.setattr(proc, 'notify_all_subscribers', lambda *a, **kw: None)
+
+    posts = []
+    def _post(url, **kw):
+        posts.append((url, kw))
+        return SimpleNamespace(status_code=200, text="ok", json=lambda: {})
+    monkeypatch.setattr('ups.processor.requests.post', _post)
+    monkeypatch.setattr(proc, 'retrieve_series_metadata_sorted',
+                        lambda urls: _make_minimal_metadata())
+    # "unknown" format produces no dicom_objects_to_upload.
+    _install_fake_server(monkeypatch, response_format="unknown")
+
+    proc.process_workitem(fake_workitem)
+
+    assert states[-1] == 'CANCELED', f"empty output must be CANCELED, got states={states}"
+    assert 'COMPLETED' not in states
+    # No upload POST should have been attempted.
+    assert not [u for u in posts if "/instances" in u[0]]
+
+
+# ---------------------------------------------------------------------------
+# #15: empty/invalid series metadata must fail the workitem, not crash
+# ---------------------------------------------------------------------------
+
+def test_process_workitem_cancels_when_metadata_helper_raises(proc, fake_workitem, monkeypatch):
+    """retrieve_series_metadata_sorted raising ValueError must end CANCELED, no uncaught crash."""
+    states = []
+    real_store = proc.ups_storage.store_workitem
+    def _capture(wi):
+        states.append(wi.get_state())
+        real_store(wi)
+    monkeypatch.setattr(proc.ups_storage, 'store_workitem', _capture)
+    monkeypatch.setattr(proc, 'notify_all_subscribers', lambda *a, **kw: None)
+
+    model_resp = SimpleNamespace(
+        status_code=200, text="ok",
+        json=lambda: {"left": {"prediction": "Benign", "confidence": 95.0},
+                       "right": {"prediction": "Malignant", "confidence": 80.0}},
+    )
+    monkeypatch.setattr('ups.processor.requests.post', lambda *a, **kw: model_resp)
+
+    def _raise(urls):
+        raise ValueError("wado_rs_retrieval is empty; expected at least one series retrieval entry")
+    monkeypatch.setattr(proc, 'retrieve_series_metadata_sorted', _raise)
+    _install_fake_server(monkeypatch, response_format="bilateral")
+
+    # Must not raise out of process_workitem.
+    proc.process_workitem(fake_workitem)
+
+    assert states[-1] == 'CANCELED', f"metadata failure must be CANCELED, got states={states}"
+    assert 'COMPLETED' not in states

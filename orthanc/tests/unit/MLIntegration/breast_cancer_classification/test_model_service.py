@@ -29,6 +29,22 @@ def _stub_heavy_deps(torch_stub, torchio_stub, sitk_stub, monkeypatch) -> Iterat
     yield
 
 
+def test_health_reports_weights_not_loaded_when_load_disabled(tmp_path):
+    """Checkpoint loading is intentionally disabled (random weights), so /health
+    must NOT imply the model is ready for valid predictions."""
+    import model_service as ms
+    from shared.config import StorageConfig
+
+    service = ms.BreastCancerModelService(
+        MagicMock(device="cpu"),
+        StorageConfig(image_folder=tmp_path, cleanup_on_start=False),
+    )
+    service.initialize_model()
+    health = service.get_health_status()
+    assert health["weights_loaded"] is False
+    assert health["model_loaded"] is False
+
+
 def test_per_side_failure_returns_generic_error(tmp_path, monkeypatch):
     import model_service as ms
     from shared.config import StorageConfig
@@ -59,3 +75,35 @@ def test_per_side_failure_returns_generic_error(tmp_path, monkeypatch):
     for side in ("left", "right"):
         assert captured[side] == {"error": f"Processing error for {side} side"}
         assert secret not in str(captured[side])
+
+
+# The binary model emits only "Malignant"/"Benign" (sigmoid, two-class); both map to
+# non-Unknown SNOMED codes in the router SR builder.
+@pytest.mark.parametrize("prob,expected", [(0.92, "Malignant"), (0.10, "Benign")])
+def test_process_side_emits_sr_recognized_prediction(prob, expected, tmp_path, monkeypatch):
+    """_process_side must emit one of the binary model's two clinical labels,
+    so it maps to a non-Unknown SNOMED code downstream."""
+    import contextlib
+
+    import model_service as ms
+    from shared.config import StorageConfig
+
+    monkeypatch.setattr(ms, "preprocess_for_side", lambda *a, **k: MagicMock())
+
+    class _SigmoidResult:
+        def item(self) -> float:
+            return prob
+
+    monkeypatch.setattr(ms.torch, "sigmoid", lambda *a, **k: _SigmoidResult(), raising=False)
+    monkeypatch.setattr(ms.torch, "inference_mode", contextlib.nullcontext, raising=False)
+
+    service = ms.BreastCancerModelService(
+        MagicMock(), StorageConfig(image_folder=tmp_path, cleanup_on_start=False)
+    )
+    service.model = MagicMock()
+    service.bc_config = MagicMock(device="cpu")
+
+    nifties = {"Pre_left": MagicMock(), "Post_1_left": MagicMock()}
+    result = service._process_side("left", nifties, MagicMock())
+
+    assert result["prediction"] == expected

@@ -623,17 +623,18 @@ def test_send_to_ai_dicomweb_study_no_processable_content_returns_400(out, route
     assert "no processable content" in (out.body or "").lower()
 
 
-def test_send_to_ai_dicomweb_dicomweb_server_config_failure_returns_500(out, router, rest_fake, monkeypatch):
-    """When requests.put to /dicom-web/servers/<target> returns non-2xx, response is 500."""
+def test_send_to_ai_dicomweb_dicomweb_server_config_failure_returns_500(out, router, rest_fake):
+    """When the plugin-aware internal PUT to /dicom-web/servers/<target> fails, respond 500."""
     import json as _json
     rest_fake.responses[("GET", "/studies/STD")] = _json.dumps(
         {"Series": ["S-orig"], "PatientMainDicomTags": {"PatientName": "X"}}
     ).encode()
     _bind_series_listing(rest_fake, "STD", ["S-orig"], ai=False)
 
-    from unittest import mock as _mock
-    bad_resp = _mock.MagicMock(status_code=500, text="config error")
-    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=bad_resp))
+    def _raise_put(_body):
+        raise RuntimeError("config error")
+
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = _raise_put
 
     body = b'{"study_id": "STD", "target": "P", "target_url": "http://x/dicom-web"}'
     router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
@@ -658,11 +659,14 @@ def _good_server_config_resp():
 
 
 def _bind_dicomweb_study_state(rest_fake, study_id="STD", series_id="S-orig",
-                                 series_dicom_uid="1.2.3.SE1"):
+                                 series_dicom_uid="1.2.3.SE1", target="P"):
     """Bind /studies/<id> + the FilterAIResultSeries subset (via _bind_series_listing) + per-series
     instances + /series/<id> for SeriesInstanceUID — everything SendToAiDicomWeb needs to reach
     the workitem POST."""
     import json as _json
+    # DICOMweb server config goes over the plugin-aware internal channel
+    # (RestApiPutAfterPlugins) with the RAW server name in the path.
+    rest_fake.responses[("PUT_AFTER_PLUGINS", f"/dicom-web/servers/{target}")] = b"{}"
     # FilterAIResultSeries path (returns series_id as non-AI) — reuse the existing helper.
     _bind_series_listing(rest_fake, study_id, [series_id], ai=False)
     rest_fake.responses[("GET", f"/studies/{study_id}")] = _json.dumps(
@@ -712,6 +716,35 @@ def test_send_to_ai_dicomweb_happy_path_creates_workitem_and_returns_success(out
     assert any("/subscribers" in u for u in urls)
 
 
+def test_send_to_ai_dicomweb_partial_state_returns_partial_error(out, router, rest_fake, monkeypatch):
+    """Router accepts the create (201) but returns no UID -> _classify_ups_creation
+    yields 'partial'; the handler must emit the partial_error response shape so the
+    orphaned-workitem condition is detectable end-to-end (not a clean error)."""
+    from unittest import mock as _mock
+    _bind_dicomweb_study_state(rest_fake)
+
+    # 201 with an empty / UID-less body -> partial.
+    workitem_response = _mock.MagicMock(status_code=201, json=lambda: {})
+    posts = []
+    def _post(url, **kw):
+        posts.append((url, kw))
+        return workitem_response
+    monkeypatch.setattr(router.requests, "post", _post)
+    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+
+    body = b'{"study_id": "STD", "target": "P", "target_url": "http://router:8042/dicom-web"}'
+    router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
+
+    # Partial-error is reported via AnswerBuffer (status 200, JSON body).
+    assert out.status == 200
+    resp = json.loads(out.body)
+    assert resp["status"] == "partial_error"
+    assert resp["study_id"] == "STD"
+    assert "reconciliation" in resp["message"].lower()
+    # No subscribe POST should happen without a UID.
+    assert not any("/subscribers" in u for u, _ in posts)
+
+
 def test_send_to_ai_dicomweb_happy_path_passes_input_mapping_through(out, router, rest_fake, monkeypatch):
     """If body has input_mapping + input_configuration_id, they appear in the workitem POST body."""
     import json as _json
@@ -749,7 +782,7 @@ def test_send_to_ai_dicomweb_no_series_after_filter_returns_400(out, router, res
         {"Series": ["S-any"], "PatientMainDicomTags": {"PatientName": "X"},
          "MainDicomTags": {"StudyInstanceUID": "1.2.3.STUDY"}}
     ).encode()
-    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = b"{}"
 
     # series_uids provided -> takes the lookup path; lookup returns no Series-type entries.
     rest_fake.responses[("POST", "/tools/lookup")] = _json.dumps([{"Type": "Study", "ID": "X"}]).encode()
@@ -773,7 +806,7 @@ def test_send_to_ai_dicomweb_returns_500_when_study_instance_uid_missing(out, ro
         {"SeriesDescription": "Axial T1", "Modality": "MR"}
     ).encode()
     rest_fake.responses[("GET", "/series/S-orig/instances")] = _json.dumps([{"ID": "I1"}]).encode()
-    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/P")] = b"{}"
 
     body = b'{"study_id": "STD", "target": "P", "target_url": "http://router:8042/dicom-web"}'
     router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
@@ -969,3 +1002,219 @@ def test_send_to_ai_dicom_succeeds_without_target_url(out, router, rest_fake):
     # No modality-config GET/PUT/DELETE for PACS — only the store POST.
     modality_calls = [c for c in rest_fake.calls if "/modalities/PACS" in c[1] and not c[1].endswith("/store")]
     assert modality_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Partial-state detection for UPS workitem creation (_classify_ups_creation)
+# ---------------------------------------------------------------------------
+
+class _FakeRouterResponse:
+    def __init__(self, status_code, payload=None, raise_json=False):
+        self.status_code = status_code
+        self._payload = payload
+        self._raise_json = raise_json
+        self.text = "router error body"
+
+    def json(self):
+        if self._raise_json:
+            raise ValueError("response body is not JSON")
+        return self._payload
+
+
+def test_classify_ups_creation_created_when_uid_present(router):
+    resp = _FakeRouterResponse(200, {"00080018": {"Value": ["2.25.123"]}})
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "created"
+    assert workitem_uid == "2.25.123"
+
+
+def test_classify_ups_creation_partial_when_2xx_but_no_uid(router):
+    """Router accepted the create (200/201) but returned no UID -> possible orphan."""
+    resp = _FakeRouterResponse(201, {})
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "partial"
+    assert workitem_uid is None
+
+
+def test_classify_ups_creation_partial_when_2xx_but_body_not_json(router):
+    resp = _FakeRouterResponse(200, raise_json=True)
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "partial"
+    assert workitem_uid is None
+
+
+def test_classify_ups_creation_partial_when_uid_value_array_empty(router):
+    """Tag present but its Value array is empty -> still no UID, so partial (the
+    empty list is returned as-is, the [None] default does not apply)."""
+    resp = _FakeRouterResponse(201, {"00080018": {"Value": []}})
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "partial"
+    assert workitem_uid is None
+
+
+def test_classify_ups_creation_rejected_when_non_2xx(router):
+    """Non-2xx means the router refused; no workitem side effect is expected."""
+    resp = _FakeRouterResponse(500, {"00080018": {"Value": ["should.be.ignored"]}})
+    workitem_uid, outcome = router._classify_ups_creation(resp.status_code, resp)
+    assert outcome == "rejected"
+    assert workitem_uid is None
+
+
+# ---------------------------------------------------------------------------
+# DICOMweb server configuration: the server name is validated (strict allowlist,
+# blocking path injection) and configured via orthanc.RestApiPutAfterPlugins
+# (plugin-aware internal channel — /dicom-web/servers is a DICOMweb-plugin route,
+# invisible to the core-only RestApiPut). The RAW name is passed in the path; the
+# after-plugins dispatcher does not URL-decode, and _is_valid_server_name already
+# blocks '/'. No plaintext credentials or timeout-less HTTP.
+# ---------------------------------------------------------------------------
+
+import pytest as _pytest
+
+
+# Real configured model names (config/app-config.js aiEndpoints[].name and the
+# docker-compose AI_NAME envs) contain spaces — they must pass validation, plus
+# simple slugs.
+@_pytest.mark.parametrize(
+    "name",
+    [
+        "MST AI model",
+        "MedGemma Vision-Language Model",
+        "mst-ai",
+        "orthanc_router",
+        "mst",
+        "PACS",
+        "my_server-1",
+        "a",
+        "A1_b-2",
+    ],
+)
+def test_is_valid_server_name_accepts_simple_names(router, name):
+    assert router._is_valid_server_name(name) is True
+
+
+@_pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "../etc",
+        "a/b",
+        "a..b",
+        "..",
+        "a.b",
+        "x\\y",
+        "name%2e%2e",
+        "../tools/execute",
+        "a;b",
+        "a?x=1",
+        "srv/",
+        "/srv",
+        "a\x00b",
+    ],
+)
+def test_is_valid_server_name_rejects_injection(router, name):
+    assert router._is_valid_server_name(name) is False
+
+
+def test_send_to_ai_dicomweb_invalid_target_returns_400(out, router):
+    """A path-injection `target` is rejected up front (before any Orthanc call),
+    so it can never reach the server-config URL path."""
+    router.SendToAiDicomWeb(
+        out, "/send-to-ai-dicomweb",
+        method="POST",
+        body=json.dumps(
+            {"study_id": "abc", "target": "../tools/execute", "target_url": "http://x"}
+        ),
+    )
+    assert out.status == 400
+    assert "target" in out.body
+
+
+def test_send_to_ai_dicomweb_real_model_name_passes_validation_gate(out, router, rest_fake, monkeypatch):
+    """A real configured model name (contains spaces) must get past the
+    _is_valid_server_name 400 gate and reach the happy path."""
+    from unittest import mock as _mock
+
+    target = "MST AI model"
+    _bind_dicomweb_study_state(rest_fake, target=target)
+
+    workitem_response = _mock.MagicMock(
+        status_code=201,
+        json=lambda: {"00080018": {"Value": ["1.2.3.WORKITEM"]}},
+    )
+    subscribe_response = _mock.MagicMock(status_code=200)
+
+    def _post(url, **kw):
+        if "/subscribers" in url:
+            return subscribe_response
+        return workitem_response
+
+    monkeypatch.setattr(router.requests, "post", _post)
+    monkeypatch.setattr(router.requests, "put", _mock.MagicMock(return_value=_good_server_config_resp()))
+
+    body = json.dumps(
+        {"study_id": "STD", "target": target, "target_url": "http://router:8042/dicom-web"}
+    ).encode()
+    router.SendToAiDicomWeb(out, "/send-to-ai-dicomweb", method="POST", body=body)
+
+    # Not a 400 from the invalid-target gate; the real name is accepted.
+    assert out.status == 200
+    assert "Invalid target server name" not in (out.body or "")
+
+
+def test_configure_dicomweb_server_uses_plugin_aware_internal_put(router, rest_fake):
+    """Server config (incl. credentials) goes over the plugin-aware internal
+    channel (RestApiPutAfterPlugins) — the core-only RestApiPut cannot see the
+    DICOMweb-plugin /dicom-web/servers route. Not a plaintext localhost HTTP request."""
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/myserver")] = b"{}"
+    router._configure_dicomweb_server(
+        "myserver", "http://pacs:8042/dicom-web", "user", "pw"
+    )
+    # The core RestApiPut must NOT be used (it would 500 with 'Unknown resource').
+    assert [c for c in rest_fake.calls if c[0] == "PUT"] == []
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
+    assert len(put_calls) == 1
+    assert put_calls[0][1] == "/dicom-web/servers/myserver"
+    body = json.loads(put_calls[0][2])
+    assert body["Url"] == "http://pacs:8042/dicom-web"
+    assert body["Username"] == "user"
+    assert body["Password"] == "pw"
+
+
+def test_configure_dicomweb_server_does_not_use_requests(router, rest_fake, monkeypatch):
+    """The credentials must not traverse a plaintext requests.put call."""
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/s")] = b"{}"
+
+    def _boom(*a, **k):
+        raise AssertionError("must not use requests.put for local DICOMweb config")
+
+    monkeypatch.setattr(router.requests, "put", _boom)
+    router._configure_dicomweb_server("s", "http://x", "", "")  # must not raise
+
+
+def test_configure_dicomweb_server_passes_raw_name_with_spaces(router, rest_fake):
+    """The server name is passed RAW in the path (no percent-encoding). The
+    after-plugins dispatcher does not URL-decode, so an encoded name would
+    register a literally-named "MST%20AI%20model" server. The route regex
+    accepts spaces (only '/' breaks it, and _is_valid_server_name blocks '/')."""
+    # Bind only the RAW path; if the code percent-encodes, the dispatch misses
+    # this binding and rest_fake raises (test fails) — pinning the fix.
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/MST AI model")] = b"{}"
+    router._configure_dicomweb_server(
+        "MST AI model", "http://pacs:8042/dicom-web", "user", "pw"
+    )
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
+    assert len(put_calls) == 1
+    assert put_calls[0][1] == "/dicom-web/servers/MST AI model"
+    # Credentials still ride the internal channel (no plaintext requests.put).
+    body = json.loads(put_calls[0][2])
+    assert body["Username"] == "user"
+    assert body["Password"] == "pw"
+
+
+def test_configure_dicomweb_server_leaves_slug_unchanged(router, rest_fake):
+    """A space-free slug is passed through unchanged."""
+    rest_fake.responses[("PUT_AFTER_PLUGINS", "/dicom-web/servers/testslug")] = b"{}"
+    router._configure_dicomweb_server("testslug", "http://x", "", "")
+    put_calls = [c for c in rest_fake.calls if c[0] == "PUT_AFTER_PLUGINS"]
+    assert put_calls[0][1] == "/dicom-web/servers/testslug"

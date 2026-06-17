@@ -7,6 +7,21 @@ def _make_cached(uid="1.2.3", n_images=2):
     return CachedSeries(series_uid=uid, base64_images=[f"img{i}" for i in range(n_images)])
 
 
+def test_cached_series_timestamps_are_tz_aware():
+    from image_cache import CachedSeries
+    s = CachedSeries(series_uid="u", base64_images=["i"])
+    assert s.created_at.tzinfo is not None
+    assert s.last_accessed.tzinfo is not None
+
+
+def test_cache_get_sets_tz_aware_last_accessed():
+    from image_cache import ImageCache
+    c = ImageCache(max_entries=3)
+    c.put("uid.1", _make_cached("uid.1"))
+    out = c.get("uid.1")
+    assert out.last_accessed.tzinfo is not None
+
+
 def test_image_cache_empty_initially():
     from image_cache import ImageCache
     c = ImageCache(max_entries=3)
@@ -123,10 +138,10 @@ def test_reset_image_cache_replaces_singleton():
 def test_get_updates_last_accessed_timestamp():
     """M6: construct CachedSeries with an explicit OLD timestamp so the post-get now()
     is unambiguously greater. No sleep, no monkeypatch — deterministic against CI clock skew."""
-    from datetime import datetime
+    from datetime import datetime, timezone
     from image_cache import ImageCache, CachedSeries
     c = ImageCache(max_entries=2)
-    ancient = datetime(2020, 1, 1)
+    ancient = datetime(2020, 1, 1, tzinfo=timezone.utc)
     s = CachedSeries(series_uid="uid.x", base64_images=["i"], last_accessed=ancient)
     c.put("uid.x", s)
     assert c._cache["uid.x"].last_accessed == ancient

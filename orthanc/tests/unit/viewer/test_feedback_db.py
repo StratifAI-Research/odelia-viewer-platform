@@ -34,6 +34,139 @@ def test_health_reports_db_ready(fb):
     assert 'sqlite_version' in info
 
 
+# ---------------------------------------------------------------------------
+# WAL setup must be verified, must not spam stdout per connection, and must
+# surface real failures instead of swallowing them.
+# ---------------------------------------------------------------------------
+
+class _FakeCx:
+    """Minimal connection stub: execute() returns self, fetchone() the mode."""
+    def __init__(self, mode):
+        self._mode = mode
+
+    def execute(self, sql, *args):
+        return self
+
+    def fetchone(self):
+        return (self._mode,)
+
+
+def test_apply_wal_raises_when_mode_not_wal(fb):
+    """If the PRAGMA reports a non-WAL journal mode, that must surface as a clear
+    error, not be silently swallowed by a bare except."""
+    with pytest.raises(RuntimeError):
+        fb._apply_wal(_FakeCx("delete"))
+
+
+def test_apply_wal_succeeds_silently_when_wal(fb, capsys):
+    fb._apply_wal(_FakeCx("wal"))
+    assert capsys.readouterr().out == ""
+
+
+def test_connect_closes_connection_when_wal_setup_raises(fb, monkeypatch):
+    """If post-open setup (_apply_wal) raises, _connect must close the opened
+    sqlite connection before re-raising — no connection leak."""
+    closed = []
+    real_connect = fb.sqlite3.connect
+
+    class _Tracked:
+        def __init__(self, cx):
+            object.__setattr__(self, "_cx", cx)
+
+        def __getattr__(self, name):
+            return getattr(self._cx, name)
+
+        def close(self):
+            closed.append(True)
+            self._cx.close()
+
+    def _tracking_connect(*a, **kw):
+        return _Tracked(real_connect(*a, **kw))
+
+    monkeypatch.setattr(fb.sqlite3, "connect", _tracking_connect)
+
+    def _boom(_cx):
+        raise RuntimeError("WAL refused")
+
+    monkeypatch.setattr(fb, "_apply_wal", _boom)
+    monkeypatch.setattr(fb, "ENABLE_WAL", True)
+
+    with pytest.raises(RuntimeError):
+        fb._connect()
+    assert closed, "opened connection was not closed on WAL setup failure (leak)"
+
+
+def test_connect_does_not_print_journal_mode_each_call(fb, capsys):
+    capsys.readouterr()  # drain anything from fixture setup
+    cx = fb._connect()
+    try:
+        out = capsys.readouterr().out
+        assert "wal" not in out.lower()
+    finally:
+        cx.close()
+
+
+def test_export_rows_csv_closes_connection_even_if_not_iterated(fb, monkeypatch):
+    """export_rows_csv must not leak the DB connection when the caller never
+    iterates the returned rows."""
+    opened = []
+    real_connect = fb._connect
+
+    class _Tracked:
+        def __init__(self, cx):
+            object.__setattr__(self, "_cx", cx)
+            object.__setattr__(self, "closed", False)
+
+        def __getattr__(self, name):
+            return getattr(self._cx, name)
+
+        def close(self):
+            object.__setattr__(self, "closed", True)
+            self._cx.close()
+
+    def _tracking_connect():
+        cx = _Tracked(real_connect())
+        opened.append(cx)
+        return cx
+
+    monkeypatch.setattr(fb, "_connect", _tracking_connect)
+
+    fb.export_rows_csv()  # build the export but deliberately never consume the rows
+    assert opened, "export_rows_csv should have opened a connection"
+    assert all(c.closed for c in opened), "connection leaked: not closed without iteration"
+
+
+def test_export_rows_csv_returns_rows_with_comma_safe_values(fb):
+    """Sanity: materialized rows still carry full field values (used by the CSV
+    route's csv.writer for escaping)."""
+    fb.submit_feedback(_payload(user="Doe, John"))
+    _, rows = fb.export_rows_csv()
+    rows = list(rows)
+    assert len(rows) == 1
+    assert rows[0][4] == "Doe, John"
+
+
+def test_export_current_scope_with_since_filter_uses_correct_alias(fb):
+    """scope=current combined with a created_at (since) filter must produce a
+    valid query against the current-view alias (c.created_at), returning the
+    latest row — not error on a stale e.created_at reference. Exercises the
+    alias-selection path for both ndjson and csv exports."""
+    fb.submit_feedback(_payload())                          # initial
+    fb.submit_feedback(_payload(verdict_L=-1, edited=True))  # edit -> current row
+
+    ndjson_rows = list(
+        fb.export_rows_ndjson(since="2000-01-01T00:00:00Z", scope="current")
+    )
+    assert len(ndjson_rows) == 1
+    assert ndjson_rows[0]["submission_kind"] == "edit"
+    assert ndjson_rows[0]["verdict_L"] == -1
+
+    _, csv_rows = fb.export_rows_csv(since="2000-01-01T00:00:00Z", scope="current")
+    csv_rows = list(csv_rows)
+    assert len(csv_rows) == 1
+    assert csv_rows[0][8] == "edit"  # submission_kind column
+
+
 def test_register_result_idempotent(fb):
     r1 = fb.register_result('1.2.3', 'M', '1', '2026-01-01T00:00:00Z', None)
     r2 = fb.register_result('1.2.3', 'M', '1', '2026-01-01T00:00:00Z', None)

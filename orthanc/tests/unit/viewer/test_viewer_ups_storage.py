@@ -169,3 +169,63 @@ def test_get_index_returns_empty_list_when_index_value_is_corrupt():
     from ups.storage import ups_storage, UPSStorage
     orthanc.StoreKeyValue(UPSStorage.BUCKET, UPSStorage.INDEX_KEY, b"\xff\xfe\xff{not-json")
     assert ups_storage.list_workitems() == []
+
+
+# ---------------------------------------------------------------------------
+# Concurrent stores must not lose index entries
+# ---------------------------------------------------------------------------
+
+def test_concurrent_stores_do_not_lose_index_entries(storage):
+    """The index update is a read-modify-write. Under concurrency it must be
+    serialized; otherwise simultaneous stores read the same stale index and
+    overwrite each other, silently dropping workitems from list_workitems().
+
+    A small delay holding the stale index read widens the race window.
+    """
+    import threading
+    import time
+
+    import orthanc
+
+    for key in [k for k in sys.modules if k == "ups" or k.startswith("ups.")]:
+        del sys.modules[key]
+    from ups.workitem import UPSWorkitem
+
+    def _make(uid: str) -> Any:
+        return UPSWorkitem(
+            study_uid="1.1.1",
+            series_uids=["1.1.1.1"],
+            wado_rs_retrieval=[
+                {"retrieval_url": "http://x", "study_uid": "1.1.1", "series_uid": "1.1.1.1"}
+            ],
+            priority="LOW",
+            workitem_uid=uid,
+        )
+
+    uids = [f"2.25.{i}" for i in range(25)]
+    workitems = [_make(u) for u in uids]
+
+    real_get = orthanc.GetKeyValue
+
+    def _slow_get(bucket: str, key: str) -> Any:
+        value = real_get(bucket, key)
+        if key == storage.INDEX_KEY:
+            time.sleep(0.005)
+        return value
+
+    orthanc.GetKeyValue = _slow_get
+    try:
+        threads = [
+            threading.Thread(target=storage.store_workitem, args=(w,)) for w in workitems
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        orthanc.GetKeyValue = real_get
+
+    stored_uids = sorted(w.workitem_uid for w in storage.list_workitems())
+    assert stored_uids == sorted(uids), (
+        f"lost index entries under concurrency: {len(stored_uids)}/{len(uids)} survived"
+    )

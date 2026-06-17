@@ -3,11 +3,38 @@ FastAPI application entry point for the chat middleware service
 """
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+
+# Default allowed CORS origins (viewer). Override via CHAT_ALLOWED_ORIGINS
+# (comma-separated). Never default to "*" with credentials.
+DEFAULT_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8042"]
+
+
+def _cors_settings() -> dict:
+    """Resolve CORS config from env.
+
+    - CHAT_ALLOWED_ORIGINS: comma-separated origin allowlist (default: viewer origins).
+    - CHAT_CORS_DEV_ALLOW_ALL=1: dev-only escape hatch; allows "*" but forces
+      allow_credentials=False (browsers reject "*" + credentials).
+    """
+    if os.getenv("CHAT_CORS_DEV_ALLOW_ALL") == "1":
+        return {"allow_origins": ["*"], "allow_credentials": False}
+
+    raw = os.getenv("CHAT_ALLOWED_ORIGINS")
+    origins = (
+        [o.strip() for o in raw.split(",") if o.strip()] if raw else list(DEFAULT_ALLOWED_ORIGINS)
+    )
+    # A literal "*" in the allowlist is kept (don't surprise the operator) but
+    # must never ship with credentials — browsers reject "*" + credentials, and
+    # it would defeat the allowlist. Coerce credentials off, like the dev flag.
+    allow_credentials = "*" not in origins
+    return {"allow_origins": origins, "allow_credentials": allow_credentials}
+
 
 # Configure logging
 logging.basicConfig(
@@ -83,11 +110,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# Add CORS middleware (origins restricted; see _cors_settings)
+_cors = _cors_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this
-    allow_credentials=True,
+    allow_origins=_cors["allow_origins"],
+    allow_credentials=_cors["allow_credentials"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

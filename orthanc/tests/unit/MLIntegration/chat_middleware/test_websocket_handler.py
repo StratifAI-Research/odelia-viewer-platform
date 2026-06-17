@@ -258,6 +258,19 @@ async def test_handle_websocket_invalid_message_emits_error(tmp_path, monkeypatc
     assert len(err) == 1
 
 
+async def test_handle_websocket_non_dict_payload_emits_error_and_continues(tmp_path, monkeypatch):
+    """A non-object JSON payload (list) must not crash on ClientMessage(**message);
+    a structured error frame is sent and the loop continues to the next (valid) message."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    ws = _FakeWebSocket(incoming=[["not", "a", "dict"], {"type": "cancel"}])
+    await wh.handle_websocket(ws, "S")
+    err = [m for m in ws.sent if m["type"] == "error"]
+    assert len(err) == 1                       # one structured error for the bad payload
+    # Loop survived: the subsequent cancel (no active task) produced no further error/done.
+    assert [m["type"] for m in ws.sent].count("error") == 1
+
+
 async def test_handle_websocket_cancel_without_active_task_is_silent(tmp_path, monkeypatch):
     """CANCEL with no active task: no error, no DONE."""
     _reset_singletons(tmp_path, monkeypatch)
@@ -360,6 +373,53 @@ def test_real_ws_dispatcher_chat_message_streams_tokens_to_completion(tmp_path, 
                 break
         token_msgs = [m for m in received if m["type"] == "token"]
         assert [m["content"] for m in token_msgs] == ["Hello ", "world"]
+
+
+def test_real_ws_malformed_message_emits_error_then_keeps_connection_open(tmp_path, monkeypatch):
+    """A malformed message yields a structured error frame; a subsequent valid CHAT still streams.
+
+    Drives the real dispatcher so the background chat task actually runs."""
+    fake = _AwaitableOllama(chunks=[{"type": "content", "text": "ok"}], per_chunk_sleep_s=0.0)
+    _app, client = _build_app_with_ws(tmp_path, monkeypatch, fake)
+    with client.websocket_connect("/ws/chat/sess-malformed") as ws:
+        assert ws.receive_json()["type"] == "connected"
+
+        # Malformed: unknown message type -> validation error frame.
+        ws.send_json({"type": "not-a-real-type"})
+        err = ws.receive_json()
+        assert err["type"] == "error"
+        assert err.get("content")              # structured, carries a message
+
+        # Connection still open: a valid CHAT is processed normally.
+        ws.send_json({"type": "chat", "content": "hi", "study_uid": "", "series_uids": []})
+        received = []
+        while True:
+            msg = ws.receive_json()
+            received.append(msg)
+            if msg["type"] == "done":
+                break
+        assert [m["content"] for m in received if m["type"] == "token"] == ["ok"]
+
+
+def test_real_ws_non_dict_payload_emits_error_and_keeps_connection_open(tmp_path, monkeypatch):
+    """A non-object JSON payload (list) must not crash ClientMessage(**message)."""
+    fake = _AwaitableOllama(chunks=[{"type": "content", "text": "ok"}], per_chunk_sleep_s=0.0)
+    _app, client = _build_app_with_ws(tmp_path, monkeypatch, fake)
+    with client.websocket_connect("/ws/chat/sess-nondict") as ws:
+        assert ws.receive_json()["type"] == "connected"
+
+        ws.send_json(["not", "a", "dict"])     # **message would raise TypeError
+        err = ws.receive_json()
+        assert err["type"] == "error"
+
+        ws.send_json({"type": "chat", "content": "hi", "study_uid": "", "series_uids": []})
+        received = []
+        while True:
+            msg = ws.receive_json()
+            received.append(msg)
+            if msg["type"] == "done":
+                break
+        assert [m["content"] for m in received if m["type"] == "token"] == ["ok"]
 
 
 def test_real_ws_dispatcher_cancel_during_active_generation(tmp_path, monkeypatch):

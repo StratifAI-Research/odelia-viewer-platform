@@ -1,6 +1,6 @@
 """Tests for chat-middleware/session_manager.py — in-memory chat sessions with asyncio primitives."""
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -129,11 +129,36 @@ def test_cleanup_stale_removes_only_old_sessions():
     sm = SessionManager()
     fresh = sm.create_session("fresh")
     stale = sm.create_session("stale")
-    stale.last_activity = datetime.now() - timedelta(minutes=120)
+    stale.last_activity = datetime.now(timezone.utc) - timedelta(minutes=120)
     removed = sm.cleanup_stale(max_age_minutes=60)
     assert removed == 1
     assert sm.get_session("fresh") is fresh
     assert sm.get_session("stale") is None
+
+
+def test_session_timestamps_are_tz_aware():
+    from session_manager import SessionManager
+    sm = SessionManager()
+    s = sm.create_session("s")
+    assert s.created_at.tzinfo is not None
+    assert s.last_activity.tzinfo is not None
+
+
+def test_append_message_sets_tz_aware_last_activity():
+    from session_manager import SessionManager
+    sm = SessionManager()
+    sm.create_session("s")
+    sm.append_message("s", "user", "hi")
+    assert sm.get_session("s").last_activity.tzinfo is not None
+
+
+def test_cleanup_stale_works_with_aware_last_activity():
+    """Expiry comparison must not raise on aware datetimes (naive vs aware -> TypeError)."""
+    from session_manager import SessionManager
+    sm = SessionManager()
+    stale = sm.create_session("stale")
+    stale.last_activity = datetime.now(timezone.utc) - timedelta(minutes=120)
+    assert sm.cleanup_stale(max_age_minutes=60) == 1
 
 
 def test_cleanup_stale_returns_zero_when_none_old_enough():

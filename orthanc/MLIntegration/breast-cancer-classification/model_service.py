@@ -35,6 +35,9 @@ class BreastCancerModelService:
         self.bc_config = bc_config
         self.storage_config = storage_config
         self.model = None
+        # True only when real checkpoint weights are loaded; random-weight
+        # architecture is not clinically valid.
+        self.weights_loaded = False
 
     def initialize_model(self) -> None:
         """Load model on startup"""
@@ -50,9 +53,17 @@ class BreastCancerModelService:
                 "basic", [2, 2, 2, 2], [64, 128, 256, 512], n_input_channels=2, num_classes=1
             )
 
-            # Uncomment when checkpoint is available
+            # Checkpoint loading is intentionally disabled: this is legacy/example
+            # code, not wired into the viewer. To use it, provide MODEL_PATH weights,
+            # uncomment the load below, and add the service to the viewer config.
             # checkpoint = torch.load(self.bc_config.model_path, map_location=torch.device(self.bc_config.device))
             # self.model.load_state_dict(checkpoint)
+            self.weights_loaded = False
+            logger.warning(
+                "Breast-cancer model weights are NOT loaded (checkpoint loading "
+                "disabled): predictions come from RANDOM weights and are NOT clinically "
+                "valid. Legacy/example service, not wired into the viewer."
+            )
 
             self.model.to(self.bc_config.device)
             self.model.eval()
@@ -185,7 +196,7 @@ class BreastCancerModelService:
         logger.info(f"  {side}: Model output probability={prob:.4f}")
 
         result = {
-            "prediction": "Cancerous" if prob > 0.5 else "Not Cancerous",
+            "prediction": "Malignant" if prob > 0.5 else "Benign",
             "confidence": round((prob if prob > 0.5 else 1 - prob) * 100, 2),
         }
 
@@ -199,8 +210,11 @@ class BreastCancerModelService:
         Returns:
             Dictionary with health information
         """
+        # model_loaded means "ready for valid predictions": gated on real weights,
+        # not just a constructed architecture (random weights are not valid).
         return {
             "status": "healthy",
-            "model_loaded": self.model is not None,
+            "model_loaded": self.model is not None and self.weights_loaded,
+            "weights_loaded": self.weights_loaded,
             "device": self.bc_config.device,
         }

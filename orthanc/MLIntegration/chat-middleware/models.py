@@ -5,7 +5,12 @@ Pydantic models for WebSocket messages and debug API
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Upper bound for the runtime system prompt. Operator-controlled config, not user
+# input; ~16k chars (~4k tokens) far exceeds any realistic radiology prompt while
+# bounding memory and preventing a degenerate value being sent on every LLM call.
+MAX_SYSTEM_PROMPT_LEN = 16000
 
 # =============================================================================
 # Enums
@@ -89,7 +94,7 @@ class OllamaOptionsConfig(BaseModel):
 class DebugConfigUpdate(BaseModel):
     """Request body for updating debug configuration"""
 
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(default=None, max_length=MAX_SYSTEM_PROMPT_LEN)
     model: str | None = None
     preprocessing: PreprocessingConfig | None = None
     ollama_options: OllamaOptionsConfig | None = None

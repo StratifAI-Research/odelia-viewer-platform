@@ -2,7 +2,8 @@
 per-breast verdict for Left + Right, click Submit Feedback, and verify a
 /feedback POST fires and succeeds. Backend confirmed healthy."""
 import time
-from _helpers import sync_playwright, browser, login, open_study, dismiss_banner, Recorder, log
+from playwright.sync_api import sync_playwright
+from _helpers import browser, login, open_study, dismiss_banner, Recorder, log
 
 with sync_playwright() as p:
     rec = Recorder("feedback")
@@ -44,8 +45,8 @@ with sync_playwright() as p:
                     dismiss_banner(pg)
                     el.first.click(timeout=4000); submitted_click = True
                     log("clicked Submit Feedback"); break
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("submit feedback click: non-fatal", repr(_e)[:120])
         # wait for the network call(s)
         for _ in range(10):
             time.sleep(1.5)

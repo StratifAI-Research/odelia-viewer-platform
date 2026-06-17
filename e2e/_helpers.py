@@ -7,8 +7,6 @@ import os
 import time
 import json
 
-from playwright.sync_api import sync_playwright  # noqa: E402
-
 # Target the local stack by default; override with VIEWER_BASE_URL if needed.
 BASE = os.environ.get("VIEWER_BASE_URL", "http://localhost:8081")
 SHOTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots")
@@ -49,8 +47,8 @@ class Recorder:
                        ["/ups-rs", "/send-to-ai", "/workitem", "/analyz",
                         "/feedback", "/chat"]):
                     self.ups.append((r.status, r.request.method, r.url[-80:]))
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("response handler: non-fatal", repr(_e)[:120])
         pg.on("response", onr)
 
     def shot(self, pg, label, caption, full=False, clip=None):
@@ -136,8 +134,8 @@ def dismiss_banner(pg):
         if b.count():
             b.first.click(timeout=2500)
             return True
-    except Exception:
-        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+    except Exception as _e:
+        log("banner dismiss: non-fatal", repr(_e)[:120])
     return False
 
 
@@ -153,8 +151,8 @@ def login(pg):
             break
     try:
         pg.wait_for_load_state("networkidle", timeout=45000)
-    except Exception:
-        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+    except Exception as _e:
+        log("login networkidle wait: non-fatal", repr(_e)[:120])
     time.sleep(5)
     dismiss_banner(pg)
 
@@ -167,8 +165,8 @@ def open_study(pg):
     pg.get_by_text("AI Analysis Mode", exact=False).first.click(timeout=6000)
     try:
         pg.wait_for_load_state("networkidle", timeout=60000)
-    except Exception:
-        pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+    except Exception as _e:
+        log("open_study networkidle wait: non-fatal", repr(_e)[:120])
     time.sleep(10)
     dismiss_banner(pg)
     time.sleep(1)
@@ -185,6 +183,6 @@ def advance(pg, names):
                 el.first.scroll_into_view_if_needed(timeout=1500)
                 el.first.click(timeout=4000)
                 return n
-        except Exception:
-            pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+        except Exception as _e:
+            log("advance button click: non-fatal", repr(_e)[:120])
     return None

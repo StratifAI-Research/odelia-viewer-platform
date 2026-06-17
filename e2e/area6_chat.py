@@ -2,7 +2,8 @@
 capture the LLM response. Ollama + model (thiagomoraes/medgemma-1.5-4b-it:F16)
 are confirmed available, so a real response is expected."""
 import time
-from _helpers import sync_playwright, browser, login, open_study, dismiss_banner, Recorder, log
+from playwright.sync_api import sync_playwright
+from _helpers import browser, login, open_study, dismiss_banner, Recorder, log
 
 QUESTION = "Briefly summarize the findings for this breast MRI study."
 
@@ -24,8 +25,8 @@ with sync_playwright() as p:
                 if el.count():
                     el.first.click(timeout=3000, force=True); opened = True
                     log("chat tab via", sel); break
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("chat tab selector: non-fatal", repr(_e)[:120])
         time.sleep(2)
         # Confirm we're on the chat panel (look for the prompt text / input)
         on_chat = pg.get_by_text("Ask about this study", exact=False).count() > 0 \
@@ -77,8 +78,8 @@ with sync_playwright() as p:
                     el = pg.locator(sel)
                     if el.count() and el.first.is_visible():
                         el.first.click(timeout=3000); clicked_send = True; break
-                except Exception:
-                    pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+                except Exception as _e:
+                    log("send button click: non-fatal", repr(_e)[:120])
             if not clicked_send:
                 ta.first.press("Enter")
             sent = True
@@ -113,7 +114,6 @@ with sync_playwright() as p:
         rec.panel(pg, "response_final_panel", "Chat: final chat panel state")
         rec.shot(pg, "response_final_full", "Chat: final full-page state", full=True)
 
-        ws = [u for (s, m, u) in rec.ups if "chat" in u]
         notes = (f"on_chat={on_chat}; context_set={ctx_set}; sent={sent}; "
                  f"response_thread={responded}; chat_net={rec.ups}")
         status = "PASS" if (sent and responded) else "NOTE"

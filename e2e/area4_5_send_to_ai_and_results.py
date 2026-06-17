@@ -5,7 +5,8 @@ These share one expensive inference run, so they run in a single browser session
 and each writes its own summary JSON.
 """
 import time
-from _helpers import (sync_playwright, browser, login, open_study, dismiss_banner,
+from playwright.sync_api import sync_playwright
+from _helpers import (browser, login, open_study, dismiss_banner,
                       advance, Recorder, log)
 
 POLL_SECONDS = 360  # ~6 min cap
@@ -80,8 +81,8 @@ def run():
                 ad = pg.get_by_text("Auto-detect", exact=False)
                 if ad.count():
                     ad.first.click(timeout=3000)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("auto-detect click: non-fatal", repr(_e)[:120])
             time.sleep(1)
             try:
                 # the map-series <select> is the series selector; choose first real option
@@ -211,8 +212,8 @@ def run():
             res_notes = res_notes or f"Exception: {repr(e)[:200]}"
             try:
                 rec_send.shot(pg, "exception", f"Send-to-AI exception: {repr(e)[:80]}", full=True)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("screenshot: non-fatal", repr(_e)[:120])
         b.close()
     rec_send.write_summary(send_status, send_notes)
     rec_res.write_summary(res_status, res_notes)

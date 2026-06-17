@@ -1,7 +1,8 @@
 """Area 2: worklist — study list renders; UKA_1/MR study listed; filters/columns present."""
 import re
 import time
-from _helpers import sync_playwright, browser, login, Recorder, log
+from playwright.sync_api import sync_playwright
+from _helpers import browser, login, Recorder, log
 
 
 def run():
@@ -63,8 +64,8 @@ def run():
             notes = f"Exception: {repr(e)[:200]}"
             try:
                 rec.shot(pg, "exception", f"Worklist exception: {repr(e)[:80]}", full=True)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("screenshot: non-fatal", repr(_e)[:120])
         b.close()
     rec.write_summary(status, notes)
     log("AREA worklist", status, notes)

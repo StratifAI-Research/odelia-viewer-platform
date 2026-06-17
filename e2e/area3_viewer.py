@@ -1,6 +1,7 @@
 """Area 3: viewer — open study, MRI renders (canvas/cornerstone), basic interactions."""
 import time
-from _helpers import sync_playwright, browser, login, open_study, dismiss_banner, Recorder, log
+from playwright.sync_api import sync_playwright
+from _helpers import browser, login, open_study, dismiss_banner, Recorder, log
 
 
 def run():
@@ -63,8 +64,8 @@ def run():
                     pg.keyboard.up("Control")
                     time.sleep(0.1)
                 time.sleep(0.6)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("zoom interaction: non-fatal", repr(_e)[:120])
             rec.shot(pg, "after_zoom", "Viewer: after zoom attempt", full=True)
 
             # window/level via middle-ish drag (left drag adjusts W/L by default tool)
@@ -74,8 +75,8 @@ def run():
                 pg.mouse.move(cx + 120, cy + 60, steps=10)
                 pg.mouse.up()
                 time.sleep(0.6)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("window/level drag: non-fatal", repr(_e)[:120])
             rec.shot(pg, "after_wl", "Viewer: after window/level (left-drag) interaction", full=True)
 
             if n_canvas > 0 and in_viewer:
@@ -88,8 +89,8 @@ def run():
             notes = f"Exception: {repr(e)[:200]}"
             try:
                 rec.shot(pg, "exception", f"Viewer exception: {repr(e)[:80]}", full=True)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("screenshot: non-fatal", repr(_e)[:120])
         b.close()
     rec.write_summary(status, notes)
     log("AREA viewer", status, notes)

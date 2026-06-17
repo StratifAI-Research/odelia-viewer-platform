@@ -1,6 +1,7 @@
 """Area 1: auth — keycloak login renders and succeeds, lands in app."""
 import time
-from _helpers import sync_playwright, browser, login, dismiss_banner, Recorder, BASE, log
+from playwright.sync_api import sync_playwright
+from _helpers import browser, dismiss_banner, Recorder, BASE, log
 
 
 def run():
@@ -22,8 +23,8 @@ def run():
                     break
             try:
                 pg.wait_for_load_state("networkidle", timeout=45000)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("networkidle wait: non-fatal", repr(_e)[:120])
             time.sleep(5)
             dismiss_banner(pg)
             # success = landed in app (worklist rows present, not on login form)
@@ -41,8 +42,8 @@ def run():
             notes = f"Exception: {repr(e)[:200]}"
             try:
                 rec.shot(pg, "exception", f"Auth: state at exception: {repr(e)[:80]}", full=True)
-            except Exception:
-                pass  # best-effort; non-fatal so the walkthrough always finishes and reports
+            except Exception as _e:
+                log("screenshot: non-fatal", repr(_e)[:120])
         b.close()
     rec.write_summary(status, notes)
     log("AREA auth", status, notes)

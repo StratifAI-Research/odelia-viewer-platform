@@ -13,6 +13,7 @@ into DICOM SR / Secondary Capture.
 | `MST-classification/` | MST (DINOv2) bilateral classifier with attention maps — **deployed** as `mst-classifier` |
 | `medgemma-mri/` | MedGemma vision-language model, applied to breast-MRI classification — **deployed** as `medgemma-mri` |
 | `chat-middleware/` | WebSocket chat backend (Ollama / llama.cpp) — **deployed** as `chat-middleware` |
+| `breast-cancer-classification/` | Bilateral breast-cancer classifier (port 5555) — present in the tree but **not deployed** by the current `docker-compose.yml`; remains the default `MODEL_BACKEND_URL` target in the router |
 | `pyproject.toml` | Packaging for the `shared` module (`mlintegration` wrapper) |
 
 The services are built and run by the root [`docker-compose.yml`](../../docker-compose.yml);

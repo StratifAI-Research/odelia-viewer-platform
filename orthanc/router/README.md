@@ -4,11 +4,12 @@ This component is a Python plugin for Orthanc that routes medical images to AI m
 
 ## Features
 
-- Automatically detects when a study becomes stable in Orthanc
-- Sends the study to a configured AI model backend for analysis
-- Creates DICOM Secondary Capture (SC) images with annotations
+- Exposes UPS-RS work-item endpoints; the viewer creates a work-item to request analysis (there is no automatic stable-study trigger)
+- Hands the study's WADO-RS retrieval URLs to a configured AI model backend for analysis (the model service fetches the pixel data itself; the router only retrieves series metadata, for building the DICOM output)
+- Creates DICOM Secondary Capture (SC) images with annotations (e.g. attention heatmaps)
 - Creates DICOM Structured Reports (SR) with the model's findings
 - Handles both left and right side analysis results
+- Uploads the generated DICOM results back to the viewer Orthanc
 - Configurable through environment variables
 
 ## Configuration

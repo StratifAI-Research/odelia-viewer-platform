@@ -13,7 +13,7 @@ pip install -r requirements-dev.txt
 ### Run linters locally
 
 ```
-cd custom/deploy/orthanc  # or /orthanc inside the platform repo
+cd orthanc  # from the odelia-viewer-platform repo root
 ruff check .
 ruff format --check .
 mypy --explicit-package-bases viewer router MLIntegration/shared
@@ -48,13 +48,6 @@ Different services target different floors deliberately. The pin-check does not 
 - Root `MLIntegration/pyproject.toml` — `>=3.10` (lowest common floor; it's a shim that installs the `shared` module into each service image).
 
 When changing a service's Python floor, update its Dockerfile base image in lockstep.
-
-## Subtree layout — `custom/deploy/` is a git subtree
-
-`custom/deploy/` is mirrored from `odelia-deployment.git` via `git subtree`. Two consequences:
-
-1. The platform-side workflow lives at `custom/deploy/.github/workflows/python-lint.yml` (subtree-internal path). The viewer's own CI runs from `.github/workflows/lint.yml` at the repo root and doesn't pick up the subtree workflow.
-2. Edits to `custom/deploy/**` made in this repo must be subtree-split and pushed back to `odelia-deployment` — otherwise the next pull from upstream will overwrite them. If you fix something here that also exists on the platform side, fix it on platform first or be prepared to push the subtree.
 
 ## `lint-py` is gating
 

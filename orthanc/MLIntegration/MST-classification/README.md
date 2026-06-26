@@ -4,9 +4,14 @@ Flask microservice for breast MRI malignancy classification using the ODELIA MST
 
 ## Architecture
 
-- `app.py` - Main Flask application with REST API endpoints
+- `app_refactored.py` - Flask entry point: a thin HTTP layer exposing `/health` and `/analyze/mri`, delegating to the model service
+- `model_service.py` - Orchestrates retrieval, preprocessing, inference, and response building
 - `model_loader.py` - HuggingFace model download and loading logic
-- `dicom_utils.py` - DICOM to NIfTI conversion utilities
+- `config.py` - Environment-driven configuration
+- `retrieval_strategy.py` / `wado_helper.py` - WADO-RS series retrieval
+- `dicom_converter.py` / `dicom_utils.py` - DICOM to NIfTI conversion utilities
+- `preprocessing.py` - Volume preprocessing for the model
+- `response_builder.py` - Formats the bilateral classification response
 
 ## Configuration
 
@@ -14,7 +19,6 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORTHANC_URL` | `http://orthanc:8042` | Orthanc PACS server URL |
 | `IMAGE_FOLDER` | `./images` | Temporary storage for DICOM files |
 | `MODEL_PATH` | `./mst_model` | Directory for model files |
 | `HF_TOKEN` | None | HuggingFace API token (optional; not needed for the public `ODELIA-AI/MST` repo) |
@@ -28,7 +32,7 @@ To use HTTP proxy for HuggingFace downloads:
 ```bash
 export HTTP_PROXY=http://proxy.example.com:8080
 export HTTPS_PROXY=http://proxy.example.com:8080
-python app.py
+python app_refactored.py
 ```
 
 ## API Endpoints
@@ -53,24 +57,40 @@ Response:
 ```bash
 POST /analyze/mri
 Content-Type: application/json
+```
 
+Request body. Each `wado_rs_retrieval` entry carries `retrieval_url`, `study_uid`, and `series_uid`. `input_configuration_id` and `input_mapping` are optional — supported modes are `pre_post`, `subtraction`, and `multiphase`; when omitted, the service falls back to flat single-series retrieval.
+
+```json
 {
-  "seriesInstanceUID": "1.2.840.113619.2...."
+  "wado_rs_retrieval": [
+    {
+      "retrieval_url": "http://orthanc-viewer:8042/dicom-web/studies/{study}/series/{series}",
+      "study_uid": "1.2.3...",
+      "series_uid": "1.2.3..."
+    }
+  ],
+  "study_uid": "1.2.3...",
+  "input_configuration_id": "pre_post",
+  "input_mapping": {
+    "pre":  {"series_uid": "...", "wado_rs_url": "..."},
+    "post": {"series_uid": "...", "wado_rs_url": "..."}
+  }
 }
 ```
 
-Response:
+Response. A bilateral, three-class classification (`No lesion` / `Benign` / `Malignant`) with `confidence` as a percentage (0–100), plus model metadata and attention maps:
+
 ```json
 {
-  "classification": {
-    "prediction": "Malignant",
-    "probability": 0.87,
-    "confidence": 0.74,
-    "model_name": "MST (DINOv2-based)",
-    "version": "1.0",
-    "architecture": "Vision Transformer"
+  "left":  {"prediction": "Malignant", "confidence": 87.0},
+  "right": {"prediction": "No lesion", "confidence": 98.2},
+  "model_metadata": {
+    "model_name": "ODELIA-AI",
+    "architecture": "Vision Transformer",
+    "version": "1.0"
   },
-  "attention_maps": [...]
+  "attention_maps": {"data": "...", "shape": [...], "dtype": "..."}
 }
 ```
 
@@ -78,7 +98,7 @@ Response:
 
 - **Model**: ODELIA MST (Multi-Scale Transformer)
 - **Architecture**: Vision Transformer based on DINOv2
-- **Task**: Binary classification (Benign vs Malignant)
+- **Task**: 3-class classification (No lesion / Benign / Malignant), reported per breast (bilateral)
 - **Input**: 3D breast MRI (NIfTI format)
 - **Repository**: https://huggingface.co/ODELIA-AI/MST
 
@@ -86,7 +106,7 @@ Response:
 
 1. Start the service:
 ```bash
-python app.py
+python app_refactored.py
 ```
 
 2. The service will automatically:

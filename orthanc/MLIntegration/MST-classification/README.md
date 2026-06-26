@@ -17,7 +17,7 @@ Environment variables:
 | `ORTHANC_URL` | `http://orthanc:8042` | Orthanc PACS server URL |
 | `IMAGE_FOLDER` | `./images` | Temporary storage for DICOM files |
 | `MODEL_PATH` | `./mst_model` | Directory for model files |
-| `HF_TOKEN` | None | HuggingFace API token (required for gated models) |
+| `HF_TOKEN` | None | HuggingFace API token (optional; not needed for the public `ODELIA-AI/MST` repo) |
 | `HTTP_PROXY` | None | HTTP proxy server (e.g., `http://user:pass@proxy.example.com:8080`) |
 | `HTTPS_PROXY` | None | HTTPS proxy server (falls back to HTTP_PROXY if not set) |
 

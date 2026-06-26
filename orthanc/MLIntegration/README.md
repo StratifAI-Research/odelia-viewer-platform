@@ -1,60 +1,25 @@
-# 🧠 Integration of ML Model into Medical Imaging Viewer
+# MLIntegration
 
-This project integrates a machine learning model with an ORTHANC DICOM server to classify MRI images for breast cancer detection. The backend is built with Flask and designed to run inside a Docker container.
+ML services that the ODELIA Viewer Platform routes DICOM studies to, plus the shared
+library they build on. Each service is a Flask (or async) microservice that retrieves a
+series via WADO-RS, runs inference, and returns JSON results the Orthanc router converts
+into DICOM SR / Secondary Capture.
 
-## 🚀 Getting Started
+## Layout
 
-Follow these steps to set up and run the project locally:
+| Path | What it is |
+| --- | --- |
+| `shared/` | Reusable library (WADO-RS retrieval, DICOM storage, config, exceptions, timing & security helpers) — installed into every service image via `pip install -e .` |
+| `MST-classification/` | MST (DINOv2) bilateral classifier with attention maps — **deployed** as `mst-classifier` |
+| `medgemma-mri/` | MedGemma vision-language model, applied to breast-MRI classification — **deployed** as `medgemma-mri` |
+| `chat-middleware/` | WebSocket chat backend (Ollama / llama.cpp) — **deployed** as `chat-middleware` |
+| `pyproject.toml` | Packaging for the `shared` module (`mlintegration` wrapper) |
 
-### 1. Clone the Repository
+The services are built and run by the root [`docker-compose.yml`](../../docker-compose.yml);
+you do not start them from this directory directly.
 
-```bash
-git clone https://github.com/mkhoobi/MLIntegration.git
-cd breast_cancer_classification
-```
+## Documentation
 
-### 2. Prepare Directory Structure
-
-Create the following folders inside the main project directory:
-
-- `images/` – for temporary storage of DICOM images
-- `models/` – to store your trained ML model
-
-Example:
-
-```
-breast_cancer_classification/
-├── app.py
-├── images/
-└── models/
-    └── your_model.pth
-```
-
-### 3. Configure Environment Variables
-
-Edit `app.py` to set your environment or override them with your custom values:
-
-```python
-ORTHANC_URL = os.getenv("ORTHANC_URL", "http://[ip_address_of_orthanc]")
-IMAGE_FOLDER = os.getenv("IMAGE_FOLDER", "./images")
-MRI_MODEL_PATH = os.getenv("MODEL_PATH", "./models/your_model.pth")
-```
-
-Alternatively, you can create a `.env` file and pass it to Docker if preferred.
-
-### 4. Build and Run the Docker Container
-
-```bash
-docker build -t analyze-cancer-api .
-docker run -p 5555:5555 analyze-cancer-api
-```
-
-### 5. Test the API
-
-Use `curl` to send a test request (replace with a valid SeriesInstanceUID):
-
-```bash
-curl -X POST http://localhost:5555/analyze/mri \
-     -H "Content-Type: application/json" \
-     -d '{"seriesInstanceUID": "1.3.36.670*******"}'
-```
+- **What each model does, its inputs and limits** — [`docs/models/`](../../docs/models/)
+- **Integrate your own model** — [`docs/usage/adding_custom_models.md`](../../docs/usage/adding_custom_models.md)
+- **Working on the Python services** (linting, tests, dependency pinning) — [`orthanc/CONTRIBUTING.md`](../CONTRIBUTING.md)

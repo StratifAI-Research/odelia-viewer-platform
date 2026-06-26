@@ -4,7 +4,7 @@ research / demo defaults. Printed to stderr so it survives most logging
 configurations and is visible in `docker compose logs`.
 
 Suppress with `ODELIA_SUPPRESS_SECURITY_BANNER=1` once you have read
-docs/production-hardening.md and intentionally accept the posture.
+docs/security/production-hardening.md and intentionally accept the posture.
 """
 
 import os
@@ -17,7 +17,7 @@ _BANNER_LINES = [
     "",
     "This service ships with insecure-by-design defaults intended for local",
     "research and demos. Do NOT expose this stack to an untrusted network",
-    "without working through docs/production-hardening.md first.",
+    "without working through docs/security/production-hardening.md first.",
     "",
     "Known defaults that need changing for non-local deployments:",
     "  * Published ports bind to 0.0.0.0 (LAN-shared)",
@@ -27,7 +27,7 @@ _BANNER_LINES = [
     "  * Routing endpoints accept arbitrary hostnames unless",
     "    ROUTER_HOST_ALLOWLIST is set",
     "",
-    "See docs/production-hardening.md.",
+    "See docs/security/production-hardening.md.",
     "Suppress this banner with ODELIA_SUPPRESS_SECURITY_BANNER=1.",
     "=" * 72,
     "",

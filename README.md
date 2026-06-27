@@ -13,7 +13,7 @@
   </p>
 
   <p>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"/></a>
     <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/docker-build-push.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/docker-build-push.yml/badge.svg" alt="Docker Build & Push"/></a>
     <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-tests.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-tests.yml/badge.svg" alt="Python tests"/></a>
     <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-lint.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-lint.yml/badge.svg" alt="Python lint"/></a>
@@ -124,7 +124,9 @@ programme under grant agreement [No 101057091](https://cordis.europa.eu/project/
 
 **Research use only.** Model outputs may be inaccurate.
 
-This repository's own source is released under the [MIT License](LICENSE)
-(© 2023–2026 StratifAI and the ODELIA project contributors). The platform also bundles independent
-components under their own licenses — several copyleft or non-commercial. See
-[`docs/licensing.md`](docs/licensing.md) for the per-component breakdown.
+This repository's own source is released under the [GNU General Public License v3.0 or later](LICENSE)
+(© 2023–2026 StratifAI and the ODELIA project contributors). The stack builds custom Orthanc images
+that load our own Orthanc plugins, so what it distributes is a combined work with GPLv3 Orthanc —
+hence the whole repository is GPLv3. It also bundles further independent components under their own
+licenses — several copyleft or non-commercial. See [`docs/licensing.md`](docs/licensing.md) for the
+per-component breakdown.

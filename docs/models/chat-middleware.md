@@ -1,12 +1,12 @@
-# Model Card: Chat Middleware (MedGemma via Ollama)
+# Model Card: Chat Middleware (vision-language model via Ollama / llama.cpp)
 
 ## Model Details
 
 | Field | Value |
 |-------|-------|
 | **Name** | Chat Middleware |
-| **Architecture** | Vision-Language Model (MedGemma 1.5 4B via Ollama) |
-| **Model ID** | `MedAIBase/MedGemma1.5:4b` (Ollama registry) |
+| **Architecture** | Any vision-language model served via Ollama or llama.cpp (default: MedGemma 1.5 4B) |
+| **Default model** | `thiagomoraes/medgemma-1.5-4b-it:F16` (Ollama registry; the `OLLAMA_MODEL` value set in `docker-compose.yml`) — swap in any other VLM your backend can serve |
 | **Task** | Free-form medical image chat / interactive analysis |
 | **Interface** | WebSocket (streaming tokens) |
 | **Output** | Streaming text responses |
@@ -81,4 +81,8 @@ This is a free-form chat model. Any confidence or certainty expressed in text re
 
 ## Infrastructure Dependency
 
-Requires a running Ollama instance (default: `http://host.docker.internal:11434`) with the `MedAIBase/MedGemma1.5:4b` model loaded.
+Requires a running LLM backend with the model loaded. The default is **Ollama**
+(`http://host.docker.internal:11434`, model `thiagomoraes/medgemma-1.5-4b-it:F16`); the
+optional **llama.cpp** backend (`BACKEND_TYPE=llamacpp`) serves the same model from a
+GGUF file inside Docker. Override via the `OLLAMA_URL` / `OLLAMA_MODEL` / `BACKEND_TYPE`
+environment variables — see [`setup_chat.md`](../setup/setup_chat.md).

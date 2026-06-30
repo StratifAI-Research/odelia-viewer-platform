@@ -46,11 +46,12 @@ starts out-of-the-box. **All of them must be changed.**
 
 | Service   | Default user | Default password | Source                                        |
 | --------- | ------------ | ---------------- | --------------------------------------------- |
-| Keycloak admin | `admin` | `admin`     | [`docker-compose.yml`](../docker-compose.yml) `KEYCLOAK_ADMIN_PASSWORD` |
-| Keycloak DB    | `keycloak` | `password` | [`docker-compose.yml`](../docker-compose.yml) `KC_DB_PASSWORD` |
-| Postgres       | `keycloak` | `password` | [`docker-compose.yml`](../docker-compose.yml) `POSTGRES_PASSWORD`      |
-| Grafana admin  | `admin` | `odelia`    | [`docker-compose.yml`](../docker-compose.yml) `GF_SECURITY_ADMIN_PASSWORD` |
-| Viewer login   | `viewer` | `viewer`   | Keycloak realm import [`config/ohif-keycloak-realm.json`](../config/ohif-keycloak-realm.json) |
+| Keycloak admin | `admin` | `admin`     | [`docker-compose.yml`](../../docker-compose.yml) `KEYCLOAK_ADMIN_PASSWORD` |
+| Keycloak DB    | `keycloak` | `password` | [`docker-compose.yml`](../../docker-compose.yml) `KC_DB_PASSWORD` |
+| Postgres       | `keycloak` | `password` | [`docker-compose.yml`](../../docker-compose.yml) `POSTGRES_PASSWORD`      |
+| Grafana admin  | `admin` | `odelia`    | [`docker-compose.yml`](../../docker-compose.yml) `GF_SECURITY_ADMIN_PASSWORD` |
+| Viewer login   | `viewer` | `viewer`   | Keycloak realm import [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json) |
+| Viewer login (PACS admin) | `pacsadmin` | `pacsadmin` | Keycloak realm import [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json) |
 
 The preferred approach is to switch the compose file from hardcoded
 values to `${VAR:-default}` form and supply real secrets via a `.env`
@@ -110,29 +111,29 @@ environment:
 ### 6. Disable debug API on chat-middleware
 
 The chat-middleware ships a debug router at `/debug` that exposes
-runtime configuration and cache inspection. Set
-`DEBUG_API_ENABLED=false` (or simply leave it unset and gate the
-blueprint registration on the env var) in any non-local profile.
-
-```yaml
-chat-middleware:
-  environment:
-    DEBUG_API_ENABLED: "false"
-```
+runtime configuration and cache inspection. It is currently registered
+**unconditionally** (`app.include_router(debug_router)` in
+[`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py)) —
+there is no environment toggle yet. For any non-local profile, gate the
+registration behind an env var (e.g. only `include_router` when
+`DEBUG_API_ENABLED` is truthy) or remove the line, then rebuild the
+image.
 
 ### 7. Tighten CORS
 
-`orthanc/MLIntegration/chat-middleware/app.py` allows `*` for
-`allow_origins`. Replace with an explicit list of the OHIF viewer
-origin(s) the chat-middleware should serve:
+The chat-middleware already restricts CORS to the OHIF viewer origin(s)
+by default (`_cors_settings()` in
+[`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py)).
+Make sure it matches your deployment:
 
-```python
-allow_origins=[os.environ.get("CHAT_CORS_ORIGIN", "https://viewer.example.org")],
-```
+* Set `CHAT_ALLOWED_ORIGINS` (comma-separated) to your real viewer
+  origin(s).
+* **Never** set `CHAT_CORS_DEV_ALLOW_ALL=1` outside local dev — it is a
+  development escape hatch that allows `*` (with credentials disabled).
 
-The Flask AI services (breast-cancer-classification, MST-classification,
-medgemma-mri) use `flask_cors.CORS(app)` with no whitelist; lock these
-down the same way if they will be reachable from a browser.
+The Flask AI services (MST-classification, medgemma-mri) use
+`flask_cors.CORS(app)` with no whitelist; lock these down if they will
+be reachable from a browser.
 
 ---
 
@@ -154,20 +155,12 @@ should track upstream releases and rebuild periodically to pick up
 security fixes. Keep the pinned tag in the repo, but document the
 expected refresh cadence for your deployment.
 
-### 10. Remove TLS-verify bypass when wiring HTTPS
-
-`orthanc/MLIntegration/breast-cancer-classification/app.py` (legacy)
-calls Orthanc with `verify=False`. This is a no-op today because
-`ORTHANC_URL` is always plain HTTP inside the Docker network, but the
-flag is a latent footgun the moment anyone points the service at an
-HTTPS endpoint. Remove `verify=False` as part of the production pass.
-
 ---
 
 ## Where to look in the code
 
-* Compose file: [`docker-compose.yml`](../docker-compose.yml)
-* Orthanc viewer config: [`orthanc/viewer/orthanc.json`](../orthanc/viewer/orthanc.json)
-* Keycloak realm: [`config/ohif-keycloak-realm.json`](../config/ohif-keycloak-realm.json)
-* Router REST handlers: [`orthanc/viewer/router.py`](../orthanc/viewer/router.py), [`orthanc/router/ups/routes.py`](../orthanc/router/ups/routes.py), [`orthanc/router/ups/processor.py`](../orthanc/router/ups/processor.py)
-* Chat-middleware CORS / debug: [`orthanc/MLIntegration/chat-middleware/app.py`](../orthanc/MLIntegration/chat-middleware/app.py), [`orthanc/MLIntegration/chat-middleware/debug_routes.py`](../orthanc/MLIntegration/chat-middleware/debug_routes.py)
+* Compose file: [`docker-compose.yml`](../../docker-compose.yml)
+* Orthanc viewer config: [`orthanc/viewer/orthanc.json`](../../orthanc/viewer/orthanc.json)
+* Keycloak realm: [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json)
+* Router REST handlers: [`orthanc/viewer/router.py`](../../orthanc/viewer/router.py), [`orthanc/router/ups/routes.py`](../../orthanc/router/ups/routes.py), [`orthanc/router/ups/processor.py`](../../orthanc/router/ups/processor.py)
+* Chat-middleware CORS / debug: [`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py), [`orthanc/MLIntegration/chat-middleware/debug_routes.py`](../../orthanc/MLIntegration/chat-middleware/debug_routes.py)

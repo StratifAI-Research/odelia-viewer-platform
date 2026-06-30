@@ -5,7 +5,7 @@ Reads `ROUTER_HOST_ALLOWLIST` (comma-separated) from the environment.
 Empty / unset => no enforcement (current research behaviour).
 Non-empty   => URLs whose hostname is not in the set are rejected.
 
-See docs/production-hardening.md.
+See docs/security/production-hardening.md.
 """
 
 import os

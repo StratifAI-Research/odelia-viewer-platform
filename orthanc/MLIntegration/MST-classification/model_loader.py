@@ -56,7 +56,9 @@ def download_model_files() -> dict[str, str]:
         logger.info("Authenticating with HuggingFace token")
         login(token=HF_TOKEN)
     else:
-        logger.warning("No HF_TOKEN provided - may fail for gated models")
+        logger.info(
+            "No HF_TOKEN provided - proceeding unauthenticated (fine for public repos like ODELIA-AI/MST)"
+        )
 
     # Create model directory
     Path(MODEL_PATH).mkdir(parents=True, exist_ok=True)

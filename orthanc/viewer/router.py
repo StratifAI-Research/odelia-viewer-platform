@@ -25,7 +25,7 @@ except Exception:
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var).
 # When unset/empty, host_is_allowed() returns True for any input — preserves
-# the current research behaviour. See docs/production-hardening.md.
+# the current research behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
 except Exception:

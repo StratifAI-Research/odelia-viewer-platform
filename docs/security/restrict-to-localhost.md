@@ -33,7 +33,7 @@ Verify with `docker compose config` — every published port should show
 
 ## How it works
 
-Every port mapping in [`docker-compose.yml`](../docker-compose.yml) is
+Every port mapping in [`docker-compose.yml`](../../docker-compose.yml) is
 written as:
 
 ```yaml

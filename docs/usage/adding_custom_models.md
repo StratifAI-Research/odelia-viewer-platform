@@ -75,18 +75,18 @@ For models that return simple classification results:
 ```json
 {
   "left": {
-    "prediction": "Cancerous",
+    "prediction": "Malignant",
     "confidence": 87.5
   },
   "right": {
-    "prediction": "Not Cancerous",
+    "prediction": "No lesion",
     "confidence": 65.2
   }
 }
 ```
 
 **Requirements:**
-- `prediction`: String classification label
+- `prediction`: String classification label (e.g. the bundled models return `No lesion` / `Benign` / `Malignant`)
 - `confidence`: Numeric confidence score (0-100)
 
 The router creates a **DICOM Structured Report (SR)** with these results.
@@ -163,40 +163,32 @@ Retrieve DICOM instances via DICOMweb WADO-RS protocol.
 ```python
 from shared.wado_retrieval import retrieve_via_wado_rs
 
-# Retrieve DICOM datasets from WADO-RS URLs
+# Retrieve DICOM datasets from WADO-RS URLs (the retrieval_url is self-contained)
 datasets = retrieve_via_wado_rs(
     wado_rs_retrieval=[{
         "retrieval_url": "http://orthanc-viewer:8042/dicom-web/studies/.../series/...",
         "study_uid": "1.2.3...",
         "series_uid": "1.2.3..."
-    }],
-    orthanc_url="http://orthanc-viewer:8042"
+    }]
 )
 
-# datasets is a List[pydicom.Dataset]
+# datasets is a list[pydicom.Dataset]
 for ds in datasets:
     print(ds.PatientName, ds.SeriesDescription)
 ```
 
 #### 2. Configuration (`shared.config`)
 
-Dataclasses for service configuration.
+The `StorageConfig` dataclass configures where retrieved DICOM is written.
 
 ```python
-from shared.config import OrthancConfig, StorageConfig
+from shared.config import StorageConfig
 from pathlib import Path
-
-# Orthanc server configuration
-orthanc_config = OrthancConfig(
-    url="http://orthanc-viewer:8042",
-    verify_ssl=False,
-    timeout=30
-)
 
 # Storage configuration
 storage_config = StorageConfig(
     image_folder=Path("./images"),
-    cleanup_on_start=True
+    cleanup_on_start=True,
 )
 ```
 
@@ -218,32 +210,12 @@ dicom_folder = save_datasets_to_folder(
 print(f"DICOM files saved to: {dicom_folder}")
 ```
 
-#### 4. Orthanc Client (`shared.orthanc_client`)
+#### 4. Exceptions (`shared.exceptions`)
 
-REST API client for Orthanc server (for advanced use cases).
-
-```python
-from shared.orthanc_client import OrthancClient
-
-client = OrthancClient(orthanc_config)
-
-# Lookup series by UID
-series_id = client.get_series_id_by_uid("1.2.840.113619...")
-
-# Download instances
-dicom_files = client.download_series_instances(series_id)
-```
-
-#### 5. Exceptions (`shared.exceptions`)
-
-Custom exception types for error handling.
+`DicomRetrievalError` is raised when WADO-RS retrieval fails.
 
 ```python
-from shared.exceptions import (
-    DicomRetrievalError,
-    OrthancCommunicationError,
-    SeriesNotFoundError
-)
+from shared.exceptions import DicomRetrievalError
 
 try:
     datasets = retrieve_via_wado_rs(wado_rs_retrieval)
@@ -251,9 +223,14 @@ except DicomRetrievalError as e:
     logger.error(f"Failed to retrieve DICOM: {e}")
 ```
 
+> The `shared` package also ships `shared.dicom_storage` (path-safe series folder
+> creation and dataset saving), `shared.timing_utils.time_operation`, and
+> `shared.security_banner.print_security_banner`. Browse
+> [`orthanc/MLIntegration/shared/`](../../orthanc/MLIntegration/shared/) for the full surface.
+
 ### Retrieval Strategies
 
-The codebase uses a Strategy pattern for DICOM retrieval. See `breast-cancer-classification/retrieval_strategy.py` for reference:
+The codebase uses a Strategy pattern for DICOM retrieval. See `MST-classification/retrieval_strategy.py` for reference:
 
 ```python
 from retrieval_strategy import WadoRSRetrieval
@@ -261,7 +238,6 @@ from retrieval_strategy import WadoRSRetrieval
 # Create retrieval strategy
 strategy = WadoRSRetrieval(
     wado_rs_retrieval=request_data["wado_rs_retrieval"],
-    orthanc_config=orthanc_config,
     storage_config=storage_config
 )
 
@@ -276,7 +252,7 @@ dicom_folder, series_uid = strategy.retrieve()
 Create a new directory for your model under `MLIntegration/`:
 
 ```bash
-cd custom/deploy/orthanc/MLIntegration
+cd orthanc/MLIntegration
 mkdir your-model-name
 cd your-model-name
 ```
@@ -295,7 +271,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from shared.config import OrthancConfig, StorageConfig
+from shared.config import StorageConfig
 from config import YourModelConfig
 from model_service import YourModelService
 from exceptions import ModelNotLoadedError, InferenceError
@@ -319,22 +295,16 @@ def initialize_service():
     # Load configurations from environment
     model_config = YourModelConfig.from_env()
 
-    orthanc_config = OrthancConfig(
-        url=os.getenv("ORTHANC_URL", "http://orthanc:8042"),
-        verify_ssl=False,
-        timeout=30
-    )
-
     storage_config = StorageConfig(
         image_folder=Path(os.getenv("IMAGE_FOLDER", "./images")),
-        cleanup_on_start=True
+        cleanup_on_start=True,
     )
 
     # Create necessary directories
     os.makedirs(storage_config.image_folder, exist_ok=True)
 
     # Initialize model service
-    model_service = YourModelService(model_config, orthanc_config, storage_config)
+    model_service = YourModelService(model_config, storage_config)
     model_service.initialize_model()
 
 
@@ -389,9 +359,9 @@ if __name__ == "__main__":
     # Initialize service before starting server
     initialize_service()
 
-    # Start Flask server (choose unique port)
-    logger.info("Starting Flask server on 0.0.0.0:5557")
-    app.run(host="0.0.0.0", port=5557, debug=False, use_reloader=False)
+    # Start Flask server (choose a unique port — 5556/5557/5560 are already taken)
+    logger.info("Starting Flask server on 0.0.0.0:5558")
+    app.run(host="0.0.0.0", port=5558, debug=False, use_reloader=False)
 ```
 
 ### Step 3: Create Model Service Logic
@@ -417,9 +387,8 @@ logger = logging.getLogger(__name__)
 class YourModelService:
     """Service for model inference"""
 
-    def __init__(self, model_config, orthanc_config, storage_config):
+    def __init__(self, model_config, storage_config):
         self.model_config = model_config
-        self.orthanc_config = orthanc_config
         self.storage_config = storage_config
         self.model = None
 
@@ -462,7 +431,6 @@ class YourModelService:
         # Step 1: Retrieve DICOM data via WADO-RS
         strategy = WadoRSRetrieval(
             wado_rs_retrieval=wado_rs_retrieval,
-            orthanc_config=self.orthanc_config,
             storage_config=self.storage_config
         )
 
@@ -542,7 +510,7 @@ from typing import Tuple
 
 from shared.wado_retrieval import retrieve_via_wado_rs
 from shared.dicom_storage import save_datasets_to_folder
-from shared.config import OrthancConfig, StorageConfig
+from shared.config import StorageConfig
 
 logger = logging.getLogger(__name__)
 
@@ -550,9 +518,8 @@ logger = logging.getLogger(__name__)
 class WadoRSRetrieval:
     """WADO-RS retrieval strategy"""
 
-    def __init__(self, wado_rs_retrieval: list, orthanc_config: OrthancConfig, storage_config: StorageConfig):
+    def __init__(self, wado_rs_retrieval: list, storage_config: StorageConfig):
         self.wado_rs_retrieval = wado_rs_retrieval
-        self.orthanc_config = orthanc_config
         self.storage_config = storage_config
 
     def retrieve(self) -> Tuple[Path, str]:
@@ -564,8 +531,8 @@ class WadoRSRetrieval:
         """
         logger.info("Using WADO-RS retrieval")
 
-        # Retrieve DICOM datasets
-        datasets = retrieve_via_wado_rs(self.wado_rs_retrieval, orthanc_url=self.orthanc_config.url)
+        # Retrieve DICOM datasets (the retrieval_url in each entry is self-contained)
+        datasets = retrieve_via_wado_rs(self.wado_rs_retrieval)
 
         if not datasets:
             raise ValueError("No DICOM instances retrieved via WADO-RS")
@@ -600,9 +567,8 @@ Create `Dockerfile` in your model directory:
 
 ```dockerfile
 # Dockerfile for Your Model Service
-# Build from MLIntegration directory:
-#   cd MLIntegration
-#   docker build -f your-model-name/Dockerfile -t your-model-name .
+# Build from the repo root (the build context is orthanc/MLIntegration):
+#   docker build -f orthanc/MLIntegration/your-model-name/Dockerfile -t your-model-name orthanc/MLIntegration
 
 FROM python:3.10-slim
 
@@ -629,8 +595,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create directories
 RUN mkdir -p models images
 
-# Expose port (choose unique port)
-EXPOSE 5557
+# Expose port (choose a unique port — 5556/5557/5560 are already taken)
+EXPOSE 5558
 
 # Run service
 CMD ["python", "app_refactored.py"]
@@ -638,7 +604,9 @@ CMD ["python", "app_refactored.py"]
 
 ### Step 6: Add to Docker Compose
 
-Edit `custom/deploy/docker-compose.yml` and add your model service:
+Edit `docker-compose.yml` (at the repo root) and add your model service. The
+`${BIND_HOST:-}` prefix on each port keeps it consistent with the rest of the stack (see
+[`restrict-to-localhost.md`](../security/restrict-to-localhost.md)):
 
 ```yaml
   # Your Custom Model
@@ -646,7 +614,7 @@ Edit `custom/deploy/docker-compose.yml` and add your model service:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: your-model-name/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-your-model-name:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-your-model-name:${TAG:-0.1.0}
     container_name: odelia-your-model-name
     environment:
       ORTHANC_URL: "http://orthanc-router-yourmodel:8042"
@@ -656,7 +624,7 @@ Edit `custom/deploy/docker-compose.yml` and add your model service:
     networks:
       - odelia-network
     ports:
-      - '5557:5557'
+      - '${BIND_HOST:-}5558:5558'
 ```
 
 If you want a dedicated router for your model, add:
@@ -667,7 +635,7 @@ If you want a dedicated router for your model, add:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
     hostname: orthanc-router-yourmodel
     container_name: odelia-orthanc-router-yourmodel
     volumes:
@@ -678,15 +646,15 @@ If you want a dedicated router for your model, add:
     networks:
       - odelia-network
     ports:
-      - '4244:4242'  # DICOM port (unique)
-      - '8044:8042'  # HTTP port (unique)
+      - '${BIND_HOST:-}4245:4242'  # DICOM port (unique — 4243/4244 taken)
+      - '${BIND_HOST:-}8045:8042'  # HTTP port (unique — 8043/8044 taken)
     environment:
       - ORTHANC__NAME=orthanc-router-yourmodel
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
-      - MODEL_BACKEND_URL=http://your-model-name:5557
+      - MODEL_BACKEND_URL=http://your-model-name:5558
       - AI_TEXT=YOUR MODEL
       - AI_COLOR=green
       - AI_NAME=Your Model Name
@@ -696,15 +664,11 @@ If you want a dedicated router for your model, add:
 
 ### Step 7: Register in Viewer
 
-Edit `custom/deploy/config/app-config.js` and add your model to the `aiEndpoints` array:
+Edit `config/app-config.js` and add your model to the `aiEndpoints` array. Out of the box
+only the MST endpoint is registered, so you are appending to it:
 
 ```javascript
   aiEndpoints: [
-    {
-      id: 'default-ai-server',
-      name: 'Classification model',
-      url: 'http://orthanc-router:8042/dicom-web',
-    },
     {
       id: 'mst-ai',
       name: 'MST AI model',
@@ -742,17 +706,15 @@ All files shown in Step 2-4 above constitute a complete minimal example. The mod
 
 ### Build and Run Locally
 
-1. **Build the Docker image:**
+1. **Build the Docker image** (from the repo root):
 
 ```bash
-cd custom/deploy/orthanc/MLIntegration
-docker build -f your-model-name/Dockerfile -t your-model-name .
+docker build -f orthanc/MLIntegration/your-model-name/Dockerfile -t your-model-name orthanc/MLIntegration
 ```
 
-2. **Start all services:**
+2. **Start all services** (from the repo root):
 
 ```bash
-cd custom/deploy
 docker compose up -d
 ```
 
@@ -768,7 +730,7 @@ docker logs odelia-orthanc-router-yourmodel
 Test your model endpoint directly:
 
 ```bash
-curl -X POST http://localhost:5557/analyze/mri \
+curl -X POST http://localhost:5558/analyze/mri \
   -H "Content-Type: application/json" \
   -d '{
     "wado_rs_retrieval": [{
@@ -807,10 +769,10 @@ curl -X POST http://localhost:5557/analyze/mri \
 **Symptom:** `DicomRetrievalError` or empty dataset list
 
 **Solutions:**
-- Verify `ORTHANC_URL` environment variable points to the correct Orthanc instance
+- Check that each `retrieval_url` is a complete, reachable WADO-RS URL — the shared helper fetches from this self-contained URL, not from `ORTHANC_URL`
 - Check network connectivity between containers (`docker network inspect odelia-network`)
 - Verify the series exists in Orthanc Viewer
-- Check that `retrieval_url` format is correct (should be full WADO-RS URL)
+- `ORTHANC_URL` only matters if your service adds a REST fallback (as MST's `wado_helper.py` does); make sure it points at the right Orthanc instance in that case
 
 ### Router Connection Problems
 
@@ -827,7 +789,7 @@ curl -X POST http://localhost:5557/analyze/mri \
 **Symptom:** Port already in use error
 
 **Solutions:**
-- Choose unique ports for your services (avoid 5555, 5556, 8042, 8043, 4242, 4243)
+- Choose unique host ports — the stack already publishes `2000`, `3000`, `5556`, `5557`, `5560`, `8000`, `8043`, `8044`, `8080`, `8081` (and `8090` with the `llamacpp` profile), plus the routers' DICOM ports `4243` / `4244`. Containers also use `8042` / `4242` internally.
 - Update both `ports` in docker-compose.yml and Flask `app.run(port=...)` in your code
 - Check existing port usage: `docker ps` or `netstat -tulpn`
 
@@ -857,16 +819,16 @@ curl -X POST http://localhost:5557/analyze/mri \
 
 **Solutions:**
 - Verify your response matches one of the two supported formats (bilateral or bilateral_with_heatmap)
-- Use `detect_response_format()` logic from `orthanc-router/server.py:720` as reference
+- Use `detect_response_format()` logic from `orthanc/router/server.py` as reference
 - Ensure `left` and `right` keys are present
 - For attention maps, verify base64 encoding and shape metadata
 
 ## Reference Examples
 
-For complete working examples, refer to existing models in the codebase:
+For complete working examples, refer to the deployed models in the codebase:
 
-- **Breast Cancer Classification** (basic bilateral): `MLIntegration/breast-cancer-classification/`
-- **MST Classifier** (with attention maps): `MLIntegration/MST-classification/`
+- **MST Classifier** (bilateral classification with attention maps): `orthanc/MLIntegration/MST-classification/`
+- **MedGemma** (vision-language bilateral classification): `orthanc/MLIntegration/medgemma-mri/`
 
 Both examples demonstrate:
 - Complete Flask service structure

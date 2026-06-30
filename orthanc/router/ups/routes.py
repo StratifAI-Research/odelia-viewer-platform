@@ -17,7 +17,7 @@ from ups.workitem import UPSWorkitem
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). When
 # unset/empty, host_is_allowed() returns True — preserves current research
-# behaviour. See docs/production-hardening.md.
+# behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
 except Exception:

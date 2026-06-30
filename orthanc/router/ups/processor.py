@@ -13,7 +13,7 @@ from ups.storage import ups_storage
 from ups.workitem import UPSWorkitem
 
 # Optional outbound-host allowlist (ROUTER_HOST_ALLOWLIST env var). Empty /
-# unset preserves current research behaviour. See docs/production-hardening.md.
+# unset preserves current research behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
 except Exception:

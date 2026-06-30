@@ -4,21 +4,22 @@ This component is a Python plugin for Orthanc that routes medical images to AI m
 
 ## Features
 
-- Automatically detects when a study becomes stable in Orthanc
-- Sends the study to a configured AI model backend for analysis
-- Creates DICOM Secondary Capture (SC) images with annotations
+- Exposes UPS-RS work-item endpoints; the viewer creates a work-item to request analysis (there is no automatic stable-study trigger)
+- Hands the study's WADO-RS retrieval URLs to a configured AI model backend for analysis (the model service fetches the pixel data itself; the router only retrieves series metadata, for building the DICOM output)
+- Creates DICOM Secondary Capture (SC) images with annotations (e.g. attention heatmaps)
 - Creates DICOM Structured Reports (SR) with the model's findings
 - Handles both left and right side analysis results
+- Uploads the generated DICOM results back to the viewer Orthanc
 - Configurable through environment variables
 
 ## Configuration
 
 The following environment variables can be used to configure the plugin:
 
-- `MODEL_BACKEND_URL`: URL of the AI model backend (default: "http://breast-cancer-classification:5555")
+- `MODEL_BACKEND_URL`: URL of the AI model backend. The bundled stack sets this per router — e.g. `http://mst-classifier:5556` or `http://medgemma-mri:5557`.
 - `AI_TEXT`: Text to overlay on the SC images (default: "PROCESSED BY AI")
 - `AI_COLOR`: Color for the text overlay (default: "red")
-- `AI_NAME`: Name of the AI model to include in the SR report (default: "Breast Cancer Classification Model")
+- `AI_NAME`: Name of the AI model to include in the SR report (e.g. "MedGemma Vision-Language Model")
 
 ## DICOM Output
 
@@ -26,26 +27,28 @@ The plugin creates two types of DICOM outputs:
 
 1. **Secondary Capture (SC)**: An annotated version of the original image with text overlay
 2. **Structured Report (SR)**: A report containing the model's findings for both left and right sides, including:
-   - Classification (Benign/Malignant)
+   - Classification (the bundled classifiers return `No lesion` / `Benign` / `Malignant`)
    - Confidence scores
    - Model metadata
 
 ## Integration with AI Model Backend
 
-The plugin expects the AI model backend to provide a REST API endpoint at `/analyze/mri` that accepts a POST request with a JSON body containing a `seriesInstanceUID`. The response should be a JSON object with results for both left and right sides, including:
+The plugin expects the AI model backend to provide a REST API endpoint at `/analyze/mri` that accepts a POST request with a JSON body containing a `wado_rs_retrieval` array (each entry has `retrieval_url`, `study_uid`, `series_uid`) plus a `study_uid`. The response is a JSON object with results for both left and right sides, including:
 
 ```json
 {
   "left": {
-    "prediction": "Malignant" or "Benign",
+    "prediction": "Malignant",
     "confidence": 95.7
   },
   "right": {
-    "prediction": "Malignant" or "Benign",
+    "prediction": "No lesion",
     "confidence": 98.2
   }
 }
 ```
+
+See [`docs/usage/adding_custom_models.md`](../../docs/usage/adding_custom_models.md) for the full request/response contract.
 
 ## Usage
 

@@ -11,7 +11,9 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-extend-exclude = ["__pycache__", ".pytest_cache", ".venv", "tests", "sample_data", "screenshots", "*.ipynb"]
+# MLIntegration/*/mediswarm holds vendored MediSwarm upstream code (ODV-214);
+# it is excluded from lint/format so it stays a clean re-sync of upstream.
+extend-exclude = ["__pycache__", ".pytest_cache", ".venv", "tests", "sample_data", "screenshots", "*.ipynb", "MLIntegration/*/mediswarm"]
 
 [tool.ruff.lint]
 # ODV-199 acceptance criteria
@@ -42,6 +44,8 @@ strict = false
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+# Vendored MediSwarm upstream code (ODV-214) is not type-checked.
+exclude = ["MLIntegration/[^/]+/mediswarm/"]
 
 [[tool.mypy.overrides]]
 module = ["viewer.*", "router.*", "MLIntegration.shared.*"]

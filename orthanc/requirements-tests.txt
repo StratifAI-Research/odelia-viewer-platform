@@ -29,3 +29,7 @@ pytorch-lightning==2.6.5
 torchmetrics==1.9.0
 x-transformers==2.19.6
 einops==0.8.2
+# Challenge-model backbones so CI can build+forward the whole roster.
+torchvision==0.27.0
+timm==1.0.15
+dynamic-network-architectures==0.4.4

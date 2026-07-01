@@ -81,20 +81,63 @@ def test_build_model_requires_model_device(monkeypatch):
         build_model("Pimed")
 
 
-def test_build_and_forward_pimed(monkeypatch):
-    """create_model builds a roster model that forwards to [B, 3] (random init).
+# Challenge roster models: (name, dummy input shape, expected state_dict key count).
+# All build init-only with no network access (pretrained backbones disabled).
+# The key count is a regression guard on the preserved module structure.
+_ROSTER = [
+    ("Pimed", (1, 1, 32, 32, 32), 104),
+    ("DivideAndConquer", (1, 1, 64, 64, 64), 450),
+    ("BCN_AIM", (1, 1, 64, 64, 64), 161),
+    ("LME_ABMIL", (1, 3, 16, 224, 224), 179),
+    ("agaldran", (1, 1, 16, 112, 112), 397),
+]
 
-    Pimed (MONAI ResNet wrapper) builds from scratch with no network access.
+
+@pytest.mark.parametrize(("name", "shape", "n_keys"), _ROSTER, ids=[m[0] for m in _ROSTER])
+def test_roster_model_builds_and_forwards(monkeypatch, name, shape, n_keys):
+    """Each challenge roster model builds init-only and forwards to [B, 3].
+
+    Random weights, no network (pretrained backbones off). Asserts the preserved
+    state_dict key count so a structural regression is caught.
     """
     monkeypatch.setenv("MODEL_DEVICE", "cpu")
 
     from model_loader import build_model
 
-    model, info = build_model("Pimed")
-    assert info["model_name"] == "Pimed"
+    model, info = build_model(name)
+    assert info["model_name"] == name
     assert info["weights"] == "init-only"
+    assert len(model.state_dict()) == n_keys
 
-    x = torch.randn(1, 1, 32, 32, 32)
     with torch.no_grad():
-        out = model(x)
+        out = model(torch.randn(*shape))
+    assert out.shape == (1, 3)
+
+
+def test_mst_builds_and_forwards(monkeypatch):
+    """MST wiring (per-slice encode -> transformer fusion -> head) forwards to [B, 3].
+
+    The DINOv2 backbone is mocked so this is network-free and fast; the real
+    DINOv2 integration is exercised by smoke_test.py (and ODV-219).
+    """
+    monkeypatch.setenv("MODEL_DEVICE", "cpu")
+
+    class _FakeDino(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.num_features = 384
+            self.mask_token = torch.nn.Parameter(torch.zeros(1))
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.randn(x.shape[0], self.num_features)
+
+    monkeypatch.setattr(torch.hub, "load", lambda *a, **k: _FakeDino())
+
+    from model_loader import build_model
+
+    model, info = build_model("MST")
+    assert info["model_name"] == "MST"
+
+    with torch.no_grad():
+        out = model(torch.randn(1, 1, 4, 224, 224))
     assert out.shape == (1, 3)

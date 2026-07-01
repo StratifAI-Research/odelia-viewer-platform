@@ -81,21 +81,29 @@ def test_build_model_requires_model_device(monkeypatch):
         build_model("Pimed")
 
 
-# Challenge roster models: (name, dummy input shape, expected state_dict key count).
-# All build init-only with no network access (pretrained backbones disabled).
-# The key count is a regression guard on the preserved module structure.
+# The input every model receives in MediSwarm training/serving: a 1-channel
+# subtraction volume, depth-first [B, C, D, H, W] = (1, 1, 32, 224, 224)
+# (ODELIA_Dataset3D unilateral: CropOrPad (224,224,32) + ImageOrSubjectToTensor's
+# swapaxes(1,-1) -> depth-first). H=W=224 and D=32 are required by the tightest
+# models (ABMIL Swin @224, DINOv2 patch-14, BCN_AIM SwinUNETR depth divisible by
+# 32); every model adapts channels internally (e.g. ABMIL/MST expand 1->3).
+_TRAIN_INPUT = (1, 1, 32, 224, 224)
+
+# Challenge roster: (name, expected state_dict key count) — a structural
+# regression guard. All build init-only with no network (pretrained off).
 _ROSTER = [
-    ("Pimed", (1, 1, 32, 32, 32), 104),
-    ("DivideAndConquer", (1, 1, 64, 64, 64), 450),
-    ("BCN_AIM", (1, 1, 64, 64, 64), 161),
-    ("LME_ABMIL", (1, 3, 16, 224, 224), 179),
-    ("agaldran", (1, 1, 16, 112, 112), 397),
+    ("Pimed", 104),
+    ("DivideAndConquer", 450),
+    ("BCN_AIM", 161),
+    ("LME_ABMIL", 179),
+    ("agaldran", 397),
 ]
 
 
-@pytest.mark.parametrize(("name", "shape", "n_keys"), _ROSTER, ids=[m[0] for m in _ROSTER])
-def test_roster_model_builds_and_forwards(monkeypatch, name, shape, n_keys):
-    """Each challenge roster model builds init-only and forwards to [B, 3].
+@pytest.mark.parametrize(("name", "n_keys"), _ROSTER, ids=[m[0] for m in _ROSTER])
+def test_roster_model_builds_and_forwards(monkeypatch, name, n_keys):
+    """Each challenge roster model builds init-only and forwards the real
+    MediSwarm training input to [B, 3].
 
     Random weights, no network (pretrained backbones off). Asserts the preserved
     state_dict key count so a structural regression is caught.
@@ -110,7 +118,7 @@ def test_roster_model_builds_and_forwards(monkeypatch, name, shape, n_keys):
     assert len(model.state_dict()) == n_keys
 
     with torch.no_grad():
-        out = model(torch.randn(*shape))
+        out = model(torch.randn(*_TRAIN_INPUT))
     assert out.shape == (1, 3)
 
 
@@ -139,5 +147,5 @@ def test_mst_builds_and_forwards(monkeypatch):
     assert info["model_name"] == "MST"
 
     with torch.no_grad():
-        out = model(torch.randn(1, 1, 4, 224, 224))
+        out = model(torch.randn(*_TRAIN_INPUT))
     assert out.shape == (1, 3)

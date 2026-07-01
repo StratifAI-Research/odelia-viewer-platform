@@ -8,11 +8,11 @@ version = "0.1.0"
 description = "Generalized ODELIA model service (build any model by MODEL_NAME)"
 requires-python = ">=3.10"
 # ODV-214: pinned to MediSwarm's validated stack (numpy<2 / monai 1.4 / torch
-# 2.2) because the vendored models under mediswarm/ require it. This service is
+# 2.2) because the reimplemented models under models/ require it. This service is
 # an independent serving container and deliberately uses an OLDER generation
 # than the numpy-2 viewer/orthanc code. Keep in lockstep with requirements.txt.
 dependencies = [
-  # MediSwarm model stack (must match the vendored models)
+  # MediSwarm model stack (required by the models/ package)
   "torch==2.2.2",
   "torchvision==0.17.2",
   "numpy==1.26.4",

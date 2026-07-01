@@ -56,10 +56,10 @@ class TestClassificationResponse:
     def test_argmax_and_passthrough(self):
         from response_builder import build_classification_response
 
-        resp = build_classification_response([0.1, 0.7, 0.2], {"model_name": "ResNet18"})
+        resp = build_classification_response([0.1, 0.7, 0.2], {"model_name": "Pimed"})
         assert resp["predicted_class"] == 1
         assert resp["probabilities"] == [0.1, 0.7, 0.2]
-        assert resp["model_info"]["model_name"] == "ResNet18"
+        assert resp["model_info"]["model_name"] == "Pimed"
 
     def test_empty_probs(self):
         from response_builder import build_classification_response

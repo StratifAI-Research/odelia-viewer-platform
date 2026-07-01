@@ -18,7 +18,7 @@ COPY shared/ ./shared/
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
-# Copy service code (includes the vendored mediswarm/ tree)
+# Copy service code (includes the owned models/ package)
 COPY odelia-classification/ ./odelia-service/
 
 # Install service dependencies

@@ -2,14 +2,14 @@
 # is the canonical install path when an index URL matters. python-pin-check
 # skips `-`-prefixed lines, so the version pins below are still enforced.
 #
-# ODV-214 decision: the vendored MediSwarm models (mediswarm/) are validated
+# ODV-214 decision: the owned models/ package reimplements MediSwarm models and needs
 # against MediSwarm's stack (numpy<2 / monai 1.4 / torch 2.2). This service is
 # an independent serving container and therefore pins that OLDER generation,
 # not the numpy-2 pins used by the viewer/orthanc code. Keep in lockstep with
 # pyproject.toml. Versions below mirror docker_config/Dockerfile_ODELIA.
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-# --- MediSwarm model stack (must match the vendored models) ---
+# --- MediSwarm model stack (required by the models/ package) ---
 torch==2.2.2
 torchvision==0.17.2
 numpy==1.26.4

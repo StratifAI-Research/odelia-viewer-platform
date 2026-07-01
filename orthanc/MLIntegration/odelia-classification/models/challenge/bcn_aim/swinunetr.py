@@ -1201,11 +1201,15 @@ class SwinUNETRMultiTask(nn.Module):
         # Classification head
         # Use output of encoder (swinViT)
         self.classifier_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),  # Pool over patch tokens
+            # ODV-214: upstream used AdaptiveAvgPool2d (2-D) on a 5-D feature map,
+            # pooling only H,W and leaving the depth axis in the flatten, so the
+            # head only forwarded at one input depth. Use 3-D pooling (size-
+            # independent) with Linear(384) = deepest swinViT hidden (feature_size
+            # defaults to 24 -> 24*16 = 384). Reconcile the exact head shape with
+            # the 2BCN_AIM checkpoint in ODV-216.
+            nn.AdaptiveAvgPool3d(1),
             nn.Flatten(),
-            nn.Linear(
-                768, out_cls_classes
-            ),  # ODV-214: was 384 (upstream bug); deepest swinViT hidden = feature_size*16 = 768
+            nn.Linear(384, out_cls_classes),
         )
 
     def forward(self, x):

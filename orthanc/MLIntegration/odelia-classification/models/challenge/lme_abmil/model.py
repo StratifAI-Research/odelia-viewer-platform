@@ -1,11 +1,9 @@
+import timm
 import torch
 import torch.nn as nn
-import timm
-import math
-import numpy as np
-import pandas as pd
 
-from models.base_model import BasicClassifier, ModelWrapper
+from ...base import BasicClassifier, ModelWrapper
+
 
 class CrossModalAttentionABMIL_Swin(nn.Module):
     """
@@ -83,22 +81,23 @@ class CrossModalAttentionABMIL_Swin(nn.Module):
         """
         volume : (B, 32, 3, 224, 224)
         """
-        B, N, C_img, H, W = volume.shape        # C_img = 3 modalities
+        B, N, C_img, H, W = volume.shape  # C_img = 3 modalities
         assert C_img == 3, "Expect channel dim = 3 (pre, post, sub)"
 
         # --------------------------------------------------------
         # 1) Split modalities, flatten, and encode with Swin
         # --------------------------------------------------------
         # Each is (B*N, 1, H, W)
-        def expand3(x): return x.expand(-1, 3, -1, -1)
+        def expand3(x):
+            return x.expand(-1, 3, -1, -1)
 
-        pre  = expand3(volume[:, :, 0, :, :].contiguous().view(B * N, 1, H, W))
+        pre = expand3(volume[:, :, 0, :, :].contiguous().view(B * N, 1, H, W))
         post = expand3(volume[:, :, 1, :, :].contiguous().view(B * N, 1, H, W))
-        sub  = expand3(volume[:, :, 2, :, :].contiguous().view(B * N, 1, H, W))
+        sub = expand3(volume[:, :, 2, :, :].contiguous().view(B * N, 1, H, W))
 
-        feat_pre  = self._encode_slices(pre).view(B, N, -1)   # (B, N, C)
+        feat_pre = self._encode_slices(pre).view(B, N, -1)  # (B, N, C)
         feat_post = self._encode_slices(post).view(B, N, -1)
-        feat_sub  = self._encode_slices(sub).view(B, N, -1)
+        feat_sub = self._encode_slices(sub).view(B, N, -1)
 
         # --------------------------------------------------------
         # 2) Cross‑modal attention fusion (per slice)
@@ -109,25 +108,25 @@ class CrossModalAttentionABMIL_Swin(nn.Module):
 
         # Add modality embeddings
         slice_tokens = slice_tokens + self.mod_embed.transpose(0, 1)  # (B, N, 3, C)
-        slice_tokens = slice_tokens.view(B * N, 3, self.embed_dim)    # (B*N, 3, C)
+        slice_tokens = slice_tokens.view(B * N, 3, self.embed_dim)  # (B*N, 3, C)
 
         # Transformer encoder attends across the 3 tokens
-        fused = self.slice_fuser(slice_tokens)[:, 0]                  # take CLS‑like first token
-        fused = fused.view(B, N, self.embed_dim)                      # (B, 32, C)
+        fused = self.slice_fuser(slice_tokens)[:, 0]  # take CLS‑like first token
+        fused = fused.view(B, N, self.embed_dim)  # (B, 32, C)
 
         # --------------------------------------------------------
         # 3) ABMIL attention over 32 fused slices
         # --------------------------------------------------------
-        A = torch.tanh(self.attn_V(fused))                # (B, N, hidden)
-        A = self.attn_U(A)                                # (B, N, 1)
-        A = torch.softmax(A, dim=1)                       # (B, N, 1)
-        patient_feat = (A * fused).sum(dim=1)             # (B, C)
+        A = torch.tanh(self.attn_V(fused))  # (B, N, hidden)
+        A = self.attn_U(A)  # (B, N, 1)
+        A = torch.softmax(A, dim=1)  # (B, N, 1)
+        patient_feat = (A * fused).sum(dim=1)  # (B, C)
 
         # --------------------------------------------------------
         # 4) Head
         # --------------------------------------------------------
         logits = self.classifier(self.dropout(self.norm(patient_feat)))
-        return logits, A.squeeze(-1)                      # (B, num_classes), (B, 32)
+        return logits, A.squeeze(-1)  # (B, num_classes), (B, 32)
 
 
 class ABMIL_Swin(nn.Module):
@@ -177,9 +176,8 @@ class ABMIL_Swin(nn.Module):
         Returns:
             pooled : (N, C)
         """
-        feats = self.backbone.forward_features(x)                 # (N, H*W, C)
-        pooled = self.backbone.forward_head(feats, pre_logits=True)  # (N, C)
-        return pooled
+        feats = self.backbone.forward_features(x)  # (N, H*W, C)
+        return self.backbone.forward_head(feats, pre_logits=True)  # (N, C)
 
     # ------------------------------------------------------------------ #
     def forward(self, volume: torch.Tensor):
@@ -195,37 +193,36 @@ class ABMIL_Swin(nn.Module):
         if C == 1:
             volume = volume.expand(-1, -1, 3, -1, -1)
             C = 3
-        
-        x = volume.view(B * N, C, H, W)                # flatten slices
-        
+
+        x = volume.view(B * N, C, H, W)  # flatten slices
+
         # (B*N, 3, 224, 224) → (B*N, embed_dim) → reshape
         slice_feats = self._slice_embed(x).view(B, N, -1)  # (B, 32, embed_dim)
 
         # ----------------  ABMIL attention  ---------------- #
-        A = torch.tanh(self.attn_V(slice_feats))            # (B, 32, hidden)
-        A = self.attn_U(A)                                  # (B, 32, 1)
-        A = torch.softmax(A, dim=1)                         # attention weights
+        A = torch.tanh(self.attn_V(slice_feats))  # (B, 32, hidden)
+        A = self.attn_U(A)  # (B, 32, 1)
+        A = torch.softmax(A, dim=1)  # attention weights
 
         # Weighted sum → patient embedding
-        patient_feat = (A * slice_feats).sum(dim=1)         # (B, embed_dim)
+        patient_feat = (A * slice_feats).sum(dim=1)  # (B, embed_dim)
 
         # ----------------  Head  ---------------- #
-        out = self.classifier(self.dropout(self.norm(patient_feat)))  # (B, num_classes)
+        return self.classifier(self.dropout(self.norm(patient_feat)))  # (B, num_classes)
 
-        return out #A.squeeze(-1)  # logits, attention weights
-    
 
-def create_model(model_type = "swin", n_input_channels: int = 3, num_classes: int = 3, loss_kwargs=None) -> BasicClassifier:
-
-    #config = pd.read_csv(config_path, skip_blank_lines=True, na_values=['NaN']).iloc[0]
-    if model_type =="swin_cross":
-        model = CrossModalAttentionABMIL_Swin(num_classes=num_classes)
+def create_model(
+    model_type="swin", n_input_channels: int = 3, num_classes: int = 3, loss_kwargs=None
+) -> BasicClassifier:
+    # config = pd.read_csv(config_path, skip_blank_lines=True, na_values=['NaN']).iloc[0]
+    if model_type == "swin_cross":
+        model = CrossModalAttentionABMIL_Swin(num_classes=num_classes, pretrained=False)
     else:
-        model = ABMIL_Swin(num_classes=num_classes)
+        model = ABMIL_Swin(num_classes=num_classes, pretrained=False)
 
-    wrapped_model = ModelWrapper(
-        backbone=model, in_ch=n_input_channels, num_classes=num_classes,
+    return ModelWrapper(
+        backbone=model,
+        in_ch=n_input_channels,
+        num_classes=num_classes,
         loss_kwargs=loss_kwargs if loss_kwargs is not None else {},
     )
-
-    return wrapped_model

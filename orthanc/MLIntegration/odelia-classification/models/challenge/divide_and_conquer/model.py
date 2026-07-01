@@ -1,8 +1,5 @@
-from typing import List, Tuple, Type, Union
-
 import torch
 import torch.nn as nn
-from models.base_model import BasicClassifier, ModelWrapper
 from dynamic_network_architectures.building_blocks.helper import (
     convert_conv_op_to_dim,
     get_matching_dropout,
@@ -14,6 +11,8 @@ from dynamic_network_architectures.building_blocks.residual_encoders import (
 from dynamic_network_architectures.initialization.weight_init import InitWeights_He
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
+
+from ...base import BasicClassifier
 
 
 class ClassificationHead(nn.Module):
@@ -27,8 +26,7 @@ class ClassificationHead(nn.Module):
     def forward(self, x):
         x = self.avg_pool(x)
         x = torch.flatten(x, 1)
-        x = self.fc(x)
-        return x
+        return self.fc(x)
 
 
 class ResidualEncoderClsNetwork(nn.Module):
@@ -43,24 +41,24 @@ class ResidualEncoderClsNetwork(nn.Module):
         self,
         input_channels: int,
         n_stages: int,
-        features_per_stage: Union[int, List[int], Tuple[int, ...]],
-        conv_op: Type[_ConvNd],
-        kernel_sizes: Union[int, List[int], Tuple[int, ...]],
-        strides: Union[int, List[int], Tuple[int, ...]],
-        n_blocks_per_stage: Union[int, List[int], Tuple[int, ...]],
+        features_per_stage: int | list[int] | tuple[int, ...],
+        conv_op: type[_ConvNd],
+        kernel_sizes: int | list[int] | tuple[int, ...],
+        strides: int | list[int] | tuple[int, ...],
+        n_blocks_per_stage: int | list[int] | tuple[int, ...],
         num_classes: int,
-        n_conv_per_stage_decoder: Union[int, Tuple[int, ...], List[int]],
+        n_conv_per_stage_decoder: int | tuple[int, ...] | list[int],
         conv_bias: bool = False,
-        norm_op: Union[None, Type[nn.Module]] = None,
-        norm_op_kwargs: dict = None,
-        dropout_op: Union[None, Type[_DropoutNd]] = None,
-        dropout_op_kwargs: dict = None,
-        nonlin: Union[None, Type[torch.nn.Module]] = None,
-        nonlin_kwargs: dict = None,
+        norm_op: None | type[nn.Module] = None,
+        norm_op_kwargs: dict | None = None,
+        dropout_op: None | type[_DropoutNd] = None,
+        dropout_op_kwargs: dict | None = None,
+        nonlin: None | type[torch.nn.Module] = None,
+        nonlin_kwargs: dict | None = None,
         deep_supervision: bool = False,
-        block: Union[Type[BasicBlockD]] = BasicBlockD,
-        bottleneck_channels: Union[int, List[int], Tuple[int, ...]] = None,
-        stem_channels: int = None,
+        block: type[BasicBlockD] = BasicBlockD,
+        bottleneck_channels: int | list[int] | tuple[int, ...] | None = None,
+        stem_channels: int | None = None,
         final_layer_dropout: float = 0.0,
         squeeze_excitation: bool = False,
         squeeze_excitation_reduction_ratio: float = 1.0 / 16,
@@ -110,9 +108,9 @@ class ResidualEncoderClsNetwork(nn.Module):
             squeeze_excitation_reduction_ratio=squeeze_excitation_reduction_ratio,
         )
         self.cls_head = ClassificationHead(features_per_stage[-1], num_classes)
-        self.final_layer_dropout = get_matching_dropout(
-            dimension=convert_conv_op_to_dim(conv_op)
-        )(p=final_layer_dropout)
+        self.final_layer_dropout = get_matching_dropout(dimension=convert_conv_op_to_dim(conv_op))(
+            p=final_layer_dropout
+        )
 
     def forward(self, x):
         skips = self.encoder(x)
@@ -143,13 +141,13 @@ class ResidualEncoderClsLightning(BasicClassifier):
         in_ch: int = 1,
         out_ch: int = 2,
         spatial_dims: int = 3,
-        loss_kwargs: dict = {},
+        loss_kwargs: dict | None = None,
         optimizer=torch.optim.AdamW,
-        optimizer_kwargs: dict = {"lr": 1e-4, "weight_decay": 1e-2},
+        optimizer_kwargs: dict | None = None,
         lr_scheduler=None,
-        lr_scheduler_kwargs: dict = {},
-        aucroc_kwargs: dict = {},
-        acc_kwargs: dict = {},
+        lr_scheduler_kwargs: dict | None = None,
+        aucroc_kwargs: dict | None = None,
+        acc_kwargs: dict | None = None,
         save_hyperparameters: bool = True,
         final_layer_dropout: float = 0.0,
     ):
@@ -163,6 +161,16 @@ class ResidualEncoderClsLightning(BasicClassifier):
             final_layer_dropout: Dropout probability before classification head
             Other args: See BasicClassifier documentation
         """
+        if acc_kwargs is None:
+            acc_kwargs = {}
+        if aucroc_kwargs is None:
+            aucroc_kwargs = {}
+        if lr_scheduler_kwargs is None:
+            lr_scheduler_kwargs = {}
+        if optimizer_kwargs is None:
+            optimizer_kwargs = {"lr": 0.0001, "weight_decay": 0.01}
+        if loss_kwargs is None:
+            loss_kwargs = {}
         super().__init__(
             in_ch=in_ch,
             out_ch=out_ch,
@@ -320,11 +328,7 @@ class ResidualEncoderClsLightning(BasicClassifier):
                     return False
 
             # Keep if matches inclusion patterns
-            for pattern in patterns_to_keep:
-                if re.search(pattern, key):
-                    return True
-
-            return False
+            return any(re.search(pattern, key) for pattern in patterns_to_keep)
 
         # Map U-Net keys to classifier keys
         def map_key(unet_key):
@@ -400,14 +404,18 @@ class ResidualEncoderClsLightning(BasicClassifier):
                     f"Loaded encoder weights: {len(filtered_weights)}/{len(pretrained_state_dict)}"
                 )
             return result
-        else:
-            if verbose:
-                print("No matching encoder weights found.")
-            return self
+        if verbose:
+            print("No matching encoder weights found.")
+        return self
 
-def create_model(num_classes: int = 3, n_input_channels = 1, spatial_dims=3, pretrained_path=None, loss_kwargs=None) -> BasicClassifier:
+
+def create_model(
+    num_classes: int = 3, n_input_channels=1, spatial_dims=3, pretrained_path=None, loss_kwargs=None
+) -> BasicClassifier:
     model = ResidualEncoderClsLightning(
-        in_ch=n_input_channels, out_ch=num_classes, spatial_dims=spatial_dims,
+        in_ch=n_input_channels,
+        out_ch=num_classes,
+        spatial_dims=spatial_dims,
         loss_kwargs=loss_kwargs if loss_kwargs is not None else {},
     )
     if pretrained_path:

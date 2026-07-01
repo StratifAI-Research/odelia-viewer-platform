@@ -13,36 +13,34 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from typing import Final
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from torch.nn import LayerNorm
-from typing_extensions import Final
-
 from monai.networks.blocks import MLPBlock as Mlp
 from monai.networks.blocks import PatchEmbed, UnetOutBlock, UnetrBasicBlock, UnetrUpBlock
 from monai.networks.layers import DropPath, trunc_normal_
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
-from monai.utils.deprecate_utils import deprecated_arg
+from torch.nn import LayerNorm
 
-from models.base_model import BasicClassifier, ModelWrapper
+from ...base import BasicClassifier, ModelWrapper
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
 __all__ = [
-    "SwinUNETR",
-    "window_partition",
-    "window_reverse",
-    "WindowAttention",
-    "SwinTransformerBlock",
-    "PatchMerging",
-    "PatchMergingV2",
     "MERGING_MODE",
     "BasicLayer",
+    "PatchMerging",
+    "PatchMergingV2",
     "SwinTransformer",
+    "SwinTransformerBlock",
+    "SwinUNETR",
+    "WindowAttention",
+    "window_partition",
+    "window_reverse",
 ]
 
 
@@ -149,7 +147,9 @@ class SwinUNETR(nn.Module):
             norm_layer=nn.LayerNorm,
             use_checkpoint=use_checkpoint,
             spatial_dims=spatial_dims,
-            downsample=look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample,
+            downsample=look_up_option(downsample, MERGING_MODE)
+            if isinstance(downsample, str)
+            else downsample,
             use_v2=use_v2,
         )
 
@@ -252,12 +252,18 @@ class SwinUNETR(nn.Module):
             res_block=True,
         )
 
-        self.out = UnetOutBlock(spatial_dims=spatial_dims, in_channels=feature_size, out_channels=out_channels)
+        self.out = UnetOutBlock(
+            spatial_dims=spatial_dims, in_channels=feature_size, out_channels=out_channels
+        )
 
     def load_from(self, weights):
         with torch.no_grad():
-            self.swinViT.patch_embed.proj.weight.copy_(weights["state_dict"]["module.patch_embed.proj.weight"])
-            self.swinViT.patch_embed.proj.bias.copy_(weights["state_dict"]["module.patch_embed.proj.bias"])
+            self.swinViT.patch_embed.proj.weight.copy_(
+                weights["state_dict"]["module.patch_embed.proj.weight"]
+            )
+            self.swinViT.patch_embed.proj.bias.copy_(
+                weights["state_dict"]["module.patch_embed.proj.bias"]
+            )
             for bname, block in self.swinViT.layers1[0].blocks.named_children():
                 block.load_from(weights, n_block=bname, layer="layers1")
             self.swinViT.layers1[0].downsample.reduction.weight.copy_(
@@ -356,12 +362,16 @@ def window_partition(x, window_size):
             c,
         )
         windows = (
-            x.permute(0, 1, 3, 5, 2, 4, 6, 7).contiguous().view(-1, window_size[0] * window_size[1] * window_size[2], c)
+            x.permute(0, 1, 3, 5, 2, 4, 6, 7)
+            .contiguous()
+            .view(-1, window_size[0] * window_size[1] * window_size[2], c)
         )
     else:  # if len(x_shape) == 4:
         b, h, w, c = x.shape
         x = x.view(b, h // window_size[0], window_size[0], w // window_size[1], window_size[1], c)
-        windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size[0] * window_size[1], c)
+        windows = (
+            x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size[0] * window_size[1], c)
+        )
 
     return windows
 
@@ -393,7 +403,9 @@ def window_reverse(windows, window_size, dims):
 
     elif len(dims) == 3:
         b, h, w = dims
-        x = windows.view(b, h // window_size[0], w // window_size[1], window_size[0], window_size[1], -1)
+        x = windows.view(
+            b, h // window_size[0], w // window_size[1], window_size[0], window_size[1], -1
+        )
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(b, h, w, -1)
     return x
 
@@ -421,8 +433,7 @@ def get_window_size(x_size, window_size, shift_size=None):
 
     if shift_size is None:
         return tuple(use_window_size)
-    else:
-        return tuple(use_window_size), tuple(use_shift_size)
+    return tuple(use_window_size), tuple(use_shift_size)
 
 
 class WindowAttention(nn.Module):
@@ -463,7 +474,9 @@ class WindowAttention(nn.Module):
         if len(self.window_size) == 3:
             self.relative_position_bias_table = nn.Parameter(
                 torch.zeros(
-                    (2 * self.window_size[0] - 1) * (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1),
+                    (2 * self.window_size[0] - 1)
+                    * (2 * self.window_size[1] - 1)
+                    * (2 * self.window_size[2] - 1),
                     num_heads,
                 )
             )
@@ -480,7 +493,9 @@ class WindowAttention(nn.Module):
             relative_coords[:, :, 0] += self.window_size[0] - 1
             relative_coords[:, :, 1] += self.window_size[1] - 1
             relative_coords[:, :, 2] += self.window_size[2] - 1
-            relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
+            relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (
+                2 * self.window_size[2] - 1
+            )
             relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
         elif len(self.window_size) == 2:
             self.relative_position_bias_table = nn.Parameter(
@@ -510,7 +525,9 @@ class WindowAttention(nn.Module):
 
     def forward(self, x, mask):
         b, n, c = x.shape
-        qkv = self.qkv(x).reshape(b, n, 3, self.num_heads, c // self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = (
+            self.qkv(x).reshape(b, n, 3, self.num_heads, c // self.num_heads).permute(2, 0, 3, 1, 4)
+        )
         q, k, v = qkv[0], qkv[1], qkv[2]
         q = q * self.scale
         attn = q @ k.transpose(-2, -1)
@@ -530,8 +547,7 @@ class WindowAttention(nn.Module):
         attn = self.attn_drop(attn).to(v.dtype)
         x = (attn @ v).transpose(1, 2).reshape(b, n, c)
         x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
+        return self.proj_drop(x)
 
 
 class SwinTransformerBlock(nn.Module):
@@ -593,7 +609,13 @@ class SwinTransformerBlock(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(hidden_size=dim, mlp_dim=mlp_hidden_dim, act=act_layer, dropout_rate=drop, dropout_mode="swin")
+        self.mlp = Mlp(
+            hidden_size=dim,
+            mlp_dim=mlp_hidden_dim,
+            act=act_layer,
+            dropout_rate=drop,
+            dropout_mode="swin",
+        )
 
     def forward_part1(self, x, mask_matrix):
         x_shape = x.size()
@@ -621,7 +643,9 @@ class SwinTransformerBlock(nn.Module):
 
         if any(i > 0 for i in shift_size):
             if len(x_shape) == 5:
-                shifted_x = torch.roll(x, shifts=(-shift_size[0], -shift_size[1], -shift_size[2]), dims=(1, 2, 3))
+                shifted_x = torch.roll(
+                    x, shifts=(-shift_size[0], -shift_size[1], -shift_size[2]), dims=(1, 2, 3)
+                )
             elif len(x_shape) == 4:
                 shifted_x = torch.roll(x, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
             attn_mask = mask_matrix
@@ -630,11 +654,13 @@ class SwinTransformerBlock(nn.Module):
             attn_mask = None
         x_windows = window_partition(shifted_x, window_size)
         attn_windows = self.attn(x_windows, mask=attn_mask)
-        attn_windows = attn_windows.view(-1, *(window_size + (c,)))
+        attn_windows = attn_windows.view(-1, *((*window_size, c)))
         shifted_x = window_reverse(attn_windows, window_size, dims)
         if any(i > 0 for i in shift_size):
             if len(x_shape) == 5:
-                x = torch.roll(shifted_x, shifts=(shift_size[0], shift_size[1], shift_size[2]), dims=(1, 2, 3))
+                x = torch.roll(
+                    shifted_x, shifts=(shift_size[0], shift_size[1], shift_size[2]), dims=(1, 2, 3)
+                )
             elif len(x_shape) == 4:
                 x = torch.roll(shifted_x, shifts=(shift_size[0], shift_size[1]), dims=(1, 2))
         else:
@@ -643,9 +669,8 @@ class SwinTransformerBlock(nn.Module):
         if len(x_shape) == 5:
             if pad_d1 > 0 or pad_r > 0 or pad_b > 0:
                 x = x[:, :d, :h, :w, :].contiguous()
-        elif len(x_shape) == 4:
-            if pad_r > 0 or pad_b > 0:
-                x = x[:, :h, :w, :].contiguous()
+        elif len(x_shape) == 4 and (pad_r > 0 or pad_b > 0):
+            x = x[:, :h, :w, :].contiguous()
 
         return x
 
@@ -673,7 +698,9 @@ class SwinTransformerBlock(nn.Module):
         with torch.no_grad():
             self.norm1.weight.copy_(weights["state_dict"][root + block_names[0]])
             self.norm1.bias.copy_(weights["state_dict"][root + block_names[1]])
-            self.attn.relative_position_bias_table.copy_(weights["state_dict"][root + block_names[2]])
+            self.attn.relative_position_bias_table.copy_(
+                weights["state_dict"][root + block_names[2]]
+            )
             self.attn.relative_position_index.copy_(weights["state_dict"][root + block_names[3]])
             self.attn.qkv.weight.copy_(weights["state_dict"][root + block_names[4]])
             self.attn.qkv.bias.copy_(weights["state_dict"][root + block_names[5]])
@@ -708,7 +735,9 @@ class PatchMergingV2(nn.Module):
     https://github.com/microsoft/Swin-Transformer
     """
 
-    def __init__(self, dim: int, norm_layer: type[LayerNorm] = nn.LayerNorm, spatial_dims: int = 3) -> None:
+    def __init__(
+        self, dim: int, norm_layer: type[LayerNorm] = nn.LayerNorm, spatial_dims: int = 3
+    ) -> None:
         """
         Args:
             dim: number of feature channels.
@@ -733,7 +762,11 @@ class PatchMergingV2(nn.Module):
             if pad_input:
                 x = F.pad(x, (0, 0, 0, w % 2, 0, h % 2, 0, d % 2))
             x = torch.cat(
-                [x[:, i::2, j::2, k::2, :] for i, j, k in itertools.product(range(2), range(2), range(2))], -1
+                [
+                    x[:, i::2, j::2, k::2, :]
+                    for i, j, k in itertools.product(range(2), range(2), range(2))
+                ],
+                -1,
             )
 
         elif len(x_shape) == 4:
@@ -741,11 +774,12 @@ class PatchMergingV2(nn.Module):
             pad_input = (h % 2 == 1) or (w % 2 == 1)
             if pad_input:
                 x = F.pad(x, (0, 0, 0, w % 2, 0, h % 2))
-            x = torch.cat([x[:, j::2, i::2, :] for i, j in itertools.product(range(2), range(2))], -1)
+            x = torch.cat(
+                [x[:, j::2, i::2, :] for i, j in itertools.product(range(2), range(2))], -1
+            )
 
         x = self.norm(x)
-        x = self.reduction(x)
-        return x
+        return self.reduction(x)
 
 
 class PatchMerging(PatchMergingV2):
@@ -771,8 +805,7 @@ class PatchMerging(PatchMergingV2):
         x7 = x[:, 1::2, 1::2, 1::2, :]
         x = torch.cat([x0, x1, x2, x3, x4, x5, x6, x7], -1)
         x = self.norm(x)
-        x = self.reduction(x)
-        return x
+        return self.reduction(x)
 
 
 MERGING_MODE = {"merging": PatchMerging, "mergingv2": PatchMergingV2}
@@ -796,26 +829,44 @@ def compute_mask(dims, window_size, shift_size, device):
     if len(dims) == 3:
         d, h, w = dims
         img_mask = torch.zeros((1, d, h, w, 1), device=device)
-        for d in slice(-window_size[0]), slice(-window_size[0], -shift_size[0]), slice(-shift_size[0], None):
-            for h in slice(-window_size[1]), slice(-window_size[1], -shift_size[1]), slice(-shift_size[1], None):
-                for w in slice(-window_size[2]), slice(-window_size[2], -shift_size[2]), slice(-shift_size[2], None):
+        for d in (
+            slice(-window_size[0]),
+            slice(-window_size[0], -shift_size[0]),
+            slice(-shift_size[0], None),
+        ):
+            for h in (
+                slice(-window_size[1]),
+                slice(-window_size[1], -shift_size[1]),
+                slice(-shift_size[1], None),
+            ):
+                for w in (
+                    slice(-window_size[2]),
+                    slice(-window_size[2], -shift_size[2]),
+                    slice(-shift_size[2], None),
+                ):
                     img_mask[:, d, h, w, :] = cnt
                     cnt += 1
 
     elif len(dims) == 2:
         h, w = dims
         img_mask = torch.zeros((1, h, w, 1), device=device)
-        for h in slice(-window_size[0]), slice(-window_size[0], -shift_size[0]), slice(-shift_size[0], None):
-            for w in slice(-window_size[1]), slice(-window_size[1], -shift_size[1]), slice(-shift_size[1], None):
+        for h in (
+            slice(-window_size[0]),
+            slice(-window_size[0], -shift_size[0]),
+            slice(-shift_size[0], None),
+        ):
+            for w in (
+                slice(-window_size[1]),
+                slice(-window_size[1], -shift_size[1]),
+                slice(-shift_size[1], None),
+            ):
                 img_mask[:, h, w, :] = cnt
                 cnt += 1
 
     mask_windows = window_partition(img_mask, window_size)
     mask_windows = mask_windows.squeeze(-1)
     attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-    attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
-
-    return attn_mask
+    return attn_mask.masked_fill(attn_mask != 0, -100.0).masked_fill(attn_mask == 0, 0.0)
 
 
 class BasicLayer(nn.Module):
@@ -883,7 +934,9 @@ class BasicLayer(nn.Module):
         )
         self.downsample = downsample
         if callable(self.downsample):
-            self.downsample = downsample(dim=dim, norm_layer=norm_layer, spatial_dims=len(self.window_size))
+            self.downsample = downsample(
+                dim=dim, norm_layer=norm_layer, spatial_dims=len(self.window_size)
+            )
 
     def forward(self, x):
         x_shape = x.size()
@@ -994,7 +1047,9 @@ class SwinTransformer(nn.Module):
             self.layers2c = nn.ModuleList()
             self.layers3c = nn.ModuleList()
             self.layers4c = nn.ModuleList()
-        down_sample_mod = look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample
+        down_sample_mod = (
+            look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample
+        )
         for i_layer in range(self.num_layers):
             layer = BasicLayer(
                 dim=int(embed_dim * 2**i_layer),
@@ -1122,18 +1177,25 @@ def filter_swinunetr(key, value):
             new_key = "swinViT." + key[8:18] + key[20:]
 
         return new_key, value
-    else:
-        return None
+    return None
+
 
 class SwinUNETRMultiTask(nn.Module):
-    def __init__(self, img_size, in_channels, out_seg_channels, out_cls_classes, spatial_dims, feature_size=48):
+    def __init__(
+        self,
+        img_size,
+        in_channels,
+        out_seg_channels,
+        out_cls_classes,
+        spatial_dims,
+        feature_size=48,
+    ):
         super().__init__()
         self.swin_unetr = SwinUNETR(
             img_size=img_size,
             in_channels=in_channels,
             out_channels=out_seg_channels,
             spatial_dims=spatial_dims,
-            
         )
 
         # Classification head
@@ -1141,19 +1203,29 @@ class SwinUNETRMultiTask(nn.Module):
         self.classifier_head = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Pool over patch tokens
             nn.Flatten(),
-            nn.Linear(384, out_cls_classes)  # 768 depends on config
+            nn.Linear(
+                768, out_cls_classes
+            ),  # ODV-214: was 384 (upstream bug); deepest swinViT hidden = feature_size*16 = 768
         )
-    
+
     def forward(self, x):
         seg_output, hidden_states = self.swin_unetr(x)  # [B, num_classes, H, W]
-        cls_output = self.classifier_head(hidden_states)  # [B, num_classes]
-        return cls_output # seg_output, cls_output, hidden_states
-    
+        return self.classifier_head(hidden_states)  # [B, num_classes]
 
-def create_model(img_size: int, num_classes: int = 3, n_input_channels = 1, spatial_dims=3, loss_kwargs=None) -> BasicClassifier:
-    model = SwinUNETRMultiTask(img_size=img_size, in_channels=n_input_channels, out_seg_channels=2, out_cls_classes=num_classes, spatial_dims=spatial_dims)
-    wrapped_model = ModelWrapper(
-        backbone=model, in_ch=n_input_channels, num_classes=num_classes,
+
+def create_model(
+    img_size: int, num_classes: int = 3, n_input_channels=1, spatial_dims=3, loss_kwargs=None
+) -> BasicClassifier:
+    model = SwinUNETRMultiTask(
+        img_size=img_size,
+        in_channels=n_input_channels,
+        out_seg_channels=2,
+        out_cls_classes=num_classes,
+        spatial_dims=spatial_dims,
+    )
+    return ModelWrapper(
+        backbone=model,
+        in_ch=n_input_channels,
+        num_classes=num_classes,
         loss_kwargs=loss_kwargs if loss_kwargs is not None else {},
     )
-    return wrapped_model

@@ -1,40 +1,44 @@
 import argparse
-import os, sys
 import math
+import os
 import random
 import time
-import contextlib
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#from pytorchvideo.models.hub import i3d_r50, slowfast_r50#, r2plus1d_18
-from torchvision.models.video import r3d_18, r2plus1d_18, s3d, mc3_18
-#from pytorchvideo.models.hub import slowfast_r101
-from torchvision.models.video import swin3d_t          # tiny / patch=(2,4,4)
-from torchvision.models.video import swin3d_b
-from torchvision.models.video import swin3d_s
-from torchvision.models.video import mvit_v1_b, mvit_v2_s
-#from pytorchvideo.models.hub import x3d_s
 
+# from pytorchvideo.models.hub import i3d_r50, slowfast_r50#, r2plus1d_18
+# from pytorchvideo.models.hub import slowfast_r101
+from torchvision.models.video import (
+    mc3_18,
+    mvit_v1_b,
+    mvit_v2_s,
+    r2plus1d_18,
+    r3d_18,
+    s3d,
+    swin3d_b,
+    swin3d_s,
+    swin3d_t,  # tiny / patch=(2,4,4)
+)
+
+# from pytorchvideo.models.hub import x3d_s
 # utils/model_factory.py  (add near the other loaders)
-#from pytorchvideo.models.hub import x3d_s
-import torch, torch.nn as nn, torch.nn.functional as F
-import os, math
+# from pytorchvideo.models.hub import x3d_s
+from ...base import BasicClassifier, ModelWrapper
 
-from models.base_model import BasicClassifier, ModelWrapper
 
 def bn_to_in(module):
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm3d):
-            inorm = nn.InstanceNorm3d(child.num_features,
-                                       affine=True,
-                                       track_running_stats=False)
+            inorm = nn.InstanceNorm3d(child.num_features, affine=True, track_running_stats=False)
             inorm.weight.data.copy_(child.weight.data)
             inorm.bias.data.copy_(child.bias.data)
             setattr(module, name, inorm)
         else:
             bn_to_in(child)
+
 
 # def load_x3d_s(
 #     pretrained_path: str | None = "mvit_v2_s-ae3be167",   # folder OR .pth/.pt/.ckpt file
@@ -160,12 +164,15 @@ def bn_to_in(module):
 #     print(f"✓ temporal blur 64→{target_frames} & spatial ↑ to {target_hw}²")
 #    return X3DWrapper(core, new_fc)
 
-def load_mvit_v1_b(pretrained_path: str | None = None,
-                   num_classes:    int = 3,
-                   in_ch:          int = 3,     # Pre, Sub1, T2
-                   target_frames:  int = 16,
-                   target_hw:      int = 224,
-                   temporal_kernel:int = 5) -> nn.Module:
+
+def load_mvit_v1_b(
+    pretrained_path: str | None = None,
+    num_classes: int = 3,
+    in_ch: int = 3,  # Pre, Sub1, T2
+    target_frames: int = 16,
+    target_hw: int = 224,
+    temporal_kernel: int = 5,
+) -> nn.Module:
     """
     Offline-safe MViT-v1-B wrapper that digests `in_ch` channels and adds
     a learned 1-D blur to compress the slice/time axis.
@@ -178,51 +185,54 @@ def load_mvit_v1_b(pretrained_path: str | None = None,
     """
 
     # ───────────────────────── 1) backbone skeleton ───────────────────────
-    core = mvit_v1_b(weights=None)         # never auto-downloads
+    core = mvit_v1_b(weights=None)  # never auto-downloads
 
     # ───────────────────────── 2) optional checkpoint ─────────────────────
     if pretrained_path:
         print(f"🚀 loading MViT-B weights from {pretrained_path}")
         ck = pretrained_path
         if os.path.isdir(pretrained_path):
-            cand = [f for f in os.listdir(pretrained_path)
-                    if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))]
+            cand = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ]
             if not cand:
                 raise FileNotFoundError("no ckpt in " + pretrained_path)
             if len(cand) > 1:
                 print("⚠️  multiple files – using", cand[0])
             ck = os.path.join(pretrained_path, cand[0])
-        core.load_state_dict(torch.load(ck, map_location="cpu"),
-                             strict=False)
+        core.load_state_dict(torch.load(ck, map_location="cpu"), strict=False)
     else:
         print("⚙️  model initialised without pretrained weights")
 
     # ───────────────────────── 3) patch conv_proj for in_ch ───────────────
-    proj = core.conv_proj                       # Conv3d(3,128,3,7,7)
+    proj = core.conv_proj  # Conv3d(3,128,3,7,7)
     if in_ch != proj.in_channels:
-        w = proj.weight                         # (128,3,3,7,7)
-        if in_ch == 1:                          # RGB → mono
+        w = proj.weight  # (128,3,3,7,7)
+        if in_ch == 1:  # RGB → mono
             new_w = w.mean(1, keepdim=True)
-        elif in_ch > 3:                         # replicate & scale
+        elif in_ch > 3:  # replicate & scale
             reps = (in_ch + 2) // 3
             new_w = w.repeat(1, reps, 1, 1, 1)[:, :in_ch]
             new_w *= 3.0 / in_ch
-        else:                                   # 2-channel
+        else:  # 2-channel
             new_w = w[:, :in_ch]
 
         new_proj = nn.Conv3d(
-            in_ch, proj.out_channels,
+            in_ch,
+            proj.out_channels,
             kernel_size=proj.kernel_size,
             stride=proj.stride,
             padding=proj.padding,
-            bias=False
+            bias=False,
         )
         new_proj.weight = nn.Parameter(new_w.clone())
         core.conv_proj = new_proj
         print(f"✓ patched conv_proj → {in_ch}-channel")
 
     # ───────────────────────── 4) replace classifier head ──────────────────
-    emb_dim = core.head[1].in_features         # 1024 for v1-B
+    emb_dim = core.head[1].in_features  # 1024 for v1-B
     core.head[1] = nn.Linear(emb_dim, num_classes)
 
     # ───────────────────────── 5) wrapper with temporal blur ───────────────
@@ -232,44 +242,49 @@ def load_mvit_v1_b(pretrained_path: str | None = None,
             stride_t = math.ceil(64 / target_frames)
             # depth-wise 1×1×k blur per channel
             self.reduce = nn.Conv3d(
-                in_ch, in_ch,
+                in_ch,
+                in_ch,
                 kernel_size=(temporal_kernel, 1, 1),
                 stride=(stride_t, 1, 1),
                 padding=(temporal_kernel // 2, 0, 0),
                 groups=in_ch,
-                bias=False)
+                bias=False,
+            )
             # sinc-Hann init (same kernel for every channel)
             with torch.no_grad():
                 t = torch.arange(temporal_kernel) - (temporal_kernel - 1) / 2
                 window = 0.54 - 0.46 * torch.cos(
-                    2 * math.pi * (t + (temporal_kernel - 1) / 2)
-                    / (temporal_kernel - 1))
-                sinc = torch.where(t == 0, torch.tensor(1.),
-                                   torch.sin(math.pi * t) / (math.pi * t))
+                    2 * math.pi * (t + (temporal_kernel - 1) / 2) / (temporal_kernel - 1)
+                )
+                sinc = torch.where(
+                    t == 0, torch.tensor(1.0), torch.sin(math.pi * t) / (math.pi * t)
+                )
                 k = (sinc * window).view(1, 1, temporal_kernel, 1, 1)
                 k = k.repeat(in_ch, 1, 1, 1, 1)
                 k /= k.sum()
                 self.reduce.weight.copy_(k)
 
-            self.up = nn.Upsample(size=(target_frames,
-                                        target_hw, target_hw),
-                                   mode="trilinear",
-                                   align_corners=False)
+            self.up = nn.Upsample(
+                size=(target_frames, target_hw, target_hw), mode="trilinear", align_corners=False
+            )
             self.core = backbone
 
-        def forward(self, x):                # x: B×in_ch×64×128×128
-            x = self.reduce(x)               #          ↓
-            x = self.up(x)                   # B×in_ch×16×224×224
-            return self.core(x)              # logits
+        def forward(self, x):  # x: B×in_ch×64×128×128
+            x = self.reduce(x)  #          ↓
+            x = self.up(x)  # B×in_ch×16×224×224
+            return self.core(x)  # logits
 
     print(f"✓ temporal blur 64→{target_frames} & spatial ↑ to {target_hw}²")
     return MVIT_B_Wrapper(core)
 
-def load_mvit_v2_s(pretrained_path: str | None = None,
-                   num_classes:    int = 3,
-                   in_ch:          int = 3,      # Pre, Sub1, T2
-                   target_frames:  int = 16,
-                   target_hw:      int = 224) -> nn.Module:
+
+def load_mvit_v2_s(
+    pretrained_path: str | None = None,
+    num_classes: int = 3,
+    in_ch: int = 3,  # Pre, Sub1, T2
+    target_frames: int = 16,
+    target_hw: int = 224,
+) -> nn.Module:
     """
     Offline-safe MViT-V2-S wrapper with
       • channel-agnostic stem (in_ch = 1, 3, …)
@@ -279,12 +294,22 @@ def load_mvit_v2_s(pretrained_path: str | None = None,
     """
 
     # -------- 1) backbone skeleton ---------------------------------------
-    core = mvit_v2_s(weights=None)          # never auto-downloads
+    core = mvit_v2_s(weights=None)  # never auto-downloads
 
     # -------- 2) optional checkpoint -------------------------------------
     if pretrained_path:
-        ckpt = (pretrained_path if os.path.isfile(pretrained_path)
-                else os.path.join(pretrained_path, next(f for f in os.listdir(pretrained_path) if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth")))))
+        ckpt = (
+            pretrained_path
+            if os.path.isfile(pretrained_path)
+            else os.path.join(
+                pretrained_path,
+                next(
+                    f
+                    for f in os.listdir(pretrained_path)
+                    if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+                ),
+            )
+        )
         print("🚀 loading MViT-V2 weights from", ckpt)
         state = torch.load(ckpt, map_location="cpu")
         core.load_state_dict(state, strict=False)
@@ -292,24 +317,25 @@ def load_mvit_v2_s(pretrained_path: str | None = None,
         print("⚙️  model initialised without pretrained weights")
 
     # -------- 3) patch conv_proj for in_ch --------------------------------
-    proj = core.conv_proj                       # (96,3,3,7,7)
+    proj = core.conv_proj  # (96,3,3,7,7)
     if in_ch != proj.in_channels:
-        w = proj.weight                         # rgb weights
-        if in_ch == 1:                          # RGB → mono
+        w = proj.weight  # rgb weights
+        if in_ch == 1:  # RGB → mono
             new_w = w.mean(1, keepdim=True)
-        elif in_ch > 3:                         # replicate & scale
+        elif in_ch > 3:  # replicate & scale
             reps = (in_ch + 2) // 3
             new_w = w.repeat(1, reps, 1, 1, 1)[:, :in_ch]
             new_w *= 3.0 / in_ch
-        else:                                   # 2-channel
+        else:  # 2-channel
             new_w = w[:, :in_ch]
 
         new_proj = nn.Conv3d(
-            in_ch, proj.out_channels,
+            in_ch,
+            proj.out_channels,
             kernel_size=proj.kernel_size,
             stride=proj.stride,
             padding=proj.padding,
-            bias=False
+            bias=False,
         )
         new_proj.weight = nn.Parameter(new_w.clone())
         core.conv_proj = new_proj
@@ -325,97 +351,109 @@ def load_mvit_v2_s(pretrained_path: str | None = None,
             super().__init__()
             stride_t = math.ceil(64 / target_frames)
             self.reduce = nn.Conv3d(
-                in_ch, in_ch,
+                in_ch,
+                in_ch,
                 kernel_size=(5, 1, 1),
                 stride=(stride_t, 1, 1),
                 padding=(2, 0, 0),
                 groups=in_ch,
-                bias=False
+                bias=False,
             )
             # blur kernel [1 2 4 2 1] / 10 replicated per channel
             with torch.no_grad():
-                k = torch.tensor([1, 2, 4, 2, 1],
-                                 dtype=torch.float32) / 10.0
+                k = torch.tensor([1, 2, 4, 2, 1], dtype=torch.float32) / 10.0
                 k = k.view(1, 1, 5, 1, 1).repeat(in_ch, 1, 1, 1, 1)
                 self.reduce.weight.copy_(k)
             self.core = backbone
 
-        def forward(self, x):                # B×C×64×128×128
-            x = self.reduce(x)               # B×C×16×128×128
+        def forward(self, x):  # B×C×64×128×128
+            x = self.reduce(x)  # B×C×16×128×128
             x = F.interpolate(
-                x, size=(target_frames, target_hw, target_hw),
-                mode="trilinear", align_corners=False)
-            return self.core(x)              # logits
+                x, size=(target_frames, target_hw, target_hw), mode="trilinear", align_corners=False
+            )
+            return self.core(x)  # logits
 
     print(f"✓ temporal blur 64→{target_frames} & spatial ↑ → {target_hw}²")
     return Wrapper(core)
 
-def load_swin3d_s(pretrained_path: str | None = None,
-                  num_classes: int = 2) -> nn.Module:
+
+def load_swin3d_s(pretrained_path: str | None = None, num_classes: int = 2) -> nn.Module:
     model = swin3d_s(weights=None)
 
     # --- checkpoint first -----------
     if pretrained_path:
         print("🚀 Loading pretrained weights from:", pretrained_path)
-        ckpt = (next((os.path.join(pretrained_path, f)
-                      for f in os.listdir(pretrained_path)
-                      if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))),
-                      pretrained_path))
-        model.load_state_dict(torch.load(ckpt, map_location="cpu"),
-                              strict=False)
+        ckpt = next(
+            (
+                os.path.join(pretrained_path, f)
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ),
+            pretrained_path,
+        )
+        model.load_state_dict(torch.load(ckpt, map_location="cpu"), strict=False)
     else:
         print("⚙️  Model initialised without pretrained weights.")
 
     # --- RGB → grayscale ------------
     proj, w = model.patch_embed.proj, model.patch_embed.proj.weight
-    new_proj = nn.Conv3d(1, proj.out_channels,
-                         kernel_size=proj.kernel_size,
-                         stride=proj.stride,
-                         padding=proj.padding,
-                         bias=False)
+    new_proj = nn.Conv3d(
+        1,
+        proj.out_channels,
+        kernel_size=proj.kernel_size,
+        stride=proj.stride,
+        padding=proj.padding,
+        bias=False,
+    )
     new_proj.weight = nn.Parameter(w.mean(1, keepdim=True))
     model.patch_embed.proj = new_proj
 
     # --- fresh classifier head ------
-    embed_dim = model.head.in_features   # 1024 for Small
+    embed_dim = model.head.in_features  # 1024 for Small
     model.head = nn.Linear(embed_dim, num_classes)
 
     return model
 
-def load_swin3d_b(pretrained_path: str | None = None,
-                  num_classes: int = 2) -> nn.Module:
+
+def load_swin3d_b(pretrained_path: str | None = None, num_classes: int = 2) -> nn.Module:
     model = swin3d_b(weights=None)
 
     # checkpoint (same logic as above)
     if pretrained_path:
         print("🚀 Loading pretrained weights from:", pretrained_path)
-        ckpt = (next((os.path.join(pretrained_path, f)
-                      for f in os.listdir(pretrained_path)
-                      if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))),
-                      pretrained_path))
-        model.load_state_dict(torch.load(ckpt, map_location="cpu"),
-                              strict=False)
+        ckpt = next(
+            (
+                os.path.join(pretrained_path, f)
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ),
+            pretrained_path,
+        )
+        model.load_state_dict(torch.load(ckpt, map_location="cpu"), strict=False)
     else:
         print("⚙️  Model initialised without pretrained weights.")
 
     # RGB → 1-channel
     proj, w = model.patch_embed.proj, model.patch_embed.proj.weight
-    new_proj = nn.Conv3d(1, proj.out_channels,
-                         kernel_size=proj.kernel_size,
-                         stride=proj.stride,
-                         padding=proj.padding,
-                         bias=False)
+    new_proj = nn.Conv3d(
+        1,
+        proj.out_channels,
+        kernel_size=proj.kernel_size,
+        stride=proj.stride,
+        padding=proj.padding,
+        bias=False,
+    )
     new_proj.weight = nn.Parameter(w.mean(1, keepdim=True))
     model.patch_embed.proj = new_proj
 
     # new head
-    embed_dim = model.head.in_features   # 1280 for Base
+    embed_dim = model.head.in_features  # 1280 for Base
     model.head = nn.Linear(embed_dim, num_classes)
 
     return model
 
-def load_swin3d_t(pretrained_path: str | None = None,
-                  num_classes: int = 2) -> nn.Module:
+
+def load_swin3d_t(pretrained_path: str | None = None, num_classes: int = 2) -> nn.Module:
     """
     Swin-3D Tiny adapted to 1-channel CT cubes + new classifier head.
     """
@@ -427,8 +465,11 @@ def load_swin3d_t(pretrained_path: str | None = None,
         print("🚀 Loading pretrained weights from:", pretrained_path)
         ckpt = pretrained_path
         if os.path.isdir(pretrained_path):
-            files = [f for f in os.listdir(pretrained_path)
-                     if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))]
+            files = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ]
             if not files:
                 raise FileNotFoundError(f"No ckpt in {pretrained_path}")
             if len(files) > 1:
@@ -440,28 +481,30 @@ def load_swin3d_t(pretrained_path: str | None = None,
         print("⚙️  Model initialised without pretrained weights.")
 
     # 3️⃣ collapse patch-embedding conv (RGB → 1-channel)
-    proj   = model.patch_embed.proj                  # Conv3d(3,dim,2,4,4)
-    w_rgb  = proj.weight                             # (C_out, 3, 2, 4, 4)
-    w_gray = w_rgb.mean(1, keepdim=True)             # (C_out, 1, 2, 4, 4)
+    proj = model.patch_embed.proj  # Conv3d(3,dim,2,4,4)
+    w_rgb = proj.weight  # (C_out, 3, 2, 4, 4)
+    w_gray = w_rgb.mean(1, keepdim=True)  # (C_out, 1, 2, 4, 4)
     new_proj = nn.Conv3d(
-        1, proj.out_channels,
+        1,
+        proj.out_channels,
         kernel_size=proj.kernel_size,
         stride=proj.stride,
         padding=proj.padding,
-        bias=False
+        bias=False,
     )
     new_proj.weight = nn.Parameter(w_gray)
     model.patch_embed.proj = new_proj
 
     # 4️⃣ replace the classification head (token mean is inside forward)
-    embed_dim   = model.head.in_features             # 768
-    model.head  = nn.Linear(embed_dim, num_classes)
+    embed_dim = model.head.in_features  # 768
+    model.head = nn.Linear(embed_dim, num_classes)
 
     return model
 
-def load_mc3_18(pretrained_path: str | None = None,
-                num_classes:    int = 3,
-                in_ch:          int = 3) -> nn.Module:
+
+def load_mc3_18(
+    pretrained_path: str | None = None, num_classes: int = 3, in_ch: int = 3
+) -> nn.Module:
     """
     Build an MC3-18 backbone that works offline and ingests `in_ch` channels.
 
@@ -484,14 +527,14 @@ def load_mc3_18(pretrained_path: str | None = None,
         w = conv.weight  # shape (64, old_in, 3, 7, 7)
 
         if in_channels == conv.in_channels:
-            return conv                       # nothing to change
-        elif in_channels == 1:                # RGB→mono (average)
+            return conv  # nothing to change
+        if in_channels == 1:  # RGB→mono (average)
             new_w = w.mean(dim=1, keepdim=True)
         elif in_channels > conv.in_channels:  # replicate & scale
-            reps = (in_channels + 2) // 3     # ceil
+            reps = (in_channels + 2) // 3  # ceil
             new_w = w.repeat(1, reps, 1, 1, 1)[:, :in_channels]
             new_w *= conv.in_channels / in_channels
-        else:                                 # 2-channel or fewer
+        else:  # 2-channel or fewer
             new_w = w[:, :in_channels]
 
         new_conv = nn.Conv3d(
@@ -512,8 +555,11 @@ def load_mc3_18(pretrained_path: str | None = None,
         print("🚀 Loading pretrained weights from:", pretrained_path)
         ckpt = pretrained_path
         if os.path.isdir(pretrained_path):
-            picks = [f for f in os.listdir(pretrained_path)
-                     if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))]
+            picks = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ]
             if not picks:
                 raise FileNotFoundError(f"No ckpt in {pretrained_path}")
             if len(picks) > 1:
@@ -523,11 +569,9 @@ def load_mc3_18(pretrained_path: str | None = None,
         model.load_state_dict(state, strict=False)
     else:
         print("⚙️  Model initialised without pretrained weights.")
-    
-    
+
     # convert to instance3d norm
     bn_to_in(model)
-
 
     # --------------------------------------------------------------
     # 4) adapt stem to in_ch AFTER checkpoint is loaded
@@ -537,14 +581,13 @@ def load_mc3_18(pretrained_path: str | None = None,
     # --------------------------------------------------------------
     # 5) replace classifier head
     # --------------------------------------------------------------
-    in_feats = model.fc.in_features          # 512 for MC3-18
+    in_feats = model.fc.in_features  # 512 for MC3-18
     model.fc = nn.Linear(in_feats, num_classes)
 
     return model
 
-def load_s3d(pretrained_path: str | None = None,
-             num_classes: int = 3,
-             in_ch:      int = 3) -> nn.Module:
+
+def load_s3d(pretrained_path: str | None = None, num_classes: int = 3, in_ch: int = 3) -> nn.Module:
     """
     Build an S3D model that works offline and accepts `in_ch` channels.
 
@@ -566,8 +609,11 @@ def load_s3d(pretrained_path: str | None = None,
         print("🚀 Loading pretrained weights from:", pretrained_path)
         ckpt = pretrained_path
         if os.path.isdir(pretrained_path):
-            picks = [f for f in os.listdir(pretrained_path)
-                     if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))]
+            picks = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ]
             if not picks:
                 raise FileNotFoundError(f"No ckpt in {pretrained_path}")
             if len(picks) > 1:
@@ -577,22 +623,21 @@ def load_s3d(pretrained_path: str | None = None,
     else:
         print("⚙️  Model initialised **without** pretrained weights.")
 
-
     # convert to instance3d norm
     bn_to_in(full)
 
     # 3) adapt the first spatial Conv3d if channel count differs
-    stem_conv = full.features[0][0][0]      # (64, 3, 1, 7, 7) in vanilla
+    stem_conv = full.features[0][0][0]  # (64, 3, 1, 7, 7) in vanilla
     if in_ch != stem_conv.in_channels:
-        old_w = stem_conv.weight            # (64, 3, kT, 7, 7)
+        old_w = stem_conv.weight  # (64, 3, kT, 7, 7)
 
-        if in_ch == 1:                      # RGB -> mono
+        if in_ch == 1:  # RGB -> mono
             new_w = old_w.mean(1, keepdim=True)
-        elif in_ch > 3:                     # replicate & scale
-            reps = (in_ch + 2) // 3         # ceil
+        elif in_ch > 3:  # replicate & scale
+            reps = (in_ch + 2) // 3  # ceil
             new_w = old_w.repeat(1, reps, 1, 1, 1)[:, :in_ch]
-            new_w *= 3.0 / in_ch            # keep variance similar
-        else:                               # e.g. 2-channel
+            new_w *= 3.0 / in_ch  # keep variance similar
+        else:  # e.g. 2-channel
             new_w = old_w[:, :in_ch]
 
         new_conv = nn.Conv3d(
@@ -616,16 +661,20 @@ def load_s3d(pretrained_path: str | None = None,
             self.core = core
             self.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
             self.head = nn.Linear(feat_dim, num_classes)
+
         def forward(self, x):
-            x = self.core(x)            # B, C, T', H', W'
-            x = self.pool(x).flatten(1) # B, C
+            x = self.core(x)  # B, C, T', H', W'
+            x = self.pool(x).flatten(1)  # B, C
             return self.head(x)
 
     return S3DHead(backbone)
 
-def load_r2plus1d_18(pretrained_path: str | None = None,
-                     num_classes: int = 2) -> nn.Module:
-    import os, torch, torch.nn as nn
+
+def load_r2plus1d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.Module:
+    import os
+
+    import torch
+    import torch.nn as nn
 
     # 1️⃣ build bare model (no hub download)
     full = r2plus1d_18(weights=None)
@@ -635,25 +684,31 @@ def load_r2plus1d_18(pretrained_path: str | None = None,
         print("🚀 Loading pretrained weights from:", pretrained_path)
         ckpt = pretrained_path
         if os.path.isdir(pretrained_path):
-            files = [f for f in os.listdir(pretrained_path)
-                     if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))]
+            files = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt", ".pyth"))
+            ]
             if not files:
                 raise FileNotFoundError(f"No ckpt in {pretrained_path}")
             if len(files) > 1:
                 print(f"⚠️  Multiple ckpts — using {files[0]}")
             ckpt = os.path.join(pretrained_path, files[0])
-        full.load_state_dict(torch.load(ckpt, map_location="cpu"),
-                             strict=False)
+        full.load_state_dict(torch.load(ckpt, map_location="cpu"), strict=False)
     else:
         print("⚙️  Model initialized without pretrained weights.")
 
     # 3️⃣ collapse RGB → 1-channel in the stem
-    stem_conv         = full.stem[0]                 # Conv3d
-    w_rgb             = stem_conv.weight             # (64,3,3,7,7)
-    w_gray            = w_rgb.mean(1, keepdim=True)  # (64,1,3,7,7)
-    new_stem_conv     = nn.Conv3d(
-        1, 64, kernel_size=stem_conv.kernel_size,
-        stride=stem_conv.stride, padding=stem_conv.padding, bias=False
+    stem_conv = full.stem[0]  # Conv3d
+    w_rgb = stem_conv.weight  # (64,3,3,7,7)
+    w_gray = w_rgb.mean(1, keepdim=True)  # (64,1,3,7,7)
+    new_stem_conv = nn.Conv3d(
+        1,
+        64,
+        kernel_size=stem_conv.kernel_size,
+        stride=stem_conv.stride,
+        padding=stem_conv.padding,
+        bias=False,
     )
     new_stem_conv.weight = nn.Parameter(w_gray)
     full.stem[0] = new_stem_conv
@@ -667,27 +722,29 @@ def load_r2plus1d_18(pretrained_path: str | None = None,
         full.layer4,
     )
 
-    feat_dim = full.fc.in_features   # 512
+    feat_dim = full.fc.in_features  # 512
 
     class R2Plus1dHead(nn.Module):
         def __init__(self, core):
             super().__init__()
-            self.core   = core
-            self.pool   = nn.AdaptiveAvgPool3d((1, 1, 1))
-            self.classif= nn.Linear(feat_dim, num_classes)
+            self.core = core
+            self.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
+            self.classif = nn.Linear(feat_dim, num_classes)
+
         def forward(self, x):
-            x = self.core(x)                 # B,C,T',H',W'
-            x = self.pool(x).flatten(1)      # B,C
+            x = self.core(x)  # B,C,T',H',W'
+            x = self.pool(x).flatten(1)  # B,C
             return self.classif(x)
 
     return R2Plus1dHead(backbone)
+
 
 def load_r3d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.Module:
     """
     Loads ResNet3D-18, adapts it to 1-channel input by collapsing the
     pretrained 3-channel stem weights, skips loading the original fc,
     then swaps in a new Linear head.
-    
+
     Args:
       pretrained_path: None, or path to a folder (one .pth/.pt/.ckpt inside)
                        or directly to a checkpoint file.
@@ -701,8 +758,11 @@ def load_r3d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.
         print("🚀 Loading pretrained weights from:", pretrained_path)
         # Resolve file
         if os.path.isdir(pretrained_path):
-            candidates = [f for f in os.listdir(pretrained_path)
-                          if f.lower().endswith((".pth",".pt",".ckpt"))]
+            candidates = [
+                f
+                for f in os.listdir(pretrained_path)
+                if f.lower().endswith((".pth", ".pt", ".ckpt"))
+            ]
             if not candidates:
                 raise FileNotFoundError(f"No checkpoint in {pretrained_path}")
             if len(candidates) > 1:
@@ -730,7 +790,7 @@ def load_r3d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.
             kernel_size=orig.kernel_size,
             stride=orig.stride,
             padding=orig.padding,
-            bias=False
+            bias=False,
         )
         new_stem.weight = nn.Parameter(collapsed)
         model.stem[0] = new_stem
@@ -754,16 +814,17 @@ def load_r3d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.
             kernel_size=orig.kernel_size,
             stride=orig.stride,
             padding=orig.padding,
-            bias=False
+            bias=False,
         )
         new_stem.weight = nn.Parameter(collapsed)
         model.stem[0] = new_stem
 
     # 3) Now replace the classifier head with fresh Linear
-    feat_dim      = model.fc.in_features
-    model.fc      = nn.Linear(feat_dim, num_classes)
+    feat_dim = model.fc.in_features
+    model.fc = nn.Linear(feat_dim, num_classes)
 
     return model
+
 
 # def load_slowfast_r50(pretrained_path: str | None = None,
 #                   num_classes: int = 2,
@@ -954,20 +1015,20 @@ def load_r3d_18(pretrained_path: str | None = None, num_classes: int = 2) -> nn.
 
 # Registry of available video models
 VIDEO_BACKBONES = {
-    #"i3d_r50":      load_i3d,
-    #"slowfast_r50": load_slowfast_r50,
-    #"slowfast_r101": load_slowfast_r101,
-    "r3d_18":       load_r3d_18,
-    "r2plus1d_18":  load_r2plus1d_18,
-    "s3d":          load_s3d,
-    "mc3_18":       load_mc3_18,
-    "swin3d_t":     load_swin3d_t,
-    "swin3d_s":     load_swin3d_s,
-    "swin3d_b":     load_swin3d_b,
-    "mvit_v2_s":    load_mvit_v2_s,
-    "mvit_v1_b":    load_mvit_v1_b, 
-    #"x3d_s":        load_x3d_s,
-    #"x3d_xs":       load_x3d_xs,
+    # "i3d_r50":      load_i3d,
+    # "slowfast_r50": load_slowfast_r50,
+    # "slowfast_r101": load_slowfast_r101,
+    "r3d_18": load_r3d_18,
+    "r2plus1d_18": load_r2plus1d_18,
+    "s3d": load_s3d,
+    "mc3_18": load_mc3_18,
+    "swin3d_t": load_swin3d_t,
+    "swin3d_s": load_swin3d_s,
+    "swin3d_b": load_swin3d_b,
+    "mvit_v2_s": load_mvit_v2_s,
+    "mvit_v1_b": load_mvit_v1_b,
+    # "x3d_s":        load_x3d_s,
+    # "x3d_xs":       load_x3d_xs,
 }
 
 
@@ -1006,10 +1067,14 @@ def model_factory(
     set_global_seed(seed)
     arch = arch.lower()
     if arch not in VIDEO_BACKBONES:
-        raise ValueError(f"Unknown architecture '{arch}'. Available: {list(VIDEO_BACKBONES.keys())}")
-    
-    model = VIDEO_BACKBONES[arch](pretrained_path=pretrained_path, num_classes=num_classes, in_ch=in_ch)
-    
+        raise ValueError(
+            f"Unknown architecture '{arch}'. Available: {list(VIDEO_BACKBONES.keys())}"
+        )
+
+    model = VIDEO_BACKBONES[arch](
+        pretrained_path=pretrained_path, num_classes=num_classes, in_ch=in_ch
+    )
+
     def freeze_backbone_only(model: nn.Module) -> None:
         # 1) freeze everything
         for p in model.parameters():
@@ -1028,11 +1093,11 @@ def model_factory(
     # if freeze_backbone:
     #     for name, param in model.named_parameters():
     #         if not name.startswith("classifier"):
-    #             param.requires_grad = False    
+    #             param.requires_grad = False
 
-    # TODO adaption: added: 
-    wrapped_model = ModelWrapper(backbone=model, in_ch=in_ch, num_classes=num_classes, **classifier_kwargs)        
-    return wrapped_model   # TODO adaption: previous -> model
+    # TODO adaption: added:
+    return ModelWrapper(backbone=model, in_ch=in_ch, num_classes=num_classes, **classifier_kwargs)
+
 
 # ----------------------- CLI Smoke Test -----------------------
 # Example:
@@ -1051,12 +1116,18 @@ def model_factory(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Video model factory smoke test for 3D volumes.")
-    parser.add_argument("--arch", type=str, required=True, help="Model key: " + ", ".join(VIDEO_BACKBONES.keys()))
-    parser.add_argument("--pretrained", type=str, default=None, help="Path to local pretrained weights.")
+    parser.add_argument(
+        "--arch", type=str, required=True, help="Model key: " + ", ".join(VIDEO_BACKBONES.keys())
+    )
+    parser.add_argument(
+        "--pretrained", type=str, default=None, help="Path to local pretrained weights."
+    )
     parser.add_argument("--num_classes", type=int, default=1, help="Number of classes.")
     parser.add_argument("--in_ch", type=int, default=3, help="Number of classes.")
     parser.add_argument("--freeze_backbone", action="store_true", help="Freeze model weights.")
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on, e.g., 'cpu' or 'cuda:0'.")
+    parser.add_argument(
+        "--device", type=str, default="cuda:0", help="Device to run on, e.g., 'cpu' or 'cuda:0'."
+    )
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size for dummy input.")
     parser.add_argument("--depth", type=int, default=16, help="Temporal depth (z-axis slices).")
     parser.add_argument("--height", type=int, default=64, help="Spatial height.")
@@ -1070,21 +1141,19 @@ if __name__ == "__main__":
         arch=args.arch,
         pretrained_path=args.pretrained,
         num_classes=args.num_classes,
-        in_ch = args.in_ch,
+        in_ch=args.in_ch,
         freeze_backbone=args.freeze_backbone,
         seed=args.seed,
     )
     model = model.to(args.device)
-    
+
     # ------------- count parameters -------------
-    total_params     = sum(p.numel() for p in model.parameters())
+    total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     # ------------- warm-up & timing -------------
     dummy = torch.randn(
-        args.batch_size, args.in_ch,
-        args.depth, args.height, args.width,
-        device=args.device
+        args.batch_size, args.in_ch, args.depth, args.height, args.width, device=args.device
     )
     model.eval()
     with torch.no_grad():
@@ -1096,7 +1165,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         for _ in range(5):
             _ = model(dummy)
-        elapsed = (time.perf_counter() - t0) / 5 * 1e3   # → ms
+        elapsed = (time.perf_counter() - t0) / 5 * 1e3  # → ms
 
     # # ------------- FLOPs (optional) -------------
     # flops_str = ""
@@ -1108,8 +1177,5 @@ if __name__ == "__main__":
     # ------------- pretty summary -------------
     out = model(dummy)
     print(f"✅ Output shape : {tuple(out.shape)}")
-    print(f"📦 Params       : {total_params:,} "
-          f"({trainable_params:,} trainable)")
+    print(f"📦 Params       : {total_params:,} " f"({trainable_params:,} trainable)")
     print(f"⚡ Fwd-time     : {elapsed:,.1f} ms on {args.device}")
-
-    

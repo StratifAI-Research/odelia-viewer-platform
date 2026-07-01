@@ -38,7 +38,6 @@ class ModelServiceConfig:
     """Configuration for the generalized model service."""
 
     model_name: str
-    num_classes: int
     model_path: Path
     device: str
     # ODV-216 seam: trained weights are loaded from here when published.
@@ -52,7 +51,6 @@ class ModelServiceConfig:
         """Create configuration from environment variables."""
         return cls(
             model_name=os.getenv("MODEL_NAME", "MST"),
-            num_classes=int(os.getenv("NUM_CLASSES", "3")),
             model_path=Path(os.getenv("MODEL_PATH", "./model")),
             device=resolve_device(),
             checkpoint_uri=os.getenv("CHECKPOINT_URI", None),

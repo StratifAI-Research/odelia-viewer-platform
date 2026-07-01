@@ -3,16 +3,26 @@ import torch.nn as nn
 from monai.networks.nets import ResNet
 from monai.networks.nets.resnet import ResNetBlock, ResNetBottleneck
 
-from models.base_model import BasicClassifier, ModelWrapper
+from ...base import ModelWrapper
+
 
 class Resnet(nn.Module):
-    
     def __init__(self, model_name: str, num_classes: int, norm: str = "batch"):
         super().__init__()
-        
+
         self.model_name = model_name
-        valid_model_names = ["resnet10", "resnet18", "resnet34", "resnet50", "resnet101", "resnet152", "resnet200"]
-        assert self.model_name in valid_model_names, f"Model name must be one of {valid_model_names}"
+        valid_model_names = [
+            "resnet10",
+            "resnet18",
+            "resnet34",
+            "resnet50",
+            "resnet101",
+            "resnet152",
+            "resnet200",
+        ]
+        assert (
+            self.model_name in valid_model_names
+        ), f"Model name must be one of {valid_model_names}"
 
         # Get default resnet parameters
         # >> model_name: (block, layers, shortcut_type, bias_downsample)
@@ -27,38 +37,46 @@ class Resnet(nn.Module):
         }
         block, layers, shortcut_type, bias_downsample = resnet_params[self.model_name]
         block = ResNetBlock if block == "basic" else ResNetBottleneck
-        
+
         # Get default norm parameters
         norm_mapper = {
             "group": ("group", {"num_groups": 8}),
             "instance": ("instance", {"affine": True}),
-            "batch": "batch"
+            "batch": "batch",
         }
         _norm = norm_mapper[norm]
-        
+
         # Create resnet model
-        self.net = ResNet(                         
-            block=block,                  
-            layers=layers,                
-            block_inplanes=[64, 128, 256, 512],  
+        self.net = ResNet(
+            block=block,
+            layers=layers,
+            block_inplanes=[64, 128, 256, 512],
             spatial_dims=3,
             n_input_channels=1,
             num_classes=num_classes,
             bias_downsample=bias_downsample,
             shortcut_type=shortcut_type,
-            norm=_norm
+            norm=_norm,
         )
-        
+
         return
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
-    
 
-def create_model(model_name: str, num_classes: int = 3, n_input_channels = 1, spatial_dims = 3, norm: str = "batch", loss_kwargs=None) -> nn.Module:
+
+def create_model(
+    model_name: str,
+    num_classes: int = 3,
+    n_input_channels=1,
+    spatial_dims=3,
+    norm: str = "batch",
+    loss_kwargs=None,
+) -> nn.Module:
     model = Resnet(model_name=model_name, num_classes=num_classes, norm=norm)
-    wrapped_model = ModelWrapper(
-        backbone=model, in_ch=n_input_channels, num_classes=num_classes,
+    return ModelWrapper(
+        backbone=model,
+        in_ch=n_input_channels,
+        num_classes=num_classes,
         loss_kwargs=loss_kwargs if loss_kwargs is not None else {},
     )
-    return wrapped_model

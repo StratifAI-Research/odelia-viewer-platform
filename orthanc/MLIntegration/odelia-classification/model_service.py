@@ -57,10 +57,7 @@ class ModelService:
             )
             logger.info("=" * 60)
 
-            self.model, self.model_info = build_model(
-                self.config.model_name, self.config.num_classes
-            )
-            self.model = self.model.to(self.config.device)
+            self.model, self.model_info = build_model(self.config.model_name)
 
             logger.info(f"Model '{self.config.model_name}' ready on {self.config.device}")
             logger.info("=" * 60)

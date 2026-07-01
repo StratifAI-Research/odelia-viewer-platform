@@ -1,14 +1,14 @@
 """
-ODV-214 smoke check: build a built-in model via the vendored create_model
-factory and run a forward pass on a dummy volume.
+ODV-214 smoke check: build a roster model via create_model and run a forward
+pass on a dummy volume.
 
 Runs on CPU by defaulting MODEL_DEVICE=cpu. This is the acceptance smoke test
 for the model-service block; per-model serving/E2E coverage is ODV-219 / ODV-220.
 
 Usage:
-    python smoke_test.py                       # ResNet18 on CPU
-    MODEL_NAME=MST python smoke_test.py
-    MODEL_DEVICE=cuda python smoke_test.py     # require a GPU
+    python smoke_test.py                       # Pimed on CPU
+    MODEL_NAME=DivideAndConquer python smoke_test.py
+    MODEL_DEVICE=cuda python smoke_test.py      # require a GPU
 """
 
 import os
@@ -21,13 +21,13 @@ from model_loader import build_model
 
 def _dummy_shape() -> tuple[int, int, int]:
     # Divisible by 32 so any conv/transformer downsampling stages are happy.
-    raw = os.getenv("SMOKE_INPUT_SHAPE", "32,96,96")
+    raw = os.getenv("SMOKE_INPUT_SHAPE", "32,32,32")
     d, h, w = (int(x) for x in raw.split(","))
     return d, h, w
 
 
-def run(model_name: str = "ResNet18", num_classes: int = 3) -> None:
-    model, info = build_model(model_name, num_classes)
+def run(model_name: str = "Pimed") -> None:
+    model, info = build_model(model_name)
     assert info["model_name"] == model_name
 
     d, h, w = _dummy_shape()
@@ -36,9 +36,8 @@ def run(model_name: str = "ResNet18", num_classes: int = 3) -> None:
         out = model(x)
 
     assert out.shape[0] == 1, f"unexpected batch dim: {tuple(out.shape)}"
-    assert out.shape[-1] == num_classes, f"expected {num_classes} classes, got {tuple(out.shape)}"
     print(f"OK: built '{model_name}', forward {tuple(x.shape)} -> {tuple(out.shape)}")
 
 
 if __name__ == "__main__":
-    run(os.getenv("MODEL_NAME", "ResNet18"), int(os.getenv("NUM_CLASSES", "3")))
+    run(os.getenv("MODEL_NAME", "Pimed"))

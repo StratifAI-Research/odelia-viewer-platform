@@ -20,6 +20,8 @@ torchio==0.20.1
 einops==0.8.0
 x-transformers==2.3.5
 timm==1.0.15
+# nnU-Net residual encoder blocks for the DivideAndConquer challenge model.
+dynamic-network-architectures==0.4.4
 
 # --- serving / DICOM stack ---
 Flask==3.1.3

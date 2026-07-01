@@ -69,39 +69,32 @@ class TestClassificationResponse:
         assert resp["model_info"] == {}
 
 
-def test_cuda_guard_requires_model_device(monkeypatch):
-    """The vendored create_model guard fails loudly when MODEL_DEVICE is unset.
+def test_build_model_requires_model_device(monkeypatch):
+    """build_model fails loudly when MODEL_DEVICE is unset.
 
-    Hermetic: the guard raises before any model is instantiated.
+    Hermetic: resolve_device() raises before any model is instantiated.
     """
     monkeypatch.delenv("MODEL_DEVICE", raising=False)
     from model_loader import build_model
 
     with pytest.raises(RuntimeError, match="MODEL_DEVICE"):
-        build_model("ResNet18", num_classes=3)
+        build_model("Pimed")
 
 
-def test_build_and_forward_resnet(monkeypatch):
-    """Vendored create_model builds a built-in that forwards to [B, num_classes].
+def test_build_and_forward_pimed(monkeypatch):
+    """create_model builds a roster model that forwards to [B, 3] (random init).
 
-    Random weights: MONAI's pretrained download is neutralized (no network).
+    Pimed (MONAI ResNet wrapper) builds from scratch with no network access.
     """
     monkeypatch.setenv("MODEL_DEVICE", "cpu")
 
-    import monai.networks.nets as nets
-
-    _orig_resnet18 = nets.resnet18
-    monkeypatch.setattr(
-        nets, "resnet18", lambda *a, **k: _orig_resnet18(*a, **{**k, "pretrained": False})
-    )
-
     from model_loader import build_model
 
-    model, info = build_model("ResNet18", num_classes=3)
-    assert info["model_name"] == "ResNet18"
+    model, info = build_model("Pimed")
+    assert info["model_name"] == "Pimed"
     assert info["weights"] == "init-only"
 
-    x = torch.randn(1, 1, 32, 64, 64)
+    x = torch.randn(1, 1, 32, 32, 32)
     with torch.no_grad():
         out = model(x)
     assert out.shape == (1, 3)

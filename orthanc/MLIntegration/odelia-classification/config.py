@@ -1,15 +1,16 @@
 """
-Configuration for the generalized ODELIA model-service block (ODV-214).
+Configuration for the generalized ODELIA model service (ODV-214).
 
-This service builds any model by MODEL_NAME through the vendored MediSwarm
-create_model factory. MST-classification/ is left untouched.
+One image = one model: the served subunit is whichever one the build baked in
+(resolved via the models package), not a runtime env choice. MODEL_DEVICE is the
+only required runtime setting.
 """
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
 import torch
+from models import resolve_baked_model
 
 
 def resolve_device() -> str:
@@ -35,26 +36,15 @@ def resolve_device() -> str:
 
 @dataclass
 class ModelServiceConfig:
-    """Configuration for the generalized model service."""
+    """Runtime configuration for the model service."""
 
     model_name: str
-    model_path: Path
     device: str
-    # ODV-216 seam: trained weights are loaded from here when published.
-    checkpoint_uri: str | None = None
-    hf_token: str | None = None
-    http_proxy: str | None = None
-    https_proxy: str | None = None
 
     @classmethod
     def from_env(cls) -> "ModelServiceConfig":
-        """Create configuration from environment variables."""
+        """Resolve the baked subunit + device from the environment."""
         return cls(
-            model_name=os.getenv("MODEL_NAME", "MST"),
-            model_path=Path(os.getenv("MODEL_PATH", "./model")),
+            model_name=resolve_baked_model(),
             device=resolve_device(),
-            checkpoint_uri=os.getenv("CHECKPOINT_URI", None),
-            hf_token=os.getenv("HF_TOKEN", None),
-            http_proxy=os.getenv("HTTP_PROXY", None),
-            https_proxy=os.getenv("HTTPS_PROXY", None),
         )

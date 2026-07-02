@@ -1,6 +1,7 @@
 """
 Generalized ODELIA model service (ODV-214) - Flask microservice.
-Thin HTTP layer delegating to model_service; MODEL_NAME selects the model.
+Thin HTTP layer delegating to model_service; the served model is the single
+subunit baked into the image (one image = one model).
 """
 
 import logging
@@ -42,9 +43,8 @@ def initialize_service():
 
     # Create necessary directories
     Path(storage_config.image_folder).mkdir(parents=True, exist_ok=True)
-    Path(config.model_path).mkdir(parents=True, exist_ok=True)
 
-    # Initialize model service
+    # Initialize model service (builds the model and runs the pre-flight check)
     model_service = ModelService(config, storage_config)
     model_service.initialize_model()
 
@@ -58,7 +58,7 @@ def health_check():
 @app.route("/analyze/mri", methods=["POST"])
 def analyze_mri():
     """
-    Analyze MRI series using MST model.
+    Analyze MRI series using the served model.
 
     Supports three input modes via input_configuration_id:
       - pre_post:    Two series (pre + post contrast), subtraction computed

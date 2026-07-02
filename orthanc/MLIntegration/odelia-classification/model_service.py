@@ -1,13 +1,14 @@
 """
 Generalized ODELIA model service (ODV-214) - orchestrates the inference pipeline.
 
-Builds any model by MODEL_NAME via the vendored MediSwarm create_model factory
-and preserves the MST service's initialize_model / analyze_* contract. The exact
+Serves the single subunit baked into the image (one image = one model) and
+preserves the MST service's initialize_model / analyze_* contract. The exact
 single-channel preprocessing is delegated to a shared transform in ODV-217; a
 minimal deterministic transform is used here so the block is runnable.
 """
 
 import logging
+import os
 from pathlib import Path
 
 import torch
@@ -19,6 +20,7 @@ from dicom_converter import (
 )
 from exceptions import InferenceError, ModelNotLoadedError
 from model_loader import build_model
+from models import assert_forward_contract
 from preprocessing import prepare_single_channel
 from response_builder import build_classification_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
@@ -46,18 +48,19 @@ class ModelService:
         self.model_info = None
 
     def initialize_model(self) -> None:
-        """Build the model on startup.
+        """Build the model on startup and run the pre-flight contract check.
 
-        Weights are init-only here; loading a trained state_dict is ODV-216.
+        Weights are init-only here; strict-loading a baked state_dict is a later
+        ticket. Pre-flight (a synthetic forward) fails loudly before the service
+        accepts traffic if the model can't honor the inference contract.
         """
         try:
             logger.info("=" * 60)
-            logger.info(
-                f"ODELIA model service - Initializing (MODEL_NAME={self.config.model_name})"
-            )
+            logger.info(f"ODELIA model service - Initializing (model={self.config.model_name})")
             logger.info("=" * 60)
 
             self.model, self.model_info = build_model(self.config.model_name)
+            self._run_preflight()
 
             logger.info(f"Model '{self.config.model_name}' ready on {self.config.device}")
             logger.info("=" * 60)
@@ -71,9 +74,22 @@ class ModelService:
             traceback.print_exc()
             raise
 
+    def _run_preflight(self) -> None:
+        """Synthetic forward at startup: prove the tensor contract holds.
+
+        Checks construction + the fixed inference contract (input -> (1, 3)
+        logits) on the real device. Strict weight-loading is validated in a
+        later ticket. ``SKIP_PREFLIGHT`` bypasses this for debugging only.
+        """
+        if os.getenv("SKIP_PREFLIGHT", "").strip():
+            logger.warning("SKIP_PREFLIGHT set - skipping startup contract check")
+            return
+        shape = assert_forward_contract(self.model, self.config.model_name)
+        logger.info("Pre-flight OK: %s forward -> %s", self.config.model_name, shape)
+
     def analyze_mri_series(self, request_data: dict) -> dict:
         """
-        Analyze an MRI series with the configured model (MODEL_NAME).
+        Analyze an MRI series with the served model.
 
         Dispatches to mode-specific pipelines based on input_configuration_id:
           - pre_post:    two series (pre + post contrast), compute subtraction

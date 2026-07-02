@@ -7,7 +7,7 @@ therefore imported INSIDE each test, resolving to odelia-classification rather
 than a sibling ML service left in sys.modules.
 
 These use REAL torch/monai (not the torch_stub fixture): the build+forward test
-needs a real model. MONAI's pretrained download is neutralized for hermeticity.
+needs a real model. Pretrained backbone downloads are off (init weights only).
 """
 
 import pytest
@@ -81,29 +81,33 @@ def test_build_model_requires_model_device(monkeypatch):
         build_model("Pimed")
 
 
-# The input every model receives in MediSwarm training/serving: a 1-channel
-# subtraction volume, depth-first [B, C, D, H, W] = (1, 1, 32, 224, 224)
-# (ODELIA_Dataset3D unilateral: CropOrPad (224,224,32) + ImageOrSubjectToTensor's
-# swapaxes(1,-1) -> depth-first). H=W=224 and D=32 are required by the tightest
-# models (ABMIL Swin @224, DINOv2 patch-14, BCN_AIM SwinUNETR depth divisible by
-# 32); every model adapts channels internally (e.g. ABMIL/MST expand 1->3).
-_TRAIN_INPUT = (1, 1, 32, 224, 224)
+# The input every subunit receives in MediSwarm training/serving: a 1-channel
+# subtraction volume, depth-first [B, C, D, H, W] = (1, 1, 32, 224, 224). Every
+# model adapts channels internally (e.g. ABMIL/MST expand 1->3). The contract
+# (input INPUT_SIZE -> (1, 3) logits) is asserted by assert_forward_contract,
+# the same helper the startup pre-flight uses.
 
-# Challenge roster: (name, expected state_dict key count) — a structural
-# regression guard. All build init-only with no network (pretrained off).
-_ROSTER = [
-    ("Pimed", 104),
-    ("DivideAndConquer", 450),
-    ("BCN_AIM", 161),
-    ("LME_ABMIL", 179),
-    ("agaldran", 397),
-]
+# Challenge roster: name -> expected state_dict key count. A structural
+# regression guard; all build init-only with no network (pretrained off).
+_CHALLENGE_KEYS = {
+    "Pimed": 104,
+    "DivideAndConquer": 450,
+    "BCN_AIM": 161,
+    "LME_ABMIL": 179,
+    "agaldran": 397,
+}
 
 
-@pytest.mark.parametrize(("name", "n_keys"), _ROSTER, ids=[m[0] for m in _ROSTER])
-def test_roster_model_builds_and_forwards(monkeypatch, name, n_keys):
-    """Each challenge roster model builds init-only and forwards the real
-    MediSwarm training input to [B, 3].
+def test_discovery_covers_expected_roster():
+    """Discovery finds exactly MST + the five challenge subunits."""
+    from models import available_models
+
+    assert set(available_models()) == {"MST", *_CHALLENGE_KEYS}
+
+
+@pytest.mark.parametrize("name", sorted(_CHALLENGE_KEYS), ids=sorted(_CHALLENGE_KEYS))
+def test_challenge_model_builds_and_forwards(monkeypatch, name):
+    """Each challenge subunit builds init-only and honors the forward contract.
 
     Random weights, no network (pretrained backbones off). Asserts the preserved
     state_dict key count so a structural regression is caught.
@@ -111,19 +115,18 @@ def test_roster_model_builds_and_forwards(monkeypatch, name, n_keys):
     monkeypatch.setenv("MODEL_DEVICE", "cpu")
 
     from model_loader import build_model
+    from models import assert_forward_contract
 
     model, info = build_model(name)
     assert info["model_name"] == name
     assert info["weights"] == "init-only"
-    assert len(model.state_dict()) == n_keys
+    assert len(model.state_dict()) == _CHALLENGE_KEYS[name]
 
-    with torch.no_grad():
-        out = model(torch.randn(*_TRAIN_INPUT))
-    assert out.shape == (1, 3)
+    assert assert_forward_contract(model, name) == (1, 3)
 
 
 def test_mst_builds_and_forwards(monkeypatch):
-    """MST wiring (per-slice encode -> transformer fusion -> head) forwards to [B, 3].
+    """MST wiring (per-slice encode -> transformer fusion -> head) honors the contract.
 
     The DINOv2 backbone is mocked so this is network-free and fast; the real
     DINOv2 integration is exercised by smoke_test.py (and ODV-219).
@@ -142,10 +145,8 @@ def test_mst_builds_and_forwards(monkeypatch):
     monkeypatch.setattr(torch.hub, "load", lambda *a, **k: _FakeDino())
 
     from model_loader import build_model
+    from models import assert_forward_contract
 
     model, info = build_model("MST")
     assert info["model_name"] == "MST"
-
-    with torch.no_grad():
-        out = model(torch.randn(*_TRAIN_INPUT))
-    assert out.shape == (1, 3)
+    assert assert_forward_contract(model, "MST") == (1, 3)

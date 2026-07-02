@@ -29,7 +29,13 @@ ignore = [
 # Ported ODELIA challenge model definitions (ODV-214): faithfully reproduced from
 # MediSwarm to preserve state_dict layout. Keep the bug-catching rules but relax
 # annotation / naming / copied-text-unicode / pathlib churn on this research code.
-"MLIntegration/*/models/challenge/**" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
+# One entry per vendored arch module (the subunit loader.py files are ours and
+# stay strict).
+"MLIntegration/*/models/agaldran/model_factory.py" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
+"MLIntegration/*/models/bcn_aim/swinunetr.py" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
+"MLIntegration/*/models/divide_and_conquer/model.py" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
+"MLIntegration/*/models/lme_abmil/model.py" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
+"MLIntegration/*/models/pimed/model.py" = ["ANN", "N", "RUF001", "RUF002", "RUF003", "PTH"]
 # Orthanc REST callbacks use PascalCase to match the Orthanc plugin convention
 # (RegisterRestCallback handlers) and the DICOM UPS-RS operation names.
 "viewer/router.py" = ["N802"]

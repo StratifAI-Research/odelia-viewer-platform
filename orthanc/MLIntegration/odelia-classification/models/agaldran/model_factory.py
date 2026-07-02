@@ -26,7 +26,7 @@ from torchvision.models.video import (
 # from pytorchvideo.models.hub import x3d_s
 # utils/model_factory.py  (add near the other loaders)
 # from pytorchvideo.models.hub import x3d_s
-from ...base import BasicClassifier, ModelWrapper
+from ..base import BasicClassifier, ModelWrapper
 
 
 def bn_to_in(module):

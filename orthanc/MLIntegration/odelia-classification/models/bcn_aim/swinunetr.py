@@ -26,7 +26,7 @@ from monai.networks.layers import DropPath, trunc_normal_
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 from torch.nn import LayerNorm
 
-from ...base import BasicClassifier, ModelWrapper
+from ..base import BasicClassifier, ModelWrapper
 
 rearrange, _ = optional_import("einops", name="rearrange")
 

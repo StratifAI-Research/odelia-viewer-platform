@@ -7,7 +7,7 @@ from einops import rearrange
 from torch import nn
 from x_transformers import Encoder
 
-from .base import BasicClassifier
+from ..base import BasicClassifier
 
 
 class _TransformerEncoder(Encoder):

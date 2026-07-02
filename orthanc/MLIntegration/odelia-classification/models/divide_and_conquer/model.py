@@ -12,7 +12,7 @@ from dynamic_network_architectures.initialization.weight_init import InitWeights
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
 
-from ...base import BasicClassifier
+from ..base import BasicClassifier
 
 
 class ClassificationHead(nn.Module):

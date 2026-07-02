@@ -2,7 +2,7 @@ import timm
 import torch
 import torch.nn as nn
 
-from ...base import BasicClassifier, ModelWrapper
+from ..base import BasicClassifier, ModelWrapper
 
 
 class CrossModalAttentionABMIL_Swin(nn.Module):

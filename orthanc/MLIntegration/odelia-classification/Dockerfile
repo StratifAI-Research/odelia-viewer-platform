@@ -46,7 +46,7 @@ RUN python -m tools.select_subunit "$MODEL"
 # network-free (TORCH_HOME is baked into the image).
 ENV TORCH_HOME=/app/odelia-service/.torch
 RUN if [ "$MODEL" = "MST" ]; then \
-      python -c "import torch; torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')"; \
+      python -c "import torch; torch.hub._validate_not_a_forked_repo = lambda a, b, c: True; torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')"; \
     fi
 
 # Bake + check weights when provided (the staged file is ignored when WEIGHT_PATH

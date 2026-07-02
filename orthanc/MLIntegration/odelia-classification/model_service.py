@@ -20,7 +20,7 @@ from dicom_converter import (
 )
 from exceptions import InferenceError, ModelNotLoadedError
 from model_loader import build_model
-from models import assert_forward_contract
+from models import assert_forward_contract, input_size
 from preprocessing import prepare_single_channel
 from response_builder import build_classification_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
@@ -232,8 +232,9 @@ class ModelService:
         The single-channel transform is the ODV-217 seam: it is replaced there
         with the exact shared MediSwarm bilateral/unilateral preprocessing.
         """
+        target_shape = input_size(self.config.model_name)
         with time_operation("prepare_single_channel", logger):
-            tensor = prepare_single_channel(nifti_path, self.config.device)
+            tensor = prepare_single_channel(nifti_path, self.config.device, target_shape)
 
         with time_operation("model_inference", logger):
             probs = self._run_inference(tensor)

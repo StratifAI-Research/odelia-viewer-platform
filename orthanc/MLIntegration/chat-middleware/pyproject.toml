@@ -11,7 +11,7 @@ dependencies = [
   "fastapi==0.136.1",
   "uvicorn[standard]==0.47.0",
   "websockets==16.0",
-  "aiohttp==3.13.5",
+  "aiohttp==3.14.1",
   "pydantic==2.13.4",
   "pydicom==3.0.2",
   "SimpleITK==2.5.5",

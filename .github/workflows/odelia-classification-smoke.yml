@@ -1,0 +1,42 @@
+name: odelia-classification runtime-stack smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odelia-smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    # Build + forward the full roster on the SERVICE RUNTIME pins
+    # (numpy<2 / torch 2.2 / monai 1.4 / x-transformers 2.3.5). The test-py job
+    # runs the same tests on the platform's numpy-2 / monai 1.6 /
+    # x-transformers 2.19.6 stack, so this leg is what actually locks "builds +
+    # forwards on both stacks". DINOv2 is mocked in the MST test, so it is
+    # network-free.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10' # matches the service image (python:3.10-slim)
+
+      - name: Install the service runtime stack + pytest tooling
+        working-directory: orthanc/MLIntegration/odelia-classification
+        # requirements.txt is the shipped runtime stack; the two pytest pins match
+        # the platform test job (asyncio_mode="auto" needs pytest-asyncio).
+        run: pip install -r requirements.txt pytest==9.0.2 pytest-asyncio==1.4.0
+
+      - name: Build + forward the roster on the runtime pins
+        working-directory: orthanc
+        run: pytest tests/unit/MLIntegration/odelia_classification/

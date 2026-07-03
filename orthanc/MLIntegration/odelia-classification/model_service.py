@@ -115,27 +115,30 @@ class ModelService:
 
         config_id = request_data.get("input_configuration_id")
         input_mapping = request_data.get("input_mapping")
+        # study_uid is documented at the request top level; per-role entries may
+        # also carry one, which takes precedence in _retrieve_role.
+        study_uid = request_data.get("study_uid")
 
         if config_id == "pre_post" and input_mapping:
-            return self._analyze_pre_post(input_mapping)
+            return self._analyze_pre_post(input_mapping, study_uid)
         if config_id == "subtraction" and input_mapping:
-            return self._analyze_subtraction(input_mapping)
+            return self._analyze_subtraction(input_mapping, study_uid)
         if config_id == "multiphase" and input_mapping:
-            return self._analyze_multiphase(input_mapping)
+            return self._analyze_multiphase(input_mapping, study_uid)
         return self._analyze_flat(request_data)
 
     # ------------------------------------------------------------------
     # Mode-specific analysis pipelines
     # ------------------------------------------------------------------
 
-    def _analyze_pre_post(self, input_mapping: dict) -> dict:
+    def _analyze_pre_post(self, input_mapping: dict, study_uid: str | None = None) -> dict:
         """Pre + Post Contrast mode: retrieve two series, compute subtraction, run inference."""
         try:
             with time_operation("retrieve_pre_series", logger):
-                pre_folder, _ = self._retrieve_role(input_mapping, "pre")
+                pre_folder, _ = self._retrieve_role(input_mapping, "pre", study_uid)
 
             with time_operation("retrieve_post_series", logger):
-                post_folder, _ = self._retrieve_role(input_mapping, "post")
+                post_folder, _ = self._retrieve_role(input_mapping, "post", study_uid)
 
             with time_operation("convert_pre_to_nifti", logger):
                 pre_nifti = convert_series_to_nifti(pre_folder)
@@ -157,11 +160,11 @@ class ModelService:
             traceback.print_exc()
             raise InferenceError(f"Pre+Post analysis failed: {e!s}") from e
 
-    def _analyze_subtraction(self, input_mapping: dict) -> dict:
+    def _analyze_subtraction(self, input_mapping: dict, study_uid: str | None = None) -> dict:
         """Subtraction mode: retrieve pre-computed subtraction volume, run inference."""
         try:
             with time_operation("retrieve_subtraction_series", logger):
-                dicom_folder, _ = self._retrieve_role(input_mapping, "sub")
+                dicom_folder, _ = self._retrieve_role(input_mapping, "sub", study_uid)
 
             with time_operation("dicom_to_nifti_conversion", logger):
                 nifti_path = convert_series_to_nifti(dicom_folder)
@@ -177,11 +180,11 @@ class ModelService:
             traceback.print_exc()
             raise InferenceError(f"Subtraction analysis failed: {e!s}") from e
 
-    def _analyze_multiphase(self, input_mapping: dict) -> dict:
+    def _analyze_multiphase(self, input_mapping: dict, study_uid: str | None = None) -> dict:
         """Multi-phase mode: retrieve series, extract temporal groups, compute subtraction, run inference."""
         try:
             with time_operation("retrieve_multiphase_series", logger):
-                dicom_folder, _ = self._retrieve_role(input_mapping, "multiphase")
+                dicom_folder, _ = self._retrieve_role(input_mapping, "multiphase", study_uid)
 
             with time_operation("multiphase_to_subtraction_nifti", logger):
                 nifti_path = convert_multiphase_to_subtraction_nifti(dicom_folder)
@@ -258,28 +261,37 @@ class ModelService:
             logger.warning("Path containment barrier rejected request-derived folder: %s", e)
             raise InferenceError("path containment check failed") from e
 
-    def _retrieve_role(self, input_mapping: dict, role_key: str) -> tuple[Path, str]:
+    def _retrieve_role(
+        self, input_mapping: dict, role_key: str, study_uid: str | None = None
+    ) -> tuple[Path, str]:
         """
         Retrieve a single input role's DICOM series via WADO-RS.
 
         Args:
             input_mapping: Dict of role_key -> {series_uid, wado_rs_url}
             role_key: The role to retrieve (e.g. "pre", "post", "sub", "multiphase")
+            study_uid: Request-level study UID; a per-role ``study_uid`` overrides it.
 
         Returns:
             Tuple of (dicom_folder_path, series_uid)
 
         Raises:
-            ValueError: If the role is missing or has no WADO-RS URL
+            ValueError: If the role mapping, its series_uid, or the study_uid is missing
         """
         info = input_mapping.get(role_key)
         if not info or not info.get("wado_rs_url"):
             raise ValueError(f"Missing or invalid mapping for input '{role_key}'")
+        if not info.get("series_uid"):
+            raise ValueError(f"Missing 'series_uid' for input '{role_key}'")
+        # Per-role study_uid wins; otherwise fall back to the request-level one.
+        resolved_study_uid = info.get("study_uid") or study_uid
+        if not resolved_study_uid:
+            raise ValueError(f"Missing 'study_uid' for input '{role_key}'")
 
         wado_entry = [
             {
                 "retrieval_url": info["wado_rs_url"],
-                "study_uid": info.get("study_uid", ""),
+                "study_uid": resolved_study_uid,
                 "series_uid": info["series_uid"],
             }
         ]

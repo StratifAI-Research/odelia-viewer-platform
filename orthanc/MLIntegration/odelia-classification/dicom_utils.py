@@ -214,7 +214,7 @@ def compute_subtraction_from_nifti(
 ) -> str:
     """
     Compute subtraction NIfTI from two separate pre/post NIfTI files.
-    Result = (post - pre), floored to 0, cast to uint16.
+    Result = (post - pre), shifted so the minimum is 0, cast to uint16.
     Spatial metadata is preserved from the pre-contrast volume.
 
     Args:

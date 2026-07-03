@@ -22,16 +22,15 @@ def resolve_device() -> str:
       - ``cuda`` -> GPU; fails loudly if no CUDA device is available
       - anything else, including unset -> fails loudly
     """
-    device = os.getenv("MODEL_DEVICE", "").strip().lower()
+    raw = os.getenv("MODEL_DEVICE")
+    device = (raw or "").strip().lower()
     if device == "cpu":
         return "cpu"
     if device == "cuda":
         if not torch.cuda.is_available():
             raise RuntimeError("MODEL_DEVICE=cuda but no CUDA GPU is available.")
         return "cuda"
-    raise RuntimeError(
-        f"MODEL_DEVICE must be set to 'cpu' or 'cuda' (got {os.getenv('MODEL_DEVICE')!r})."
-    )
+    raise RuntimeError(f"MODEL_DEVICE must be set to 'cpu' or 'cuda' (got {raw!r}).")
 
 
 @dataclass

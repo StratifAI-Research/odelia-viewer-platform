@@ -1,5 +1,5 @@
 """
-Service-specific exceptions for MST Classification
+Service-specific exceptions for the generalized ODELIA model service (ODV-214).
 """
 
 

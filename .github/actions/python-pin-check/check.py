@@ -27,6 +27,7 @@ SERVICES = [
     "MLIntegration/shared",
     "MLIntegration/medgemma-mri",
     "MLIntegration/MST-classification",
+    "MLIntegration/odelia-classification",
     "MLIntegration/chat-middleware",
     "MLIntegration/breast-cancer-classification",
 ]

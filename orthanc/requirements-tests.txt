@@ -21,3 +21,15 @@ aiohttp==3.13.5
 torch==2.12.0
 torchio==1.2.0
 SimpleITK==2.5.5
+# odelia-classification built-in model deps (ODV-214). NB: these are the CI /
+# numpy-2 generation (monai 1.6), NOT the service's runtime pin (monai 1.4);
+# the model block is verified working on both stacks.
+monai==1.6.0
+pytorch-lightning==2.6.5
+torchmetrics==1.9.0
+x-transformers==2.19.6
+einops==0.8.2
+# Challenge-model backbones so CI can build+forward the whole roster.
+torchvision==0.27.0
+timm==1.0.15
+dynamic-network-architectures==0.4.4

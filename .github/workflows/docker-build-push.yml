@@ -37,6 +37,15 @@ jobs:
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
+          # Generalized model service (ODV-214): build one representative model
+          # image to prove the MODEL-selecting Dockerfile builds. On main pushes it
+          # gets a sha- tag like the other images but is NOT promoted to latest;
+          # the full per-model matrix + image naming is ODV-218.
+          - image: odelia-classification-mst
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=MST
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -67,6 +76,7 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 

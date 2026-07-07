@@ -90,3 +90,32 @@ class TestHelpers:
         cropped = crop(img).data
         # Height axis (index 2) is cropped to 256.
         assert cropped.shape[2] == 256
+
+
+class TestPreprocessPipeline:
+    def _write_sub_nifti(self, tmp_path):
+        import nibabel as nib
+        import numpy as np
+
+        # A small anisotropic volume; values give a non-trivial foreground.
+        arr = (np.random.default_rng(0).random((64, 64, 16)) * 1000).astype("float32")
+        path = tmp_path / "sub.nii.gz"
+        nib.save(nib.Nifti1Image(arr, affine=np.eye(4)), str(path))
+        return path
+
+    def test_yields_two_labelled_views_of_correct_shape(self, tmp_path):
+        from preprocessing.pipeline import preprocess
+
+        views = preprocess(self._write_sub_nifti(tmp_path), device="cpu")
+        assert [v.label for v in views] == ["left", "right"]
+        for v in views:
+            assert v.tensor.shape == (1, 1, 32, 224, 224)
+
+    def test_deterministic(self, tmp_path):
+        from preprocessing.pipeline import preprocess
+
+        sub = self._write_sub_nifti(tmp_path)
+        a = preprocess(sub, device="cpu")
+        b = preprocess(sub, device="cpu")
+        for va, vb in zip(a, b):
+            assert torch.equal(va.tensor, vb.tensor)

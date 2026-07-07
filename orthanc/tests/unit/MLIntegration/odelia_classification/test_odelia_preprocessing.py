@@ -163,3 +163,51 @@ class TestMultiviewResponse:
         resp = build_multiview_response([("volume", [0.2, 0.8, 0.0])], None)
         assert len(resp["views"]) == 1
         assert resp["views"][0]["label"] == "volume"
+
+
+class TestServiceForwardLoop:
+    def _service(self):
+        import types
+
+        import config as config_module
+        from model_service import ModelService
+
+        cfg = types.SimpleNamespace(model_name="Pimed", device="cpu")
+        svc = ModelService.__new__(ModelService)
+        svc.config = cfg
+        svc.model_info = {"model_name": "Pimed"}
+        # Deterministic 3-class "model": returns fixed logits regardless of input.
+        svc.model = lambda tensor: torch.tensor([[0.0, 5.0, 0.0]])
+        return svc, config_module
+
+    def test_runs_one_forward_per_view(self, monkeypatch):
+        from preprocessing.types import VolumeView
+        import model_service as ms
+
+        svc, _ = self._service()
+
+        def fake_resolver(model_name):
+            def fake_preprocess(sub, device):
+                return [
+                    VolumeView(label=f"v{i}", tensor=torch.zeros(1, 1, 32, 224, 224))
+                    for i in range(3)
+                ]
+            return fake_preprocess
+
+        monkeypatch.setattr(ms, "resolve_preprocessor", fake_resolver)
+        resp = svc._infer_and_respond(__import__("pathlib").Path("/tmp/ignored.nii.gz"))
+        assert [v["label"] for v in resp["views"]] == ["v0", "v1", "v2"]
+        assert all(v["predicted_class"] == 1 for v in resp["views"])
+
+    def test_single_view_supported(self, monkeypatch):
+        from preprocessing.types import VolumeView
+        import model_service as ms
+
+        svc, _ = self._service()
+        monkeypatch.setattr(
+            ms,
+            "resolve_preprocessor",
+            lambda name: (lambda sub, device: [VolumeView("volume", torch.zeros(1, 1, 32, 224, 224))]),
+        )
+        resp = svc._infer_and_respond(__import__("pathlib").Path("/tmp/ignored.nii.gz"))
+        assert len(resp["views"]) == 1

@@ -20,9 +20,9 @@ from dicom_converter import (
 )
 from exceptions import InferenceError, ModelNotLoadedError
 from model_loader import build_model
-from models import assert_forward_contract, input_size
-from preprocessing import prepare_single_channel
-from response_builder import build_classification_response
+from models import assert_forward_contract
+from preprocessing import resolve_preprocessor
+from response_builder import build_multiview_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
 from shared.config import StorageConfig
 from shared.dicom_storage import PathContainmentError, resolve_within
@@ -229,21 +229,24 @@ class ModelService:
     # Shared helpers
     # ------------------------------------------------------------------
 
-    def _infer_and_respond(self, nifti_path: Path) -> dict:
-        """Common tail shared by all modes: prepare -> infer -> build response.
+    def _infer_and_respond(self, sub_nifti: Path) -> dict:
+        """Common tail for all modes: preprocess -> one forward per view -> response.
 
-        The single-channel transform is the ODV-217 seam: it is replaced there
-        with the exact shared MediSwarm bilateral/unilateral preprocessing.
+        The preprocessor (MediSwarm default, or a model-local override) returns
+        N views; the service runs a forward per view and labels each result.
         """
-        target_shape = input_size(self.config.model_name)
-        with time_operation("prepare_single_channel", logger):
-            tensor = prepare_single_channel(nifti_path, self.config.device, target_shape)
+        preprocess = resolve_preprocessor(self.config.model_name)
+        with time_operation("preprocess", logger):
+            views = preprocess(sub_nifti, self.config.device)
 
+        results: list[tuple[str, list[float]]] = []
         with time_operation("model_inference", logger):
-            probs = self._run_inference(tensor)
+            for view in views:
+                probs = self._run_inference(view.tensor)
+                results.append((view.label, probs))
 
-        logger.info(f"Inference complete: class probabilities = {probs}")
-        return build_classification_response(probs, self.model_info)
+        logger.info("Inference complete: %d view(s)", len(results))
+        return build_multiview_response(results, self.model_info)
 
     def _resolve_within(self, candidate: Path) -> Path:
         """

@@ -8,6 +8,7 @@ suffices elsewhere and is not re-ported.
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 import torchio as tio
 from torchio import Subject
@@ -86,3 +87,22 @@ class ZNormalization(tio.ZNormalization):
                 f'Standard deviation is 0 for masked values in image "{image_name}" ({image_path})'
             )
         return standardized
+
+
+def image_to_tensor(image: tio.Image) -> torch.Tensor:
+    """Convert a torchio image to a ``[C, D, H, W]`` tensor (MediSwarm axis order)."""
+    return image.data.swapaxes(1, -1)
+
+
+def crop_breast_height(image: tio.Image, margin_top: int = 10) -> tio.Crop:
+    """Crop height to 256, covering the breast via 90th-percentile intensity localization."""
+    threshold = int(np.quantile(image.data.float(), 0.9))
+    foreground = image.data > threshold
+    fg_rows = foreground[0].sum(axis=(0, 2))
+    fg_indices = torch.argwhere(fg_rows)
+    if fg_indices.numel() == 0:
+        top = 0
+    else:
+        top = min(max(512 - int(fg_indices.max()) - margin_top, 0), 256)
+    bottom = 256 - top
+    return tio.Crop((0, 0, bottom, top, 0, 0))

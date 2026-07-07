@@ -66,3 +66,27 @@ class TestZNormalization:
 
         assert parse_per_channel(True, 3) == [(0,), (1,), (2,)]
         assert parse_per_channel(False, 3) == [(0, 1, 2)]
+
+
+class TestHelpers:
+    def test_image_to_tensor_swaps_axes(self):
+        import torchio as tio
+
+        from preprocessing.transforms import image_to_tensor
+
+        # data is [C, W, H, D]; swapaxes(1, -1) -> [C, D, H, W]
+        img = tio.ScalarImage(tensor=torch.zeros(1, 5, 6, 7))
+        out = image_to_tensor(img)
+        assert out.shape == (1, 7, 6, 5)
+
+    def test_crop_breast_height_returns_height_256_crop(self):
+        import torchio as tio
+
+        from preprocessing.transforms import crop_breast_height
+
+        img = tio.ScalarImage(tensor=torch.ones(1, 512, 512, 32))
+        crop = crop_breast_height(img)
+        assert isinstance(crop, tio.Crop)
+        cropped = crop(img).data
+        # Height axis (index 2) is cropped to 256.
+        assert cropped.shape[2] == 256

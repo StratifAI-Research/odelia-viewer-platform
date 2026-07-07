@@ -142,3 +142,24 @@ class TestDispatch:
         monkeypatch.setitem(__import__("sys").modules, "models.pimed.preprocess", fake)
 
         assert dispatch.resolve_preprocessor("Pimed") is sentinel
+
+
+class TestMultiviewResponse:
+    def test_one_entry_per_view_keyed_by_label(self):
+        from response_builder import build_multiview_response
+
+        resp = build_multiview_response(
+            [("left", [0.1, 0.7, 0.2]), ("right", [0.8, 0.1, 0.1])],
+            {"model_name": "Pimed"},
+        )
+        assert resp["model_info"]["model_name"] == "Pimed"
+        assert [v["label"] for v in resp["views"]] == ["left", "right"]
+        assert resp["views"][0]["predicted_class"] == 1
+        assert resp["views"][1]["predicted_class"] == 0
+
+    def test_single_view_is_a_one_element_list(self):
+        from response_builder import build_multiview_response
+
+        resp = build_multiview_response([("volume", [0.2, 0.8, 0.0])], None)
+        assert len(resp["views"]) == 1
+        assert resp["views"][0]["label"] == "volume"

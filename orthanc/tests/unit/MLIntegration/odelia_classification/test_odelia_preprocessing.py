@@ -119,3 +119,26 @@ class TestPreprocessPipeline:
         b = preprocess(sub, device="cpu")
         for va, vb in zip(a, b):
             assert torch.equal(va.tensor, vb.tensor)
+
+
+class TestDispatch:
+    def test_defaults_to_mediswarm_pipeline(self):
+        from preprocessing import resolve_preprocessor
+        from preprocessing.pipeline import preprocess as default_preprocess
+
+        # An unknown model has no override -> default.
+        assert resolve_preprocessor("Pimed") is default_preprocess
+
+    def test_model_local_override_wins(self, monkeypatch):
+        import types
+
+        import preprocessing.dispatch as dispatch
+
+        sentinel = lambda sub, device: []  # noqa: E731
+        fake = types.ModuleType("models.pimed.preprocess")
+        fake.preprocess = sentinel
+
+        monkeypatch.setattr(dispatch, "available_models", lambda: {"Pimed": "pimed"})
+        monkeypatch.setitem(__import__("sys").modules, "models.pimed.preprocess", fake)
+
+        assert dispatch.resolve_preprocessor("Pimed") is sentinel

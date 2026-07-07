@@ -27,3 +27,42 @@ class TestVolumeView:
         view = VolumeView(label="right", tensor=torch.zeros(1))
         with pytest.raises(dataclasses.FrozenInstanceError):
             view.label = "left"
+
+
+class TestZNormalization:
+    def _subject(self, tensor):
+        import torchio as tio
+
+        return tio.Subject(img=tio.ScalarImage(tensor=tensor))
+
+    def test_clips_outlier_to_percentile_then_standardizes(self):
+        import torchio as tio
+
+        from preprocessing.transforms import ZNormalization
+
+        # A ramp 1..1000 plus a huge outlier; min/max are excluded by the mask.
+        data = torch.arange(1, 1001, dtype=torch.float32).reshape(1, 10, 10, 10).clone()
+        data[0, 0, 0, 0] = 100000.0  # outlier -> must be clipped, not survive
+        subject = self._subject(data)
+
+        transform = ZNormalization(
+            percentiles=(0.5, 99.5),
+            per_channel=True,
+            per_slice=False,
+            masking_method=lambda x: (x > x.min()) & (x < x.max()),
+        )
+        out = transform(subject).img.data
+
+        # Outlier was clipped to <= the 99.5th percentile (nowhere near 100000).
+        assert out.max().item() < 10.0
+        # Masked region is standardized: ~0 mean, ~1 std.
+        mask = (data > data.min()) & (data < data.max())
+        vals = out.masked_select(mask)
+        assert abs(vals.mean().item()) < 0.1
+        assert abs(vals.std().item() - 1.0) < 0.1
+
+    def test_parse_per_channel_bool(self):
+        from preprocessing.transforms import parse_per_channel
+
+        assert parse_per_channel(True, 3) == [(0,), (1,), (2,)]
+        assert parse_per_channel(False, 3) == [(0, 1, 2)]

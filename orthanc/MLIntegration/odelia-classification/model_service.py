@@ -1,10 +1,10 @@
 """
-Generalized ODELIA model service (ODV-214) - orchestrates the inference pipeline.
+Generalized ODELIA model service - orchestrates the inference pipeline.
 
 Serves the single subunit baked into the image (one image = one model) and
-preserves the MST service's initialize_model / analyze_* contract. The exact
-single-channel preprocessing is delegated to a shared transform in ODV-217; a
-minimal deterministic transform is used here so the block is runnable.
+preserves the MST service's initialize_model / analyze_* contract. A subtraction
+NIfTI is preprocessed into N views (MediSwarm default, model-overridable via
+preprocessing.dispatch) and one forward pass is run per view.
 """
 
 import logging

@@ -42,9 +42,7 @@ class ZNormalization(tio.ZNormalization):
         self.per_channel = per_channel
         self.per_slice = per_slice
 
-    def apply_normalization(
-        self, subject: Subject, image_name: str, mask: torch.Tensor
-    ) -> None:
+    def apply_normalization(self, subject: Subject, image_name: str, mask: torch.Tensor) -> None:
         image = subject[image_name]
         per_channel = parse_per_channel(self.per_channel, image.shape[0])
         per_slice = parse_per_channel(self.per_slice, image.shape[-1])
@@ -55,8 +53,18 @@ class ZNormalization(tio.ZNormalization):
                     torch.cat(
                         [
                             self._znorm(
-                                image.data[chs,][:, :, :, sl,],
-                                mask[chs,][:, :, :, sl,],
+                                image.data[chs,][
+                                    :,
+                                    :,
+                                    :,
+                                    sl,
+                                ],
+                                mask[chs,][
+                                    :,
+                                    :,
+                                    :,
+                                    sl,
+                                ],
                                 image_name,
                                 image.path,
                             )
@@ -98,7 +106,7 @@ def crop_breast_height(image: tio.Image, margin_top: int = 10) -> tio.Crop:
     """Crop height to 256, covering the breast via 90th-percentile intensity localization."""
     threshold = int(np.quantile(image.data.float(), 0.9))
     foreground = image.data > threshold
-    fg_rows = foreground[0].sum(axis=(0, 2))
+    fg_rows = foreground[0].sum(dim=(0, 2))
     fg_indices = torch.argwhere(fg_rows)
     if fg_indices.numel() == 0:
         top = 0

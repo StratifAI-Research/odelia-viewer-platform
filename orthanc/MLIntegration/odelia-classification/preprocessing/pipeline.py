@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import torch
 import torchio as tio
 
 from preprocessing.transforms import (
@@ -26,7 +27,7 @@ _SPLIT = {
 }
 
 
-def _mask(x: "tio.Image") -> object:
+def _mask(x: torch.Tensor) -> torch.Tensor:
     return (x > x.min()) & (x < x.max())
 
 

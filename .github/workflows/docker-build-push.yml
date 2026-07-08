@@ -37,15 +37,38 @@ jobs:
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
-          # Generalized model service (ODV-214): build one representative model
-          # image to prove the MODEL-selecting Dockerfile builds. On main pushes it
-          # gets a sha- tag like the other images but is NOT promoted to latest;
-          # the full per-model matrix + image naming is ODV-218.
+          # Generalized model service (ODV-218): one image per roster model,
+          # named stratifai/odelia-classification-<model> (kebab-case subunit).
+          - image: odelia-classification-agaldran
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=agaldran
+          - image: odelia-classification-bcn-aim
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=BCN_AIM
+          - image: odelia-classification-divide-and-conquer
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=DivideAndConquer
+          - image: odelia-classification-lme-abmil
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=LME_ABMIL
           - image: odelia-classification-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=MST
+          - image: odelia-classification-pimed
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=Pimed
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -103,7 +126,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat odelia-classification-agaldran odelia-classification-bcn-aim odelia-classification-divide-and-conquer odelia-classification-lme-abmil odelia-classification-mst odelia-classification-pimed"
           tags=()
           if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
             tags+=("latest")

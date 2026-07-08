@@ -1,0 +1,73 @@
+# Model router+service pair template (ODV-218).
+#
+# Copy the two service blocks below into docker-compose.yml (under `services:`)
+# and replace every <placeholder>. This file is not runnable as-is.
+#
+# Placeholders:
+#   <svc>            model service name, e.g. odelia-classification-mst
+#   <router>         router service name, e.g. orthanc-router-odelia-mst
+#   <model-arg>      odelia-classification MODEL build-arg: agaldran | BCN_AIM |
+#                    DivideAndConquer | LME_ABMIL | MST | Pimed
+#   <backend-port>   host port for the model service (container port is 5556)
+#   <dicom-port>     host port for the router DICOM endpoint (container 4242)
+#   <http-port>      host port for the router HTTP endpoint (container 8042)
+#   <manifest-path>  repo-relative manifest, e.g.
+#                    ./orthanc/MLIntegration/odelia-classification/manifest.json
+#   <ai-name>        display name shown in the viewer AI badge
+#
+# Host port allocation (keep this table current when adding a pair):
+#   backend:  5556 mst-classifier, 5557 medgemma-mri, 5560 chat-middleware,
+#             5558/5559/5561-5564 odelia-classification roster
+#   DICOM:    2000 orthanc-viewer, 4243 mst, 4244 medgemma, 4245-4250 roster
+#   HTTP:     8000 orthanc-viewer, 8043 mst, 8044 medgemma, 8045-8050 roster
+#   other:    8081 viewer, 8090 llamacpp, 3000 grafana, 8080 keycloak
+#
+# Opt-in pairs: add `profiles: [odelia-models]` to BOTH services.
+# After wiring, register the router in config/app-config.js aiEndpoints
+# (docs/usage/adding_custom_models.md, "Register in Viewer").
+
+services:
+  <router>:
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: <router>
+    container_name: odelia-<router>
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/<router>-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - <manifest-path>:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}<dicom-port>:4242' # DICOM
+      - '${BIND_HOST:-}<http-port>:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=<router>
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://<svc>:5556
+      - AI_NAME=<ai-name>
+    depends_on:
+      - <svc>
+
+  <svc>:
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: <model-arg>
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/<svc>:${TAG:-0.1.0}
+    container_name: <svc>
+    environment:
+      ORTHANC_URL: "http://<router>:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}<backend-port>:5556'

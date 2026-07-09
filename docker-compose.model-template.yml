@@ -13,7 +13,8 @@
 #   <http-port>      host port for the router HTTP endpoint (container 8042)
 #   <manifest-path>  repo-relative manifest, e.g.
 #                    ./orthanc/MLIntegration/odelia-classification/manifest.json
-#   <ai-name>        display name shown in the viewer AI badge
+#   <ai-name>        model display name written into DICOM result metadata
+#                    (SeriesDescription etc.)
 #
 # Host port allocation (keep this table current when adding a pair):
 #   backend:  5556 mst-classifier, 5557 medgemma-mri, 5560 chat-middleware,

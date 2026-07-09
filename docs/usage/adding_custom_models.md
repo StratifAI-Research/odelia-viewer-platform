@@ -630,7 +630,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create directories
 RUN mkdir -p models images
 
-# Expose port (choose a unique port — 5556/5557/5560 are already taken)
+# Expose port (choose a unique port — see the host-port allocation table in docker-compose.model-template.yml)
 EXPOSE 5558
 
 # Run service
@@ -645,7 +645,11 @@ Copy the two service blocks from
 the template header documents each one and carries the authoritative
 host-port allocation table. For a bespoke service (this guide), point the
 `build:` at your own directory/Dockerfile instead of
-`odelia-classification/Dockerfile` and drop the `MODEL` build-arg.
+`odelia-classification/Dockerfile` and drop the `MODEL` build-arg. Also
+change the container port `5556` in the service's port mapping and in the
+router's `MODEL_BACKEND_URL` to the port your service actually listens on
+(e.g. `5558` from Step 5's Dockerfile), and drop `MODEL_DEVICE` unless your
+service uses it.
 
 Notes:
 
@@ -661,7 +665,7 @@ Notes:
 ### Step 7: Register in Viewer
 
 Edit `config/app-config.js` and add your model to the `aiEndpoints` array. Out of the box
-only the MST endpoint is registered, so you are appending to it:
+two endpoints are registered (`mst-ai` and `odelia-mst`), so you are appending to them:
 
 ```javascript
   aiEndpoints: [

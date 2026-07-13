@@ -71,7 +71,5 @@ MODEL_NAME=Pimed python smoke_test.py        # defaults MODEL_DEVICE=cpu
 ## Scope / deferred
 
 - Trained-weight loading from HuggingFace → **ODV-216** (init weights only here).
-- Exact shared single-channel transform → **ODV-217** (`preprocessing.py` is a
-  minimal placeholder seam).
 - Router/compose template + add-a-model recipe → **ODV-218**.
 - Per-model serving/E2E smoke tests → **ODV-219 / ODV-220**.

@@ -211,3 +211,75 @@ class TestServiceForwardLoop:
         )
         resp = svc._infer_and_respond(__import__("pathlib").Path("/tmp/ignored.nii.gz"))
         assert len(resp["views"]) == 1
+
+
+class TestDispatchHardening:
+    def test_broken_override_import_propagates(self, monkeypatch):
+        import importlib
+
+        import pytest
+
+        import preprocessing.dispatch as dispatch
+
+        monkeypatch.setattr(dispatch, "available_models", lambda: {"Pimed": "pimed"})
+
+        def boom(name):
+            raise ModuleNotFoundError("No module named 'missing_dep'", name="missing_dep")
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        with pytest.raises(ModuleNotFoundError, match="missing_dep"):
+            dispatch.resolve_preprocessor("Pimed")
+
+    def test_absent_override_falls_back_to_default(self, monkeypatch):
+        import importlib
+
+        import preprocessing.dispatch as dispatch
+        from preprocessing.pipeline import preprocess as default_preprocess
+
+        monkeypatch.setattr(dispatch, "available_models", lambda: {"Pimed": "pimed"})
+
+        def absent(name):
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+
+        monkeypatch.setattr(importlib, "import_module", absent)
+        assert dispatch.resolve_preprocessor("Pimed") is default_preprocess
+
+
+class TestServiceEmptyViews:
+    def test_empty_views_raises(self, monkeypatch):
+        import types
+
+        import pytest
+
+        import model_service as ms
+        from exceptions import InferenceError
+        from model_service import ModelService
+
+        svc = ModelService.__new__(ModelService)
+        svc.config = types.SimpleNamespace(model_name="Pimed", device="cpu")
+        svc.model_info = {"model_name": "Pimed"}
+        svc.model = lambda tensor: torch.tensor([[0.0, 5.0, 0.0]])
+        monkeypatch.setattr(ms, "resolve_preprocessor", lambda name: (lambda sub, device: []))
+        with pytest.raises(InferenceError):
+            svc._infer_and_respond(__import__("pathlib").Path("/tmp/ignored.nii.gz"))
+
+
+class TestSplitOrientation:
+    def test_split_maps_labels_to_correct_w_halves(self):
+        import torchio as tio
+
+        from preprocessing.pipeline import _SPLIT
+
+        # torchio data is [C, W, H, D]; mark left W-half (0:256)=1, right W-half (256:512)=2.
+        data = torch.zeros(1, 512, 8, 8)
+        data[:, :256] = 1.0
+        data[:, 256:] = 2.0
+        img = tio.ScalarImage(tensor=data)
+
+        left = _SPLIT["left"](img).data
+        right = _SPLIT["right"](img).data
+        assert left.shape[1] == 256
+        assert right.shape[1] == 256
+        # "left" keeps W[0:256] (value 1); "right" keeps W[256:512] (value 2) — matches MediSwarm step3.
+        assert bool(torch.all(left == 1.0))
+        assert bool(torch.all(right == 2.0))

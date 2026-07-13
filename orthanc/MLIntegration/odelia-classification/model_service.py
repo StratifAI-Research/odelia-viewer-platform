@@ -238,6 +238,8 @@ class ModelService:
         preprocess = resolve_preprocessor(self.config.model_name)
         with time_operation("preprocess", logger):
             views = preprocess(sub_nifti, self.config.device)
+        if not views:
+            raise InferenceError("preprocessor returned no views")
 
         results: list[tuple[str, list[float]]] = []
         with time_operation("model_inference", logger):

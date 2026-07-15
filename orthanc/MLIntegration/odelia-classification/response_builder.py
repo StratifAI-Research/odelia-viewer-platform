@@ -27,3 +27,24 @@ def build_classification_response(
         "probabilities": probs,
         "predicted_class": predicted_class,
     }
+
+
+def build_multiview_response(
+    results: list[tuple[str, list[float]]], model_info: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Build a labelled per-view response from ``(label, probabilities)`` pairs.
+
+    One entry per forward pass — 1, 2 (left/right) or N. Each view reuses the
+    single-view builder for its probabilities + argmax.
+    """
+    views = []
+    for label, probs in results:
+        single = build_classification_response(probs, model_info)
+        views.append(
+            {
+                "label": label,
+                "probabilities": single["probabilities"],
+                "predicted_class": single["predicted_class"],
+            }
+        )
+    return {"model_info": model_info or {}, "views": views}

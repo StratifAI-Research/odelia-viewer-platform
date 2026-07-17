@@ -5,7 +5,7 @@ jq==1.6.0
 # Runtime deps imported at module top-level by the smoke tests (and future unit tests)
 numpy==2.2.6
 pydicom==3.0.2
-Pillow==12.2.0
+Pillow==12.3.0
 dicomweb-client==0.61.0
 pandas==2.3.3
 # MLIntegration service deps (Flask from MST/medgemma-mri; fastapi+pydantic from chat-middleware)
@@ -14,11 +14,11 @@ Flask-Cors==6.0.2
 fastapi==0.136.1
 httpx==0.28.1
 pydantic==2.13.4
-aiohttp==3.13.5
+aiohttp==3.14.1
 # Real torch / torchio / SimpleITK for MLI service unit tests (BC + MST + medgemma)
 # CPU-only wheels keep CI install size manageable.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.12.0
+torch==2.12.1+cpu
 torchio==1.2.0
 SimpleITK==2.5.5
 # odelia-classification built-in model deps (ODV-214). NB: these are the CI /

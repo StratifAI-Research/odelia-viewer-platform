@@ -158,8 +158,8 @@ services:
 #              capabilities: [gpu]
 
   # ODELIA classification roster (ODV-218): one router+service pair per model,
-  # instantiated from docker-compose.model-template.yml. Only the MST pair is
-  # default-on; the rest need: docker compose --profile odelia-models up
+  # instantiated from docker-compose.model-template.yml. All pairs are behind
+  # profile odelia-models (nothing default-on): docker compose --profile odelia-models up
   orthanc-router-odelia-agaldran:
     profiles: [odelia-models]
     build:
@@ -349,6 +349,7 @@ services:
       - '${BIND_HOST:-}5562:5556'
 
   orthanc-router-odelia-mst:
+    profiles: [odelia-models]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -378,6 +379,7 @@ services:
       - odelia-classification-mst
 
   odelia-classification-mst:
+    profiles: [odelia-models]
     build:
       context: ./orthanc/MLIntegration
       dockerfile: odelia-classification/Dockerfile

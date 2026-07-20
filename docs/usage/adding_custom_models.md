@@ -630,7 +630,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create directories
 RUN mkdir -p models images
 
-# Expose port (choose a unique port — see the host-port allocation table in docker-compose.model-template.yml)
+# Expose the port your service listens on. This is a container-internal port, so it
+# need not be globally unique — it only has to match the service's port mapping and the
+# router's MODEL_BACKEND_URL. (The host-port allocation table governs host-side ports.)
 EXPOSE 5558
 
 # Run service
@@ -658,14 +660,14 @@ Notes:
 - The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
 - A live example of a filled-in pair is the `odelia-classification-mst` /
-  `orthanc-router-odelia-mst` pair in `docker-compose.yml`; the five
-  `profiles: [odelia-models]` pairs next to it show the opt-in variant
+  `orthanc-router-odelia-mst` pair in `docker-compose.yml`; all six ODELIA
+  roster pairs sit behind `profiles: [odelia-models]`
   (`docker compose --profile odelia-models up`).
 
 ### Step 7: Register in Viewer
 
 Edit `config/app-config.js` and add your model to the `aiEndpoints` array. Out of the box
-two endpoints are registered (`mst-ai` and `odelia-mst`), so you are appending to them:
+one endpoint is registered (`mst-ai`), so you are appending to it:
 
 ```javascript
   aiEndpoints: [
@@ -673,11 +675,6 @@ two endpoints are registered (`mst-ai` and `odelia-mst`), so you are appending t
       id: 'mst-ai',
       name: 'MST AI model',
       url: 'http://orthanc-router-mst:8042/dicom-web',
-    },
-    {
-      id: 'odelia-mst',
-      name: 'ODELIA MST (init weights preview)',
-      url: 'http://orthanc-router-odelia-mst:8042/dicom-web',
     },
     {
       id: 'your-model',

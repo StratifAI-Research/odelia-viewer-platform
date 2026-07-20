@@ -58,11 +58,6 @@ window.config = {
       name: 'MST AI model',
       url: 'http://orthanc-router-mst:8042/dicom-web',
     },
-    {
-      id: 'odelia-mst',
-      name: 'ODELIA MST (init weights preview)',
-      url: 'http://orthanc-router-odelia-mst:8042/dicom-web',
-    },
   ],
   httpErrorHandler: error => {
     console.warn(`HTTP Error Handler (status: ${error.status})`, error);

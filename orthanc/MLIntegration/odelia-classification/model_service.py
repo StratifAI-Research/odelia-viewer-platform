@@ -22,13 +22,15 @@ from exceptions import InferenceError, ModelNotLoadedError
 from model_loader import build_model
 from models import assert_forward_contract
 from preprocessing import resolve_preprocessor
-from response_builder import build_multiview_response
+from response_builder import build_bilateral_response, build_multiview_response
 from retrieval_strategy import RetrievalStrategy, WadoRSRetrieval
 from shared.config import StorageConfig
 from shared.dicom_storage import PathContainmentError, resolve_within
 from shared.timing_utils import time_operation
 
 logger = logging.getLogger(__name__)
+
+_BILATERAL_LABELS = {"left", "right"}
 
 
 class ModelService:
@@ -248,6 +250,8 @@ class ModelService:
                 results.append((view.label, probs))
 
         logger.info("Inference complete: %d view(s)", len(results))
+        if {label for label, _ in results} == _BILATERAL_LABELS:
+            return build_bilateral_response(results, self.model_info)
         return build_multiview_response(results, self.model_info)
 
     def _resolve_within(self, candidate: Path) -> Path:

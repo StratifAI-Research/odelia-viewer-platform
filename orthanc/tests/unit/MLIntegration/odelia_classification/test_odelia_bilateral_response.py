@@ -76,3 +76,56 @@ class TestBilateralResponse:
         resp = build_bilateral_response(_RESULTS, None)
         assert resp["model_metadata"]["model_name"] == "ODELIA"
         assert resp["left"]["prediction"] == "Benign"
+
+
+class TestInferAndRespondShape:
+    """_infer_and_respond picks its response shape from the view labels."""
+
+    def _service(self, monkeypatch, labels):
+        from types import SimpleNamespace
+
+        from model_service import ModelService
+        from preprocessing.types import VolumeView
+
+        svc = ModelService.__new__(ModelService)
+        svc.config = SimpleNamespace(model_name="Pimed", device="cpu")
+        svc.model_info = _INFO
+
+        views = [VolumeView(label=label, tensor=object()) for label in labels]
+        monkeypatch.setattr(
+            "model_service.resolve_preprocessor",
+            lambda name: lambda path, device: views,
+        )
+        monkeypatch.setattr(
+            ModelService, "_run_inference", lambda self, tensor: [0.1, 0.7, 0.2]
+        )
+        return svc
+
+    def test_left_right_labels_produce_bilateral_shape(self, monkeypatch):
+        from pathlib import Path
+
+        svc = self._service(monkeypatch, ["left", "right"])
+        resp = svc._infer_and_respond(Path("/tmp/sub.nii.gz"))
+
+        assert resp["left"]["prediction"] == "Benign"
+        assert resp["right"]["prediction"] == "Benign"
+        assert resp["model_metadata"]["model_name"] == "Pimed"
+
+    def test_non_bilateral_labels_keep_views_shape(self, monkeypatch):
+        from pathlib import Path
+
+        svc = self._service(monkeypatch, ["volume"])
+        resp = svc._infer_and_respond(Path("/tmp/sub.nii.gz"))
+
+        assert "left" not in resp
+        assert "model_metadata" not in resp
+        assert [v["label"] for v in resp["views"]] == ["volume"]
+
+    def test_empty_views_still_raise(self, monkeypatch):
+        from pathlib import Path
+
+        from exceptions import InferenceError
+
+        svc = self._service(monkeypatch, [])
+        with pytest.raises(InferenceError, match="no views"):
+            svc._infer_and_respond(Path("/tmp/sub.nii.gz"))

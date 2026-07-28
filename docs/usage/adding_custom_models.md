@@ -871,7 +871,7 @@ Models whose pair is not running are skipped, not failed, so a partial roster
 Or a single model:
 
     cd orthanc
-    pytest tests/integration/test_model_roster_roundtrip.py -m integration -k Pimed
+    .venv/bin/python -m pytest tests/integration/test_model_roster_roundtrip.py -m integration -k Pimed
 
 Override `ROSTER_HOST` if the stack is not on `localhost`. On a warmed-up dev
 host a round-trip completes in about 5 seconds (retrieve, NIfTI conversion,
@@ -897,6 +897,12 @@ Both containers need it: the router posts the finished SR back to the viewer,
 and the model service fetches the source series from the viewer over WADO-RS.
 Recreating a container drops a manually attached network -- re-attach after any
 `compose up` that recreates it.
+
+`scripts/run-roster-tests.sh` recreates all six pairs via `up -d`, so it drops
+any manual attachment on every run. Set `VIEWER_NETWORK=<viewer-project>_odelia-network`
+and the script re-attaches both containers of each pair after `up -d` (tolerating
+the already-attached error). Leave it unset when the viewer runs in this same
+compose project; the script then just prints a reminder to attach manually.
 
 Model display names (`AI_NAME`) must match `[A-Za-z0-9 _-]+`; the viewer's
 DICOMweb server-name validator rejects anything else, including parentheses.

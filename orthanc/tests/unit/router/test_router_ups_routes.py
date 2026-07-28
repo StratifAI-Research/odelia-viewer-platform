@@ -2,6 +2,8 @@
 
 Covers:
   - register_ups_routes(): all 6 URIs registered
+  - WorkitemsCollection: dispatches /ups-rs/workitems by method (POST -> CreateWorkitem,
+    GET -> QueryWorkitems, else 405)
   - CreateWorkitem: POST happy path, wrong method, missing study_uid
   - GetWorkitem: GET happy path, wrong method, missing uid, not found
   - UpdateWorkitemState: PUT happy path, wrong method, missing uid, missing state, not found
@@ -84,7 +86,7 @@ def _make_workitem():
 # Registration
 # ---------------------------------------------------------------------------
 
-def test_register_ups_routes_registers_all_six_uris(routes):
+def test_register_ups_routes_registers_all_uris(routes):
     import orthanc
     orthanc._rest_callbacks.clear()
     routes.register_ups_routes()
@@ -95,6 +97,27 @@ def test_register_ups_routes_registers_all_six_uris(routes):
     assert '/ups-rs/workitems/([0-9.]+)/subscribers$' in uris
     assert '/ups-rs/workitems/([0-9.]+)/subscribers/(.+)$' in uris
     assert '/manifest$' in uris
+
+
+# ---------------------------------------------------------------------------
+# WorkitemsCollection dispatcher
+# ---------------------------------------------------------------------------
+
+def test_workitems_collection_get_reaches_query_workitems(out, routes):
+    with mock.patch.object(routes, "QueryWorkitems") as mock_query:
+        routes.WorkitemsCollection(out, '/ups-rs/workitems', method='GET', body=b'', get={})
+    mock_query.assert_called_once()
+
+
+def test_workitems_collection_post_reaches_create_workitem(out, routes):
+    with mock.patch.object(routes, "CreateWorkitem") as mock_create:
+        routes.WorkitemsCollection(out, '/ups-rs/workitems', method='POST', body=b'{}', groups=[])
+    mock_create.assert_called_once()
+
+
+def test_workitems_collection_other_method_returns_405(out, routes):
+    routes.WorkitemsCollection(out, '/ups-rs/workitems', method='PUT', body=b'', groups=[])
+    assert out.status == 405
 
 
 # ---------------------------------------------------------------------------

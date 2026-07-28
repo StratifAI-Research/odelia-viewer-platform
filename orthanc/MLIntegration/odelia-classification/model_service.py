@@ -250,7 +250,9 @@ class ModelService:
                 results.append((view.label, probs))
 
         logger.info("Inference complete: %d view(s)", len(results))
-        if {label for label, _ in results} == _BILATERAL_LABELS:
+        # Cardinality guard: a duplicated label (e.g. two "left" views) must
+        # not collapse to the bilateral set and silently drop a view.
+        if len(results) == 2 and {label for label, _ in results} == _BILATERAL_LABELS:
             return build_bilateral_response(results, self.model_info)
         return build_multiview_response(results, self.model_info)
 

@@ -129,3 +129,14 @@ class TestInferAndRespondShape:
         svc = self._service(monkeypatch, [])
         with pytest.raises(InferenceError, match="no views"):
             svc._infer_and_respond(Path("/tmp/sub.nii.gz"))
+
+    def test_duplicate_labels_keep_views_shape(self, monkeypatch):
+        """Three views, duplicate label: cardinality guard keeps views shape."""
+        from pathlib import Path
+
+        svc = self._service(monkeypatch, ["left", "right", "left"])
+        resp = svc._infer_and_respond(Path("/tmp/sub.nii.gz"))
+
+        assert "left" not in resp
+        assert "model_metadata" not in resp
+        assert len(resp["views"]) == 3

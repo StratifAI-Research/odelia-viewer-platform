@@ -159,6 +159,6 @@ def test_model_info_carries_architecture_and_version(monkeypatch):
     from config import SERVICE_VERSION
     from model_loader import build_model
 
-    model, info = build_model("Pimed")
-    assert info["architecture"] == type(model).__name__
+    _model, info = build_model("Pimed")
+    assert info["architecture"] == "Pimed"
     assert info["version"] == SERVICE_VERSION

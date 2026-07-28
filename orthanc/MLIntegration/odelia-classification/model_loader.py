@@ -33,7 +33,7 @@ def build_model(model_name: str, num_classes: int = 3) -> tuple[torch.nn.Module,
 
     info: dict[str, Any] = {
         "model_name": model_name,
-        "architecture": type(model).__name__,
+        "architecture": model_name,
         "version": SERVICE_VERSION,
         "num_classes": num_classes,
         "device": device,

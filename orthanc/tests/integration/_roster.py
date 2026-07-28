@@ -15,7 +15,7 @@ class RosterModel(NamedTuple):
     backend_port: int
 
 
-_PREVIEW = "(init weights preview)"
+_PREVIEW = "init weights preview"
 
 ROSTER = [
     RosterModel(

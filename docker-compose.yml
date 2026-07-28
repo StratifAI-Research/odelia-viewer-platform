@@ -186,7 +186,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-agaldran:5556
-      - AI_NAME=ODELIA agaldran (init weights preview)
+      - AI_NAME=ODELIA agaldran init weights preview
     depends_on:
       - odelia-classification-agaldran
 
@@ -233,7 +233,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-bcn-aim:5556
-      - AI_NAME=ODELIA BCN_AIM (init weights preview)
+      - AI_NAME=ODELIA BCN_AIM init weights preview
     depends_on:
       - odelia-classification-bcn-aim
 
@@ -280,7 +280,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-divide-and-conquer:5556
-      - AI_NAME=ODELIA DivideAndConquer (init weights preview)
+      - AI_NAME=ODELIA DivideAndConquer init weights preview
     depends_on:
       - odelia-classification-divide-and-conquer
 
@@ -327,7 +327,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-lme-abmil:5556
-      - AI_NAME=ODELIA LME_ABMIL (init weights preview)
+      - AI_NAME=ODELIA LME_ABMIL init weights preview
     depends_on:
       - odelia-classification-lme-abmil
 
@@ -374,7 +374,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
-      - AI_NAME=ODELIA MST (init weights preview)
+      - AI_NAME=ODELIA MST init weights preview
     depends_on:
       - odelia-classification-mst
 
@@ -421,7 +421,7 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-pimed:5556
-      - AI_NAME=ODELIA Pimed (init weights preview)
+      - AI_NAME=ODELIA Pimed init weights preview
     depends_on:
       - odelia-classification-pimed
 

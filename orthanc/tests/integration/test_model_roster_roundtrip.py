@@ -19,6 +19,8 @@ _HOST = os.environ.get("ROSTER_HOST", "http://localhost")
 _CLASS_NAMES = {"No lesion", "Benign", "Malignant"}
 _STATE_TAG = "00741000"  # Procedure Step State
 _TIMEOUT_S = int(os.environ.get("ROUNDTRIP_TIMEOUT_S", "900"))
+_IN_FLIGHT = {"SCHEDULED", "IN PROGRESS", "IN_PROGRESS"}
+_SR_UPLOAD_TIMEOUT_S = 30
 
 
 def _skip_if_down(model) -> None:
@@ -40,13 +42,13 @@ def _workitem_state(router_port: int, workitem_uid: str) -> str | None:
 
 
 def _sr_instance_ids(base_url: str, study_id: str) -> set[str]:
-    instances = requests.get(f"{base_url}/studies/{study_id}/instances", timeout=30).json()
+    """Instance IDs of SR series in the study (Modality lives at series level)."""
+    series = requests.get(f"{base_url}/studies/{study_id}/series", timeout=30).json()
     return {
-        i["ID"]
-        for i in instances
-        if i.get("MainDicomTags", {})
-        .get("SOPClassUID", "")
-        .startswith("1.2.840.10008.5.1.4.1.1.88")
+        inst
+        for s in series
+        if s["MainDicomTags"].get("Modality") == "SR"
+        for inst in s.get("Instances", [])
     }
 
 
@@ -96,7 +98,7 @@ def test_send_to_ai_produces_sr(base_url, study, model):
     final_state = None
     while time.time() < deadline:
         final_state = _workitem_state(model.router_port, workitem_uid)
-        if final_state not in ("SCHEDULED", "IN PROGRESS", None):
+        if final_state is not None and final_state not in _IN_FLIGHT:
             new_srs = _sr_instance_ids(base_url, study_id) - before_srs
             break
         time.sleep(5)
@@ -106,6 +108,12 @@ def test_send_to_ai_produces_sr(base_url, study, model):
         f"workitem ended {final_state}, not COMPLETED "
         "(a CANCELED here is the Unknown-response-format regression)"
     )
+
+    sr_deadline = time.time() + _SR_UPLOAD_TIMEOUT_S
+    while not new_srs and time.time() < sr_deadline:
+        time.sleep(5)
+        new_srs = _sr_instance_ids(base_url, study_id) - before_srs
+
     assert new_srs, "workitem completed but no SR was written back to the viewer"
 
     sr_bytes = requests.get(f"{base_url}/instances/{sorted(new_srs)[-1]}/file", timeout=30).content

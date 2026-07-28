@@ -757,7 +757,14 @@ def test_create_text_overlay_sc_encodes_model_provenance(srv):
 
 # ODV-219: the odelia-classification payload the router must accept.
 _ODELIA_BILATERAL_RESULTS = {
-    "model_info": {"model_name": "Pimed", "architecture": "ResNet", "version": "0.1.0"},
+    "model_info": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+        "num_classes": 3,
+        "device": "cpu",
+        "weights": "init-only",
+    },
     "views": [
         {"label": "left", "probabilities": [0.1, 0.7, 0.2], "predicted_class": 1},
         {"label": "right", "probabilities": [0.8, 0.1, 0.1], "predicted_class": 0},

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import torch
 from models import resolve_baked_model
 
+SERVICE_VERSION = "0.1.0"  # keep in sync with pyproject.toml [project] version
+
 
 def resolve_device() -> str:
     """Select the inference device from the required ``MODEL_DEVICE`` env var.

@@ -150,3 +150,15 @@ def test_mst_builds_and_forwards(monkeypatch):
     model, info = build_model("MST")
     assert info["model_name"] == "MST"
     assert assert_forward_contract(model, "MST") == (1, 3)
+
+
+def test_model_info_carries_architecture_and_version(monkeypatch):
+    """SR provenance reads architecture/version from model_info."""
+    monkeypatch.setenv("MODEL_DEVICE", "cpu")
+
+    from config import SERVICE_VERSION
+    from model_loader import build_model
+
+    model, info = build_model("Pimed")
+    assert info["architecture"] == type(model).__name__
+    assert info["version"] == SERVICE_VERSION

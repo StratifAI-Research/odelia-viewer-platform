@@ -12,7 +12,7 @@ import os
 from typing import Any
 
 import torch
-from config import resolve_device
+from config import SERVICE_VERSION, resolve_device
 from models import create_model
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ def build_model(model_name: str, num_classes: int = 3) -> tuple[torch.nn.Module,
 
     info: dict[str, Any] = {
         "model_name": model_name,
+        "architecture": type(model).__name__,
+        "version": SERVICE_VERSION,
         "num_classes": num_classes,
         "device": device,
         "weights": "init-only",  # ODV-216 overlays a trained state_dict

@@ -753,3 +753,42 @@ def test_create_text_overlay_sc_encodes_model_provenance(srv):
     from pydicom import dcmread
     parsed = dcmread(io.BytesIO(sc_bytes), force=True)
     _assert_sc_model_provenance(parsed, msg_prefix="text_overlay_sc: ")
+
+
+# ODV-219: the odelia-classification payload the router must accept.
+_ODELIA_BILATERAL_RESULTS = {
+    "model_info": {"model_name": "Pimed", "architecture": "ResNet", "version": "0.1.0"},
+    "views": [
+        {"label": "left", "probabilities": [0.1, 0.7, 0.2], "predicted_class": 1},
+        {"label": "right", "probabilities": [0.8, 0.1, 0.1], "predicted_class": 0},
+    ],
+    "left": {"prediction": "Benign", "confidence": 70.0},
+    "right": {"prediction": "No lesion", "confidence": 80.0},
+    "model_metadata": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+    },
+}
+
+
+def test_detect_response_format_accepts_odelia_payload(srv):
+    assert srv.detect_response_format(_ODELIA_BILATERAL_RESULTS) == "bilateral"
+
+
+def test_create_bilateral_sr_from_odelia_payload_uses_model_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    from pydicom import dcmread
+    parsed = dcmread(io.BytesIO(sr_bytes))
+
+    algorithm = parsed.ContentSequence[0].ContentSequence[-1]
+    assert algorithm.TextValue == "Pimed"
+    assert algorithm.AlgorithmName == "ResNet"
+    assert algorithm.AlgorithmVersion == "0.1.0"
+
+
+def test_create_bilateral_sr_from_odelia_payload_carries_no_weight_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    assert b"init-only" not in sr_bytes

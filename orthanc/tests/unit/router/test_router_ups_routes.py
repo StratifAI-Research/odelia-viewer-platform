@@ -98,6 +98,12 @@ def test_register_ups_routes_registers_all_uris(routes):
     assert '/ups-rs/workitems/([0-9.]+)/subscribers/(.+)$' in uris
     assert '/manifest$' in uris
 
+    # Identity, not just presence: /ups-rs/workitems$ must be bound to the
+    # dispatcher, not directly to CreateWorkitem -- otherwise GET silently
+    # 405s again while every URI-set assertion above still passes.
+    registered = dict(orthanc._rest_callbacks)
+    assert registered['/ups-rs/workitems$'] is routes.WorkitemsCollection
+
 
 # ---------------------------------------------------------------------------
 # WorkitemsCollection dispatcher

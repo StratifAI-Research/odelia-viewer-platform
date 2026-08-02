@@ -27,26 +27,31 @@ jobs:
             dockerfile: ./orthanc/viewer/Dockerfile
             publish: 'yes'
             cache_scope: odelia-orthanc-viewer
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-viewer
           - image: odelia-orthanc-router
             context: ./orthanc/router
             dockerfile: ./orthanc/router/Dockerfile
             publish: 'yes'
             cache_scope: odelia-orthanc-router
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-router
           - image: odelia-model-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
             publish: 'yes'
             cache_scope: odelia-model-mst
+            cache_to: type=gha,mode=max,scope=odelia-model-mst
           - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
             publish: 'yes'
             cache_scope: odelia-model-medgemma
+            cache_to: type=gha,mode=max,scope=odelia-model-medgemma
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
             publish: 'yes'
             cache_scope: odelia-chat
+            cache_to: type=gha,mode=max,scope=odelia-chat
           # Generalized model service (ODV-218): one image per roster model,
           # named stratifai/odelia-classification-<model> (kebab-case subunit).
           # publish: 'no' -- init-only weights (no trained checkpoint yet, ODV-216).
@@ -58,6 +63,7 @@ jobs:
               MODEL=agaldran
             publish: 'no'
             cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-agaldran
           - image: odelia-classification-bcn-aim
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
@@ -65,6 +71,7 @@ jobs:
               MODEL=BCN_AIM
             publish: 'no'
             cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-bcn-aim
           - image: odelia-classification-divide-and-conquer
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
@@ -72,6 +79,7 @@ jobs:
               MODEL=DivideAndConquer
             publish: 'no'
             cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-divide-and-conquer
           - image: odelia-classification-lme-abmil
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
@@ -79,6 +87,7 @@ jobs:
               MODEL=LME_ABMIL
             publish: 'no'
             cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-lme-abmil
           - image: odelia-classification-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
@@ -86,6 +95,7 @@ jobs:
               MODEL=MST
             publish: 'no'
             cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-mst
           - image: odelia-classification-pimed
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
@@ -93,6 +103,11 @@ jobs:
               MODEL=Pimed
             publish: 'no'
             cache_scope: odelia-classification-shared
+            # Sole writer of the shared scope: no DINOv2 pre-cache step,
+            # so its layers are the common subset across all six models.
+            cache_to: |
+              type=gha,mode=max,scope=odelia-classification-pimed
+              type=gha,mode=max,scope=odelia-classification-shared
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -127,7 +142,9 @@ jobs:
           cache-from: |
             type=gha,scope=${{ matrix.image }}
             type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # Shared classification cache only helps runs AFTER a requirements.txt
+          # change lands, since the six matrix jobs run in parallel this run.
+          cache-to: ${{ matrix.cache_to }}
 
   # Atomic-ish promotion: only runs once ALL build legs succeed, so a partial
   # build failure can never leave latest/semver split across commits. Re-tags

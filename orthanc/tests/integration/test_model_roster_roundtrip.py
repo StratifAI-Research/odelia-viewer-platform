@@ -137,4 +137,4 @@ def test_send_to_ai_produces_sr(base_url, study, model):
         assert 0.0 <= confidence <= 100.0
 
     algorithm = items[-1]
-    assert algorithm.TextValue == model.model_name
+    assert algorithm.TextValue in (model.model_name, f"{model.model_name} (untrained)")

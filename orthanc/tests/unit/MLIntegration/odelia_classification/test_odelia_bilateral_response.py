@@ -65,8 +65,8 @@ class TestBilateralResponse:
 
         resp = build_bilateral_response(_RESULTS, _INFO)
         assert resp["model_metadata"] == {
-            "model_name": "Pimed",
-            "architecture": "ResNet",
+            "model_name": "Pimed (untrained)",
+            "architecture": "ResNet (untrained)",
             "version": "0.1.0",
         }
 
@@ -76,6 +76,29 @@ class TestBilateralResponse:
         resp = build_bilateral_response(_RESULTS, None)
         assert resp["model_metadata"]["model_name"] == "ODELIA"
         assert resp["left"]["prediction"] == "Benign"
+
+    def test_untrained_weights_are_marked_in_model_metadata(self):
+        """An SR from init-only weights must not read like a trained model's report."""
+        from response_builder import build_bilateral_response
+
+        resp = build_bilateral_response(_RESULTS, _INFO)
+        assert resp["model_metadata"]["model_name"] == "Pimed (untrained)"
+        assert resp["model_metadata"]["architecture"] == "ResNet (untrained)"
+
+    def test_trained_weights_use_the_plain_name(self):
+        from response_builder import build_bilateral_response
+
+        trained = {**_INFO, "weights": "state_dict"}
+        resp = build_bilateral_response(_RESULTS, trained)
+        assert resp["model_metadata"]["model_name"] == "Pimed"
+        assert resp["model_metadata"]["architecture"] == "ResNet"
+
+    def test_model_info_keeps_the_plain_name(self):
+        """Only the DICOM-facing metadata is marked; service identity is unchanged."""
+        from response_builder import build_bilateral_response
+
+        resp = build_bilateral_response(_RESULTS, _INFO)
+        assert resp["model_info"]["model_name"] == "Pimed"
 
 
 class TestInferAndRespondShape:
@@ -109,7 +132,7 @@ class TestInferAndRespondShape:
 
         assert resp["left"]["prediction"] == "Benign"
         assert resp["right"]["prediction"] == "Benign"
-        assert resp["model_metadata"]["model_name"] == "Pimed"
+        assert resp["model_metadata"]["model_name"] == "Pimed (untrained)"
 
     def test_non_bilateral_labels_keep_views_shape(self, monkeypatch):
         from pathlib import Path

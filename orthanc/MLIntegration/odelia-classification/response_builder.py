@@ -52,6 +52,13 @@ def build_multiview_response(
 
 CLASS_NAMES = ["No lesion", "Benign", "Malignant"]
 
+UNTRAINED_SUFFIX = " (untrained)"
+
+
+def _reported_name(name: str, weights: str) -> str:
+    """Mark names built from init-only weights so an SR cannot read as trained output."""
+    return f"{name}{UNTRAINED_SUFFIX}" if weights == "init-only" else name
+
 
 def build_bilateral_response(
     results: list[tuple[str, list[float]]], model_info: dict[str, Any] | None
@@ -70,9 +77,10 @@ def build_bilateral_response(
             "prediction": CLASS_NAMES[idx],
             "confidence": float(probs[idx]) * 100.0,
         }
+    weights = info.get("weights", "")
     response["model_metadata"] = {
-        "model_name": info.get("model_name", "ODELIA"),
-        "architecture": info.get("architecture", "Unknown"),
+        "model_name": _reported_name(info.get("model_name", "ODELIA"), weights),
+        "architecture": _reported_name(info.get("architecture", "Unknown"), weights),
         "version": info.get("version", "Unknown"),
     }
     return response

@@ -16,7 +16,7 @@ from pydicom import dcmread
 from ._roster import ROSTER, ROSTER_IDS
 
 _HOST = os.environ.get("ROSTER_HOST", "http://localhost")
-_CLASS_NAMES = {"No lesion", "Benign", "Malignant"}
+_SR_CODE_MEANINGS = {"Malignant", "Benign", "Clinical finding absent"}
 _STATE_TAG = "00741000"  # Procedure Step State
 _TIMEOUT_S = int(os.environ.get("ROUNDTRIP_TIMEOUT_S", "900"))
 _IN_FLIGHT = {"SCHEDULED", "IN PROGRESS", "IN_PROGRESS"}
@@ -132,7 +132,7 @@ def test_send_to_ai_produces_sr(base_url, study, model):
     assert set(sides) == {"Left Side Probability", "Right Side Probability"}
 
     for item in sides.values():
-        assert item.ConceptCodeSequence[0].CodeMeaning in _CLASS_NAMES
+        assert item.ConceptCodeSequence[0].CodeMeaning in _SR_CODE_MEANINGS
         confidence = float(item.MeasuredValueSequence[0].NumericValue)
         assert 0.0 <= confidence <= 100.0
 

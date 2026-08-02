@@ -56,6 +56,7 @@ jobs:
           # named stratifai/odelia-classification-<model> (kebab-case subunit).
           # publish: 'no' -- init-only weights (no trained checkpoint yet, ODV-216).
           # Flips to 'yes' for a given model once that model has real weights baked in.
+          # Flipping to 'yes' also requires adding that image to the promote job's images= list below.
           - image: odelia-classification-agaldran
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile

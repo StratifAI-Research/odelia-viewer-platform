@@ -26,22 +26,27 @@ jobs:
             context: ./orthanc/viewer
             dockerfile: ./orthanc/viewer/Dockerfile
             publish: 'yes'
+            cache_scope: odelia-orthanc-viewer
           - image: odelia-orthanc-router
             context: ./orthanc/router
             dockerfile: ./orthanc/router/Dockerfile
             publish: 'yes'
+            cache_scope: odelia-orthanc-router
           - image: odelia-model-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
             publish: 'yes'
+            cache_scope: odelia-model-mst
           - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
             publish: 'yes'
+            cache_scope: odelia-model-medgemma
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
             publish: 'yes'
+            cache_scope: odelia-chat
           # Generalized model service (ODV-218): one image per roster model,
           # named stratifai/odelia-classification-<model> (kebab-case subunit).
           # publish: 'no' -- init-only weights (no trained checkpoint yet, ODV-216).
@@ -52,36 +57,42 @@ jobs:
             build_args: |
               MODEL=agaldran
             publish: 'no'
+            cache_scope: odelia-classification-shared
           - image: odelia-classification-bcn-aim
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=BCN_AIM
             publish: 'no'
+            cache_scope: odelia-classification-shared
           - image: odelia-classification-divide-and-conquer
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=DivideAndConquer
             publish: 'no'
+            cache_scope: odelia-classification-shared
           - image: odelia-classification-lme-abmil
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=LME_ABMIL
             publish: 'no'
+            cache_scope: odelia-classification-shared
           - image: odelia-classification-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=MST
             publish: 'no'
+            cache_scope: odelia-classification-shared
           - image: odelia-classification-pimed
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=Pimed
             publish: 'no'
+            cache_scope: odelia-classification-shared
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -113,7 +124,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=gha,scope=${{ matrix.cache_scope }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   # Atomic-ish promotion: only runs once ALL build legs succeed, so a partial

@@ -31,12 +31,16 @@ COPY shared/ ./shared/
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
-# Copy service code (includes the owned models/ package + build tools)
-COPY odelia-classification/ ./odelia-service/
-
-# Install service dependencies
+# Dependencies first: this layer keys only on requirements.txt, so ordinary
+# service-code edits reuse it, and it is identical across every MODEL.
+COPY odelia-classification/requirements.txt ./odelia-service/requirements.txt
 WORKDIR /app/odelia-service
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Service code (includes the owned models/ package + build tools).
+# WORKDIR is already /app/odelia-service, so the destination is "." --
+# using "./odelia-service/" here would nest it under itself.
+COPY odelia-classification/ .
 
 # Select the model: prune every subunit except the one MODEL names.
 RUN test -n "$MODEL" || (echo "ERROR: MODEL build-arg is required" >&2 && exit 1)

@@ -25,50 +25,63 @@ jobs:
           - image: odelia-orthanc-viewer
             context: ./orthanc/viewer
             dockerfile: ./orthanc/viewer/Dockerfile
+            publish: 'yes'
           - image: odelia-orthanc-router
             context: ./orthanc/router
             dockerfile: ./orthanc/router/Dockerfile
+            publish: 'yes'
           - image: odelia-model-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
+            publish: 'yes'
           - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
+            publish: 'yes'
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
+            publish: 'yes'
           # Generalized model service (ODV-218): one image per roster model,
           # named stratifai/odelia-classification-<model> (kebab-case subunit).
+          # publish: 'no' -- init-only weights (no trained checkpoint yet, ODV-216).
+          # Flips to 'yes' for a given model once that model has real weights baked in.
           - image: odelia-classification-agaldran
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=agaldran
+            publish: 'no'
           - image: odelia-classification-bcn-aim
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=BCN_AIM
+            publish: 'no'
           - image: odelia-classification-divide-and-conquer
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=DivideAndConquer
+            publish: 'no'
           - image: odelia-classification-lme-abmil
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=LME_ABMIL
+            publish: 'no'
           - image: odelia-classification-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=MST
+            publish: 'no'
           - image: odelia-classification-pimed
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=Pimed
+            publish: 'no'
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -96,7 +109,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ github.event_name == 'push' && matrix.publish == 'yes' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
@@ -126,7 +139,9 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat odelia-classification-agaldran odelia-classification-bcn-aim odelia-classification-divide-and-conquer odelia-classification-lme-abmil odelia-classification-mst odelia-classification-pimed"
+          # odelia-classification-* omitted: init-only weights are not pushed
+          # (see build job matrix.publish), so there is no SHA manifest to promote.
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
           tags=()
           if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
             tags+=("latest")

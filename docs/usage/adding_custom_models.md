@@ -274,9 +274,19 @@ shared.
    Add `profiles: [odelia-models]` to both services unless the model should
    start with the default stack.
 4. **Add a CI leg** in `.github/workflows/docker-build-push.yml`: one
-   `matrix.include` entry (image `odelia-classification-<name>`, kebab-case,
-   `build_args: MODEL=<NAME>`) plus the same image name in the promote job's
-   `images=` list. The Docker Hub repo must exist before it lands on main.
+   `matrix.include` entry in the **`build-preview`** job (image
+   `odelia-classification-<name>`, kebab-case, `build_args: MODEL=<NAME>`).
+   Give it `cache_scope: odelia-classification-shared` and a per-image
+   `cache_to: type=gha,mode=max,scope=odelia-classification-<name>` --
+   omitting `cache_to` silently disables cache export for that leg, it
+   won't fail the build. Do **not** add the image to the `build` job or
+   to the `promote` job's `images=` list yet: `build-preview` never
+   pushes, so an entry there has no SHA manifest to promote. Once the
+   model has trained weights (`WEIGHT_PATH` set) and its Docker Hub repo
+   exists, publish it by moving the whole entry into the `build` job's
+   matrix **and** adding the image to `images=` in the same change --
+   doing only one half either 404s `promote` on that image or leaves it
+   silently un-promoted.
 5. **Register the endpoint in the viewer** (see
    [Register in Viewer](#step-7-register-in-viewer)).
 

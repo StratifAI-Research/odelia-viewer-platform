@@ -64,8 +64,8 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       # Build phase pushes ONLY the immutable per-commit SHA tag. The mutable
-      # latest/semver tags are promoted in a separate job that needs: all legs,
-      # so latest never advances unless every component built successfully.
+      # latest/semver tags are promoted in a separate job that needs: build,
+      # so latest never advances unless all five publishing legs succeed.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -85,8 +85,6 @@ jobs:
           cache-from: |
             type=gha,scope=${{ matrix.image }}
             type=gha,scope=${{ matrix.cache_scope }}
-          # Shared classification cache only helps runs AFTER a requirements.txt
-          # change lands, since the six matrix jobs run in parallel this run.
           cache-to: ${{ matrix.cache_to }}
 
   # Preview roster (ODV-218): six odelia-classification-* images with init-only
@@ -141,8 +139,9 @@ jobs:
               MODEL=Pimed
             cache_scope: odelia-classification-shared
             # Sole writer of the shared scope. The writer is arbitrary -- the
-            # reusable layers are everything before select_subunit, where MODEL
-            # has not yet diverged the cache; the DINOv2 pre-cache step runs
+            # reusable layers are everything before `RUN test -n "$MODEL"`,
+            # the first instruction after ARG MODEL comes into scope, which is
+            # where the cache first diverges; the DINOv2 pre-cache step runs
             # after that point and is irrelevant to this choice.
             cache_to: |
               type=gha,mode=max,scope=odelia-classification-pimed
@@ -178,6 +177,8 @@ jobs:
           cache-from: |
             type=gha,scope=${{ matrix.image }}
             type=gha,scope=${{ matrix.cache_scope }}
+          # Shared classification cache only helps runs AFTER a requirements.txt
+          # change lands, since the six matrix jobs run in parallel this run.
           cache-to: ${{ matrix.cache_to }}
 
   # Atomic-ish promotion: only runs once every publishing build leg succeeds,

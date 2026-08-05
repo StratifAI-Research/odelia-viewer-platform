@@ -30,8 +30,9 @@
 # <svc> healthcheck + the router's service_healthy depends_on close a startup
 # race: the model runs a pre-flight forward pass (MST also loads DINOv2)
 # before it opens its port, so a study submitted right after `compose up`
-# hits a connection error in the router otherwise. start_period=90s covers
-# the slowest observed cold start with headroom; tune per-model if needed.
+# hits a connection error in the router otherwise. Slowest observed
+# pre-flight is ~19s (MST, DINOv2 load); start_period=90s leaves headroom
+# for slower hosts and colder caches.
 
 services:
   <router>:

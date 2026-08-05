@@ -12,12 +12,6 @@
 #     -t odelia-model-bcnaim .
 FROM python:3.10-slim
 
-# MODEL: canonical model name (e.g. MST, BCN_AIM). Required.
-ARG MODEL
-# WEIGHT_PATH: path (relative to the build context) to a .safetensors weights
-# file to bake into the subunit. Unset => init-only image.
-ARG WEIGHT_PATH=
-
 WORKDIR /app
 
 # Install system dependencies
@@ -32,7 +26,8 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
 # Dependencies first: this layer keys only on requirements.txt, so ordinary
-# service-code edits reuse it, and it is identical across every MODEL.
+# service-code edits reuse it, and it is identical across every MODEL --
+# neither build-arg is in scope yet at this point in the file.
 COPY odelia-classification/requirements.txt ./odelia-service/requirements.txt
 WORKDIR /app/odelia-service
 RUN pip install --no-cache-dir -r requirements.txt
@@ -42,6 +37,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # using "./odelia-service/" here would nest it under itself.
 COPY odelia-classification/ .
 
+# MODEL: canonical model name (e.g. MST, BCN_AIM). Required. Declared here,
+# immediately before first use, so it does not key any layer above.
+ARG MODEL
 # Select the model: prune every subunit except the one MODEL names.
 RUN test -n "$MODEL" || (echo "ERROR: MODEL build-arg is required" >&2 && exit 1)
 RUN python -m tools.select_subunit "$MODEL"
@@ -53,6 +51,10 @@ RUN if [ "$MODEL" = "MST" ]; then \
       python -c "import torch; torch.hub._validate_not_a_forked_repo = lambda a, b, c: True; torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')"; \
     fi
 
+# WEIGHT_PATH: path (relative to the build context) to a .safetensors weights
+# file to bake into the subunit. Unset => init-only image. Declared here,
+# immediately before use, so it does not key any layer above.
+ARG WEIGHT_PATH=
 # Bake + check weights when provided (the staged file is ignored when WEIGHT_PATH
 # is empty). Default source keeps the COPY valid for init-only builds.
 COPY ${WEIGHT_PATH:-pyproject.toml} /tmp/weight.in
@@ -61,7 +63,8 @@ RUN python -m tools.bake_weights "$MODEL" /tmp/weight.in "$WEIGHT_PATH"
 # Create runtime dirs
 RUN mkdir -p images
 
-# Expose port (ODV-218 overrides via PORT for per-model allocation)
+# Expose port: every container listens on 5556 regardless of model; ODV-218
+# maps each to a distinct host port in the compose files, not via this Dockerfile.
 EXPOSE 5556
 
 # Run service

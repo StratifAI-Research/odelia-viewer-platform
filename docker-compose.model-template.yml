@@ -26,6 +26,12 @@
 # Opt-in pairs: add `profiles: [odelia-models]` to BOTH services.
 # After wiring, register the router in config/app-config.js aiEndpoints
 # (docs/usage/adding_custom_models.md, "Register in Viewer").
+#
+# <svc> healthcheck + the router's service_healthy depends_on close a startup
+# race: the model runs a pre-flight forward pass (MST also loads DINOv2)
+# before it opens its port, so a study submitted right after `compose up`
+# hits a connection error in the router otherwise. start_period=90s covers
+# the slowest observed cold start with headroom; tune per-model if needed.
 
 services:
   <router>:
@@ -55,7 +61,8 @@ services:
       - MODEL_BACKEND_URL=http://<svc>:5556
       - AI_NAME=<ai-name>
     depends_on:
-      - <svc>
+      <svc>:
+        condition: service_healthy
 
   <svc>:
     build:
@@ -72,3 +79,9 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}<backend-port>:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s

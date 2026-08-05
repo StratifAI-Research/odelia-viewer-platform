@@ -188,7 +188,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-agaldran:5556
       - AI_NAME=ODELIA agaldran (init weights preview)
     depends_on:
-      - odelia-classification-agaldran
+      odelia-classification-agaldran:
+        condition: service_healthy
 
   odelia-classification-agaldran:
     profiles: [odelia-models]
@@ -206,6 +207,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5558:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   orthanc-router-odelia-bcn-aim:
     profiles: [odelia-models]
@@ -235,7 +242,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-bcn-aim:5556
       - AI_NAME=ODELIA BCN_AIM (init weights preview)
     depends_on:
-      - odelia-classification-bcn-aim
+      odelia-classification-bcn-aim:
+        condition: service_healthy
 
   odelia-classification-bcn-aim:
     profiles: [odelia-models]
@@ -253,6 +261,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5559:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   orthanc-router-odelia-divide-and-conquer:
     profiles: [odelia-models]
@@ -282,7 +296,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-divide-and-conquer:5556
       - AI_NAME=ODELIA DivideAndConquer (init weights preview)
     depends_on:
-      - odelia-classification-divide-and-conquer
+      odelia-classification-divide-and-conquer:
+        condition: service_healthy
 
   odelia-classification-divide-and-conquer:
     profiles: [odelia-models]
@@ -300,6 +315,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5561:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   orthanc-router-odelia-lme-abmil:
     profiles: [odelia-models]
@@ -329,7 +350,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-lme-abmil:5556
       - AI_NAME=ODELIA LME_ABMIL (init weights preview)
     depends_on:
-      - odelia-classification-lme-abmil
+      odelia-classification-lme-abmil:
+        condition: service_healthy
 
   odelia-classification-lme-abmil:
     profiles: [odelia-models]
@@ -347,6 +369,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5562:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   orthanc-router-odelia-mst:
     profiles: [odelia-models]
@@ -376,7 +404,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
       - AI_NAME=ODELIA MST (init weights preview)
     depends_on:
-      - odelia-classification-mst
+      odelia-classification-mst:
+        condition: service_healthy
 
   odelia-classification-mst:
     profiles: [odelia-models]
@@ -394,6 +423,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5563:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   orthanc-router-odelia-pimed:
     profiles: [odelia-models]
@@ -423,7 +458,8 @@ services:
       - MODEL_BACKEND_URL=http://odelia-classification-pimed:5556
       - AI_NAME=ODELIA Pimed (init weights preview)
     depends_on:
-      - odelia-classification-pimed
+      odelia-classification-pimed:
+        condition: service_healthy
 
   odelia-classification-pimed:
     profiles: [odelia-models]
@@ -441,6 +477,12 @@ services:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5564:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   # Chat Middleware - WebSocket-based chat for DICOM study analysis
   # Supports two backends: Ollama (default) and llama.cpp (optional).

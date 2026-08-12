@@ -658,15 +658,24 @@ the template header documents each one and carries the authoritative
 host-port allocation table. For a bespoke service (this guide), point the
 `build:` at your own directory/Dockerfile instead of
 `odelia-classification/Dockerfile` and drop the `MODEL` build-arg. Also
-change the container port `5556` in the service's port mapping and in the
-router's `MODEL_BACKEND_URL` to the port your service actually listens on
-(e.g. `5558` from Step 5's Dockerfile), and drop `MODEL_DEVICE` unless your
-service uses it.
+change the container port `5556` to the port your service actually listens
+on (e.g. `5558` from Step 5's Dockerfile) in **all three places** it
+appears: the service's port mapping, the router's `MODEL_BACKEND_URL`, and
+the `healthcheck.test` curl URL. Drop `MODEL_DEVICE` unless your service
+uses it. If your service has no `/health` route, delete the `healthcheck:`
+block and downgrade the router's dependency to the short form
+(`depends_on: [<svc>]`) — with the block left in, the healthcheck never
+passes, `service_healthy` is never satisfied, and the router never starts.
 
 Notes:
 
-- The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is what the
-  router serves as the model's capability manifest — don't omit it.
+- The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is served by
+  the router as the model's capability manifest. It is optional: without it
+  the router's `/manifest` returns 404 and the viewer falls back to flat
+  series selection (`orthanc-router-medgemma` runs without one). When you do
+  provide one, use
+  [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
+  as the worked example.
 - The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
 - A live example of a filled-in pair is the `odelia-classification-mst` /

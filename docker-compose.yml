@@ -160,6 +160,10 @@ services:
   # ODELIA classification roster (ODV-218): one router+service pair per model,
   # instantiated from docker-compose.model-template.yml. All pairs are behind
   # profile odelia-models (nothing default-on): docker compose --profile odelia-models up
+  # Note: none of these routers is registered in config/app-config.js aiEndpoints
+  # yet (viewer registration is ODV-220), so the profile boots containers the
+  # viewer UI cannot target. After editing aiEndpoints, clear the browser's
+  # localStorage or the viewer keeps the cached endpoint list.
   orthanc-router-odelia-agaldran:
     profiles: [odelia-models]
     build:

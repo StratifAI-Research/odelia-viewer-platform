@@ -315,3 +315,17 @@ volumes:
 networks:
   odelia-network:
     driver: bridge
+    driver_opts:
+      # Docker defaults every bridge to 1500, which is wrong whenever the host's
+      # own uplink is smaller -- notably WSL2, where eth0 is commonly 1420. The
+      # containers then emit packets the path cannot carry, and because Path MTU
+      # Discovery depends on ICMP getting back, the failure is intermittent: it
+      # strands the TLS handshake (OpenSSL 3.5 sends a ~1.5 KB ClientHello) and
+      # clears again whenever the kernel's PMTU cache is repopulated, expiring
+      # every net.ipv4.route.mtu_expires seconds (600 by default).
+      #
+      # Left at 1500 so ordinary Linux hosts are unaffected. On WSL2 set
+      # DOCKER_MTU to match `ip link show eth0`:
+      #   echo 'DOCKER_MTU=1420' >> .env && docker compose down && docker compose up -d
+      # (the network is only reconfigured when it is recreated).
+      com.docker.network.driver.mtu: "${DOCKER_MTU:-1500}"

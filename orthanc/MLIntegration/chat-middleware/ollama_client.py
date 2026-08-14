@@ -6,6 +6,7 @@ Supports both Ollama and llama.cpp backends.
 import asyncio
 import json
 import logging
+import random
 from collections.abc import AsyncGenerator
 
 import aiohttp
@@ -18,6 +19,25 @@ MODEL_LIST_TIMEOUT_SECONDS = 30
 # Attempts for the /api/tags catalogue request; see the retry comment in
 # list_models_detailed for why a remote host needs more than one.
 MODEL_LIST_ATTEMPTS = 2
+
+# Whole-turn budget for a chat. Generous: a large model on CPU can take minutes.
+CHAT_TIMEOUT_SECONDS = 300
+# Connection-establishment budget, TLS handshake included. Well under the 300s
+# total so a stalled handshake surfaces quickly instead of consuming the turn.
+CONNECT_TIMEOUT_SECONDS = 15
+# Attempts to *establish* the connection. Generation itself is never repeated.
+CHAT_CONNECT_ATTEMPTS = 2
+CHAT_RETRY_BASE_DELAY_SECONDS = 0.5
+CHAT_RETRY_JITTER_SECONDS = 0.5
+
+# Failures that mean "no connection was established", so the request provably
+# never reached the model and can safely be sent again. ClientConnectorError
+# covers DNS and TCP/TLS connect failures (ClientConnectorSSLError included);
+# ConnectionTimeoutError is sock_connect expiring.
+RETRYABLE_CONNECT_ERRORS = (
+    aiohttp.ClientConnectorError,
+    aiohttp.ConnectionTimeoutError,
+)
 
 
 class ModelListError(Exception):
@@ -171,16 +191,32 @@ class OllamaClient:
         logger.info(f"Starting chat stream to {url} with model {self.model}")
         logger.debug(f"Messages count: {len(messages)}")
 
-        timeout = aiohttp.ClientTimeout(total=300)
+        # sock_connect is set explicitly. Supplying a custom ClientTimeout replaces
+        # aiohttp's defaults wholesale, which leaves sock_connect=None -- so a
+        # connection that stalls in the TLS handshake fell through to asyncio's
+        # 60s handshake watchdog instead of failing promptly. Observed as a 61.3s
+        # "Cannot connect to host ollama.com:443" against a path whose MTU cannot
+        # carry OpenSSL 3.5's ~1.5 KB ClientHello.
+        timeout = aiohttp.ClientTimeout(
+            total=CHAT_TIMEOUT_SECONDS, sock_connect=CONNECT_TIMEOUT_SECONDS
+        )
 
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:  # noqa: SIM117
-                async with session.post(
-                    url, json=payload, headers=self._auth_headers()
-                ) as response:
+        # Whether anything has been handed to the caller yet. Once a token is
+        # yielded the request is not repeatable, so retries stop.
+        yielded_any = False
+
+        for attempt in range(1, CHAT_CONNECT_ATTEMPTS + 1):
+            try:
+                async with (
+                    aiohttp.ClientSession(timeout=timeout) as session,
+                    session.post(url, json=payload, headers=self._auth_headers()) as response,
+                ):
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Ollama API error: {response.status} - {error_text}")
+                        # Deliberately not retried: an HTTP status is a real answer
+                        # from the model host (entitlement, bad key, bad model), and
+                        # repeating it just delays the message.
                         raise UpstreamChatError(
                             f"{_upstream_message(error_text)} (HTTP {response.status})"
                         )
@@ -220,9 +256,11 @@ class OllamaClient:
                                     delta = choices[0].get("delta", {})
                                     reasoning = delta.get("reasoning_content")
                                     if reasoning:
+                                        yielded_any = True
                                         yield {"type": "thinking", "text": reasoning}
                                     content = delta.get("content")
                                     if content:
+                                        yielded_any = True
                                         yield {"type": "content", "text": content}
                             except json.JSONDecodeError as e:
                                 logger.warning(f"Failed to parse SSE chunk: {e}")
@@ -233,16 +271,35 @@ class OllamaClient:
                             response.close()
 
                     logger.info(f"Chat stream finished (cancelled={cancelled})")
+                    return
 
-        except asyncio.CancelledError:
-            logger.info("Chat stream cancelled")
-            raise
-        except aiohttp.ClientError as e:
-            logger.error(f"Ollama connection error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Ollama chat error: {e}")
-            raise
+            except asyncio.CancelledError:
+                logger.info("Chat stream cancelled")
+                raise
+            except RETRYABLE_CONNECT_ERRORS as e:
+                # Only failures to establish the connection are repeated, and only
+                # while nothing has been streamed. Deliberately excluded:
+                # ServerDisconnectedError and a bare TimeoutError, either of which
+                # can mean the request did reach the model and generation is already
+                # under way -- resending would bill and run it twice.
+                if attempt < CHAT_CONNECT_ATTEMPTS and not yielded_any:
+                    delay = CHAT_RETRY_BASE_DELAY_SECONDS + random.uniform(
+                        0, CHAT_RETRY_JITTER_SECONDS
+                    )
+                    logger.info(
+                        f"Chat connect attempt {attempt} failed ({_describe(e)}); "
+                        f"retrying in {delay:.1f}s"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(f"Ollama connection error: {_describe(e)}")
+                raise
+            except aiohttp.ClientError as e:
+                logger.error(f"Ollama connection error: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Ollama chat error: {e}")
+                raise
 
     async def health_check(self) -> bool:
         """

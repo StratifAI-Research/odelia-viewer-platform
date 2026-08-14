@@ -399,6 +399,188 @@ def test_upstream_message_handles_the_shapes_backends_actually_send():
     assert "no detail" in _upstream_message("")
 
 
+# ---------------------------------------------------------------------------
+# chat_stream connect retry. Scoped tightly: a repeated generation would bill and
+# run twice, so only provable connect failures may be retried.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def no_retry_delay(monkeypatch):
+    """Collapse the retry backoff. Binds the real asyncio.sleep first, or the
+    replacement would call itself and blow the stack."""
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda *_a, **_kw: real_sleep(0))
+
+
+def _sse(*texts):
+    lines = []
+    for t in texts:
+        lines.append(
+            f'data: {{"choices":[{{"delta":{{"content":"{t}"}}}}]}}'.encode()
+        )
+    lines.append(b"data: [DONE]")
+    return lines
+
+
+class _StreamResponse:
+    """200 response yielding SSE lines."""
+
+    def __init__(self, lines):
+        self.status = 200
+        self._lines = list(lines)
+        self.content = _AsyncLines(self._lines)
+
+    async def text(self):
+        return ""
+
+    def close(self):
+        pass
+
+
+class _AsyncLines:
+    def __init__(self, lines):
+        self._lines = list(lines)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._lines:
+            raise StopAsyncIteration
+        return self._lines.pop(0)
+
+
+def _session_factory(monkeypatch, behaviours):
+    """aiohttp.ClientSession whose nth post() follows behaviours[n].
+
+    Each behaviour is either an exception instance to raise or a response object.
+    Returns a dict recording how many posts were attempted.
+    """
+    import aiohttp
+
+    state = {"posts": 0}
+
+    class _Session:
+        def post(self, url, json=None, headers=None, **kw):
+            i = state["posts"]
+            state["posts"] += 1
+            behaviour = behaviours[min(i, len(behaviours) - 1)]
+            if isinstance(behaviour, Exception):
+                raise behaviour
+            return _RespCM(behaviour)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **kw: _Session())
+    return state
+
+
+def _connector_error():
+    import aiohttp
+    from aiohttp.client_reqrep import ConnectionKey
+
+    key = ConnectionKey("ollama.com", 443, True, True, None, None, None)
+    return aiohttp.ClientConnectorError(key, OSError("handshake stalled"))
+
+
+async def _drain(client):
+    return [c async for c in client.chat_stream([{"role": "user", "content": "hi"}])]
+
+
+def test_chat_retries_once_when_the_connection_never_opened(monkeypatch, no_retry_delay):
+    """A stalled TLS handshake provably never reached the model, so resend it."""
+    from ollama_client import OllamaClient
+
+    state = _session_factory(
+        monkeypatch, [_connector_error(), _StreamResponse(_sse("hello"))]
+    )
+
+    chunks = asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+    assert state["posts"] == 2
+    assert [c["text"] for c in chunks] == ["hello"]
+
+
+def test_chat_does_not_retry_a_server_disconnect(monkeypatch, no_retry_delay):
+    """The request may already have reached the model; resending would double-run it."""
+    import aiohttp
+    from ollama_client import OllamaClient
+
+    state = _session_factory(monkeypatch, [aiohttp.ServerDisconnectedError()])
+
+    with pytest.raises(aiohttp.ServerDisconnectedError):
+        asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+    assert state["posts"] == 1
+
+
+def test_chat_does_not_retry_a_bare_timeout(monkeypatch, no_retry_delay):
+    """Generation may be under way; only *connect* timeouts are safe to repeat."""
+    from ollama_client import OllamaClient
+
+    state = _session_factory(monkeypatch, [TimeoutError()])
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+    assert state["posts"] == 1
+
+
+def test_chat_does_not_retry_an_http_error(monkeypatch, no_retry_delay):
+    """A 403 is a real answer from the host — repeating it only delays the message."""
+    from ollama_client import OllamaClient, UpstreamChatError
+
+    body = json.dumps({"error": {"message": "requires a subscription"}}).encode()
+    state = _session_factory(monkeypatch, [_FakeResponse(status=403, body=body)])
+
+    with pytest.raises(UpstreamChatError, match="requires a subscription"):
+        asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+    assert state["posts"] == 1
+
+
+def test_chat_gives_up_after_the_attempt_limit(monkeypatch, no_retry_delay):
+    from ollama_client import CHAT_CONNECT_ATTEMPTS, OllamaClient
+
+    state = _session_factory(monkeypatch, [_connector_error()])
+
+    with pytest.raises(Exception, match="Cannot connect"):
+        asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+    assert state["posts"] == CHAT_CONNECT_ATTEMPTS
+
+
+def test_chat_sets_an_explicit_connect_timeout(monkeypatch):
+    """Without sock_connect, a stalled handshake fell through to asyncio's 60s
+    watchdog instead of failing promptly (observed as a 61.3s failure)."""
+    import aiohttp
+    from ollama_client import CONNECT_TIMEOUT_SECONDS, OllamaClient
+
+    seen = {}
+    real_timeout = aiohttp.ClientTimeout
+
+    class _Session:
+        def post(self, *a, **kw):
+            return _RespCM(_StreamResponse(_sse("x")))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def _capture(*a, **kw):
+        seen.update(kw)
+        return _Session()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", _capture)
+    asyncio.run(_drain(OllamaClient("https://ollama.com", "m")))
+
+    timeout = seen.get("timeout")
+    assert isinstance(timeout, real_timeout)
+    assert timeout.sock_connect == CONNECT_TIMEOUT_SECONDS
+    assert timeout.total == 300
+
+
 def test_catalogue_request_is_retried_after_a_stalled_connection(monkeypatch):
     """A single stalled TLS handshake should become a slow success, not an error.
 

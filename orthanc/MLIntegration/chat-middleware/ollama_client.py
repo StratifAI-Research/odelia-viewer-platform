@@ -38,6 +38,46 @@ class CloudBackendUnavailableError(Exception):
     """
 
 
+class UpstreamChatError(Exception):
+    """A non-200 from the LLM backend's chat endpoint.
+
+    Carries a reader-facing message rather than the raw response body: the chat
+    panel shows this text directly, and hosted backends answer with a JSON
+    envelope that is unreadable as-is.
+    """
+
+
+def _upstream_message(body: str) -> str:
+    """Pull the human-readable reason out of an LLM backend's error response.
+
+    Ollama Cloud answers with an OpenAI-shaped envelope,
+
+        {"error": {"message": "this model requires a subscription, upgrade for
+                   access: https://ollama.com/upgrade (ref: ...)", ...}}
+
+    and a local Ollama with a bare {"error": "..."}. Surfacing the whole blob put
+    JSON punctuation in front of the one sentence that tells the user what to do
+    — here, that the chosen model needs a paid plan. Falls back to the trimmed
+    body when it is not JSON (llama.cpp returns plain text for some failures).
+    """
+    text = (body or "").strip()
+    if not text:
+        return "the backend returned an error with no detail"
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return text[:400]
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()[:400]
+    if isinstance(error, str) and error.strip():
+        return error.strip()[:400]
+    return text[:400]
+
+
 def _describe(exc: Exception) -> str:
     """Human-readable one-liner for an exception, safe to show a client.
 
@@ -141,7 +181,9 @@ class OllamaClient:
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Ollama API error: {response.status} - {error_text}")
-                        raise Exception(f"Ollama API error: {response.status} - {error_text}")
+                        raise UpstreamChatError(
+                            f"{_upstream_message(error_text)} (HTTP {response.status})"
+                        )
 
                     logger.debug("SSE stream connected, receiving tokens...")
                     cancelled = False

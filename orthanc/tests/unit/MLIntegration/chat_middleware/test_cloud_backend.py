@@ -341,6 +341,64 @@ def test_describe_prefers_message_when_present():
     assert _describe(TimeoutError()) == "TimeoutError"
 
 
+def test_subscription_error_surfaces_the_sentence_not_the_json(patch_session):
+    """A 403 from a gated cloud model must read as prose, not a JSON envelope.
+
+    Observed live: selecting qwen3.5:397b on a free plan returned
+    {"error": {"message": "this model requires a subscription, upgrade for
+    access: https://ollama.com/upgrade (ref: ...)"}} and the chat panel showed the
+    whole blob, burying the one sentence that says what to do.
+    """
+    from ollama_client import OllamaClient, UpstreamChatError
+
+    body = json.dumps(
+        {
+            "error": {
+                "message": (
+                    "this model requires a subscription, upgrade for access: "
+                    "https://ollama.com/upgrade (ref: abc123)"
+                ),
+                "type": "api_error",
+                "param": None,
+                "code": None,
+            }
+        }
+    ).encode()
+
+    patch_session({("POST", "/v1/chat/completions"): _FakeResponse(status=403, body=body)})
+    client = OllamaClient("https://ollama.com", "qwen3.5:397b", api_key="sk-1")
+
+    async def run():
+        async for _ in client.chat_stream([{"role": "user", "content": "hi"}]):
+            pass
+
+    with pytest.raises(UpstreamChatError) as excinfo:
+        asyncio.run(run())
+
+    message = str(excinfo.value)
+    assert "requires a subscription" in message
+    assert "https://ollama.com/upgrade" in message
+    assert "HTTP 403" in message
+    # None of the JSON envelope leaks through.
+    assert '"error"' not in message
+    assert "api_error" not in message
+
+
+def test_upstream_message_handles_the_shapes_backends_actually_send():
+    from ollama_client import _upstream_message
+
+    # Ollama Cloud / OpenAI-compatible envelope
+    assert (
+        _upstream_message('{"error": {"message": "nope", "type": "api_error"}}') == "nope"
+    )
+    # Local Ollama's bare string form
+    assert _upstream_message('{"error": "model not found"}') == "model not found"
+    # llama.cpp sometimes answers in plain text
+    assert _upstream_message("upstream exploded") == "upstream exploded"
+    # Empty body still yields something sayable
+    assert "no detail" in _upstream_message("")
+
+
 def test_catalogue_request_is_retried_after_a_stalled_connection(monkeypatch):
     """A single stalled TLS handshake should become a slow success, not an error.
 

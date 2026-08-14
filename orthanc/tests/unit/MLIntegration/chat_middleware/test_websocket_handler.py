@@ -703,88 +703,89 @@ def test_real_ws_rejects_an_oversized_slice_selection(tmp_path, monkeypatch):
     assert called == []
 
 
-# ---------- merge_selections ----------
+# ---------- plan_series ----------
 #
 # OHIF can split one series into several display sets (one per instance for
-# mammography and other single-image modalities). The panel then sends a
-# selection per display set, and keeping only the last would send fewer slices
-# than the message's snapshot claims.
+# mammography and other single-image modalities). The panel sends a selection per
+# display set, and those selections can legitimately differ — a region of interest
+# on one and not the other. Collapsing them to one per series either drops a crop
+# or applies it to images it was never drawn on.
 
 def _sel(series_uid, uids, **kw):
     from models import SliceSelection
     return SliceSelection(series_uid=series_uid, sop_instance_uids=uids, **kw)
 
 
-def test_merge_selections_indexes_by_series():
+def _roi(**kw):
+    from models import RegionOfInterest
+    return RegionOfInterest(**{"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2, **kw})
+
+
+def test_plan_series_keeps_one_entry_per_selection():
     import websocket_handler as wh
-    out = wh.merge_selections([_sel("SE1", ["1.1"]), _sel("SE2", ["2.1"])])
-    assert sorted(out) == ["SE1", "SE2"]
+    plan = wh.plan_series(["SE1"], [_sel("SE1", ["1.1"]), _sel("SE1", ["1.2"])])
+    assert [uids for _, s in plan for uids in [s.sop_instance_uids]] == [["1.1"], ["1.2"]]
 
 
-def test_merge_selections_combines_two_entries_for_one_series():
+def test_plan_series_keeps_a_crop_that_applies_to_only_one_display_set():
+    """The regression: merging dropped this ROI or spread it over both."""
     import websocket_handler as wh
-    out = wh.merge_selections([_sel("SE1", ["1.1", "1.2"]), _sel("SE1", ["1.3"])])
-    assert out["SE1"].sop_instance_uids == ["1.1", "1.2", "1.3"]
+    plan = wh.plan_series(
+        ["SE1"], [_sel("SE1", ["1.1"], roi=_roi()), _sel("SE1", ["1.2"])]
+    )
+    assert plan[0][1].roi is not None
+    assert plan[1][1].roi is None
 
 
-def test_merge_selections_does_not_duplicate_a_shared_instance():
+def test_plan_series_collapses_two_identical_requests():
+    """Same series, same everything: one preprocessing pass, not two."""
     import websocket_handler as wh
-    out = wh.merge_selections([_sel("SE1", ["1.1", "1.2"]), _sel("SE1", ["1.2", "1.3"])])
-    assert out["SE1"].sop_instance_uids == ["1.1", "1.2", "1.3"]
+    plan = wh.plan_series(["SE1"], [_sel("SE1", ["1.1"]), _sel("SE1", ["1.1"])])
+    assert len(plan) == 1
 
 
-def test_merge_selections_drops_a_range_that_no_longer_describes_the_result():
-    """Two display sets combined are not one contiguous span; say nothing rather
-    than something false."""
+def test_plan_series_treats_two_crops_of_one_series_as_distinct():
     import websocket_handler as wh
-    out = wh.merge_selections([
-        _sel("SE1", ["1.1"], range_start=1, range_end=1, total_slices=2),
-        _sel("SE1", ["1.2"], range_start=2, range_end=2, total_slices=2),
-    ])
-    assert out["SE1"].range_start is None
-    assert out["SE1"].range_end is None
+    plan = wh.plan_series(
+        ["SE1"],
+        [_sel("SE1", ["1.1"], roi=_roi()), _sel("SE1", ["1.1"], roi=_roi(x=0.5))],
+    )
+    assert len(plan) == 2
 
 
-def test_merge_selections_keeps_a_lone_selections_range():
+def test_plan_series_adds_series_that_carry_no_selection():
     import websocket_handler as wh
-    out = wh.merge_selections([_sel("SE1", ["1.1"], range_start=18, range_end=62)])
-    assert out["SE1"].range_start == 18
+    plan = wh.plan_series(["SE1", "SE2"], [_sel("SE1", ["1.1"])])
+    assert plan[-1] == ("SE2", None)
 
 
-async def test_handle_chat_retrieves_a_repeated_series_only_once(tmp_path, monkeypatch):
-    """A series listed twice (two display sets) is one retrieval, not two."""
+def test_plan_series_does_not_duplicate_a_series_listed_twice():
+    """A series can appear twice when OHIF split it; retrieve it once."""
+    import websocket_handler as wh
+    plan = wh.plan_series(["SE1", "SE1"], [])
+    assert plan == [("SE1", None)]
+
+
+def test_plan_series_is_empty_for_a_message_with_no_images():
+    import websocket_handler as wh
+    assert wh.plan_series([], []) == []
+
+
+async def test_handle_chat_preprocesses_each_display_set_of_a_split_series(
+    tmp_path, monkeypatch
+):
+    """Both display sets' slices reach the model, each with its own crop."""
     _reset_singletons(tmp_path, monkeypatch)
     import websocket_handler as wh
-    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
-    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
-
-    calls = []
-    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
-                               selection=None):
-        calls.append(series_uid)
-        return ["img"]
-    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
-
-    from session_manager import get_session_manager
-    s = get_session_manager().create_session("SM1")
-    ws = _FakeWebSocket()
-    await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1", "SE1"])
-    assert calls == ["SE1"]
-
-
-async def test_handle_chat_sends_every_instance_of_a_split_series(tmp_path, monkeypatch):
-    """Both display sets' slices reach preprocessing, not just the last one's."""
-    _reset_singletons(tmp_path, monkeypatch)
-    import websocket_handler as wh
-    from models import SliceSelection
+    from models import RegionOfInterest, SliceSelection
     fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
     monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
 
     seen = []
     async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
                                selection=None):
-        seen.append(list(selection.sop_instance_uids) if selection else None)
-        return ["img"]
+        seen.append((list(selection.sop_instance_uids), selection.roi is not None))
+        return [f"img-{selection.sop_instance_uids[0]}"]
     monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
 
     from session_manager import get_session_manager
@@ -793,11 +794,17 @@ async def test_handle_chat_sends_every_instance_of_a_split_series(tmp_path, monk
     await wh.handle_chat(
         ws, s, content="q", study_uid="STD", series_uids=["SE1", "SE1"],
         slice_selections=[
-            SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"]),
+            SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"],
+                           roi=RegionOfInterest(x=0.1, y=0.1, width=0.2, height=0.2)),
             SliceSelection(series_uid="SE1", sop_instance_uids=["1.2"]),
         ],
     )
-    assert seen == [["1.1", "1.2"]]
+    assert seen == [(["1.1"], True), (["1.2"], False)]
+
+    # Both sets of images reached the model, not just the last.
+    content_parts = fake.calls[-1]["messages"][-1]["content"]
+    urls = [p["image_url"]["url"] for p in content_parts if p["type"] == "image_url"]
+    assert urls == ["img-1.1", "img-1.2"]
 
 
 async def test_handle_chat_reads_the_recipe_once_before_any_await(tmp_path, monkeypatch):

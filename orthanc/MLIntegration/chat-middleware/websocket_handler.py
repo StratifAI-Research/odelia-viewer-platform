@@ -136,47 +136,52 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
         logger.debug(f"WebSocket handler finished for session: {session.session_id}")
 
 
-def merge_selections(selections: list[SliceSelection]) -> dict[str, SliceSelection]:
+def plan_series(
+    series_uids: list[str], selections: list[SliceSelection]
+) -> list[tuple[str, SliceSelection | None]]:
     """
-    Index selections by series, combining any that name the same one.
+    What to preprocess for one message, as (series, selection) pairs.
 
-    OHIF splits some series into several display sets -- one per instance for
-    mammography and other single-image modalities -- and the panel then sends one
-    selection per display set. Keeping only the last would send a subset of what
-    the message says it sent, so the named instances are concatenated instead,
-    in arrival order and without duplicates.
+    One entry per selection rather than one per series. OHIF can split a series
+    into several display sets and the panel sends a selection for each, which may
+    legitimately differ -- a region of interest on one and not the other, say.
+    Collapsing them to one selection per series either drops a crop or applies it
+    to images it was never drawn on, and the transcript stays per-display-set
+    either way, so its provenance would disagree with what the model saw.
+
+    Two identical requests for one series are still collapsed: they would produce
+    the same pixels, and the cache would serve the second from the first anyway.
+
+    A series with no selection at all contributes one entry with None, which is
+    the pre-existing behaviour.
 
     Args:
-        selections: Per-series selections as they arrived
+        series_uids: Series attached to the message, in display order
+        selections: Per-display-set selections, in display order
 
     Returns:
-        One selection per series UID
+        Pairs to preprocess, in order, without duplicates
     """
-    merged: dict[str, SliceSelection] = {}
-    for selection in selections:
-        existing = merged.get(selection.series_uid)
-        if existing is None:
-            merged[selection.series_uid] = selection
-            continue
+    plan: list[tuple[str, SliceSelection | None]] = []
+    seen: set[tuple[str, str]] = set()
 
-        seen = set(existing.sop_instance_uids)
-        combined = list(existing.sop_instance_uids)
-        combined.extend(uid for uid in selection.sop_instance_uids if uid not in seen)
-        logger.info(
-            f"Merged {len(selections)} selections for series {selection.series_uid} "
-            f"into {len(combined)} instances"
-        )
-        merged[selection.series_uid] = existing.model_copy(
-            update={
-                "sop_instance_uids": combined,
-                # The range no longer describes a single contiguous span once two
-                # display sets are combined, and claiming otherwise in the log
-                # would be worse than saying nothing.
-                "range_start": None,
-                "range_end": None,
-            }
-        )
-    return merged
+    for selection in selections:
+        # `model_dump_json` is a faithful identity: two selections are the same
+        # request exactly when every field matches, ROI included.
+        fingerprint = (selection.series_uid, selection.model_dump_json())
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        plan.append((selection.series_uid, selection))
+
+    selected_series = {selection.series_uid for selection in selections}
+    for series_uid in series_uids:
+        if series_uid in selected_series or any(uid == series_uid for uid, _ in plan):
+            continue
+        plan.append((series_uid, None))
+        selected_series.add(series_uid)
+
+    return plan
 
 
 async def handle_chat(
@@ -225,11 +230,9 @@ async def handle_chat(
 
     session.last_activity = datetime.now(UTC)
 
-    # Per-series selections for this message, indexed for lookup. Two entries for
-    # one series are merged rather than letting the last one win: OHIF can split a
-    # series into several display sets, and dropping one would send fewer slices
-    # than the panel's snapshot claims.
-    selections_by_series = merge_selections(slice_selections or [])
+    # What to preprocess, as (series, selection) pairs -- one per selection, so a
+    # series split across display sets keeps each one's own slices and crop.
+    plan = plan_series(series_uids, slice_selections or [])
 
     # One read of the runtime preprocessing config, taken before any await.
     # `RuntimeConfig.update` mutates its params in place, so a PUT arriving while
@@ -237,23 +240,21 @@ async def handle_chat(
     # key was computed from it -- storing one recipe's images under another's key.
     base_params = replace(runtime_config.preprocessing)
 
-    # De-duplicated, order preserved. A series can appear twice when OHIF split it
-    # into several display sets; retrieving it twice would only waste a WADO round
-    # trip, but it would also make the progress fractions below wrong.
-    unique_series_uids = list(dict.fromkeys(series_uids))
-
     try:
-        # 1. Ensure all requested series are cached (preprocess if needed)
-        series_images = {}
-        total = len(unique_series_uids)
+        # 1. Ensure everything the message asks for is cached (preprocess if needed).
+        #
+        # Keyed by cache key, not by series: one series can appear more than once
+        # under different recipes, and a dict keyed on the series UID would keep
+        # only the last -- sending fewer images than the message asked for.
+        images_by_key: dict[str, list[str]] = {}
+        total = len(plan)
 
-        for i, series_uid in enumerate(unique_series_uids):
+        for i, (series_uid, selection) in enumerate(plan):
             # Check for cancellation
             if session.cancel_event.is_set():
                 logger.info("Chat cancelled during preprocessing")
                 return
 
-            selection = selections_by_series.get(series_uid)
             # Keyed on series AND recipe: two messages can name the same series and
             # mean different slices, and a series-only key would answer the second
             # with the first one's images.
@@ -308,7 +309,7 @@ async def handle_chat(
             # Get images from cache
             cached = image_cache.get(cache_key)
             if cached:
-                series_images[series_uid] = cached.base64_images
+                images_by_key[cache_key] = cached.base64_images
 
         # Update preprocessing progress to complete
         if total > 0:
@@ -321,7 +322,7 @@ async def handle_chat(
 
         # 2. Build messages and get user content for history storage
         messages, user_content_for_history = prompt_builder.build_messages(
-            session.conversation_history, content, series_images
+            session.conversation_history, content, images_by_key
         )
 
         # 3. Stream response from Ollama

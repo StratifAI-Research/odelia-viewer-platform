@@ -6,6 +6,7 @@ Reuses core DICOM handling from medgemma-mri/preprocessing.py.
 import base64
 import io
 import logging
+import math
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -369,10 +370,15 @@ def crop_to_roi(slice_array: np.ndarray, roi: RegionOfInterest) -> np.ndarray:
     """
     rows, cols = slice_array.shape[:2]
 
-    left = min(int(round(roi.x * cols)), max(cols - 1, 0))
-    top = min(int(round(roi.y * rows)), max(rows - 1, 0))
-    right = min(max(int(round((roi.x + roi.width) * cols)), left + 1), cols)
-    bottom = min(max(int(round((roi.y + roi.height) * rows)), top + 1), rows)
+    # Floor the near edges and ceil the far ones, rather than rounding both. Two
+    # reasons: the crop then always covers what the user outlined instead of
+    # shaving a pixel off it, and Python's round() is tie-to-even, so a rectangle
+    # landing on exact half-pixels came out a pixel wider or narrower depending
+    # only on where it sat.
+    left = min(int(math.floor(roi.x * cols)), max(cols - 1, 0))
+    top = min(int(math.floor(roi.y * rows)), max(rows - 1, 0))
+    right = min(max(int(math.ceil((roi.x + roi.width) * cols)), left + 1), cols)
+    bottom = min(max(int(math.ceil((roi.y + roi.height) * rows)), top + 1), rows)
 
     logger.info(f"Cropping slice to rows {top}:{bottom}, cols {left}:{right} of {rows}x{cols}")
     return slice_array[top:bottom, left:right]

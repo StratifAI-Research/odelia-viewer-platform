@@ -768,3 +768,19 @@ async def test_preprocess_series_crops_every_slice_it_sends(tmp_path, monkeypatc
     )
     sizes = [Image.open(io.BytesIO(base64.b64decode(u.split(",", 1)[1]))).size for u in out]
     assert sizes == [(20, 10), (20, 10)]
+
+
+def test_crop_to_roi_covers_what_was_outlined_rather_than_shaving_it():
+    """Near edges floor, far edges ceil: the crop includes every outlined pixel.
+
+    Rounding both edges made a rectangle landing on exact half-pixels come out a
+    pixel wider or narrower depending only on where it sat, because Python's
+    round() breaks ties to even.
+    """
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    # 1.5 .. 4.5 in both axes on a 10-pixel image.
+    a = preprocessing.crop_to_roi(arr, _make_roi(x=0.15, y=0.15, width=0.3, height=0.3))
+    # The same three-pixel-wide rectangle shifted by one pixel: 2.5 .. 5.5.
+    b = preprocessing.crop_to_roi(arr, _make_roi(x=0.25, y=0.25, width=0.3, height=0.3))
+    assert a.shape == b.shape

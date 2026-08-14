@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 
 from config import get_config
 from fastapi import WebSocket, WebSocketDisconnect
-from image_cache import CachedSeries, get_image_cache
-from models import ClientMessage, ClientMessageType, ServerMessageType
+from image_cache import CachedSeries, get_image_cache, make_cache_key
+from models import ClientMessage, ClientMessageType, ServerMessageType, SliceSelection
 from ollama_client import CloudBackendUnavailableError, get_client_for_provider
-from preprocessing import preprocess_series
+from preprocessing import SliceSelectionError, preprocess_series, recipe_signature
 from prompt_builder import get_prompt_builder
 from pydantic import ValidationError
 from runtime_config import get_runtime_config
@@ -88,6 +88,7 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                             msg.content or "",
                             msg.study_uid or "",
                             msg.series_uids or [],
+                            msg.slice_selections or [],
                         )
                     )
                     session.active_task = task
@@ -135,7 +136,12 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
 
 
 async def handle_chat(
-    websocket: WebSocket, session: Session, content: str, study_uid: str, series_uids: list[str]
+    websocket: WebSocket,
+    session: Session,
+    content: str,
+    study_uid: str,
+    series_uids: list[str],
+    slice_selections: list[SliceSelection] | None = None,
 ) -> None:
     """
     Handle a chat message with study and series context.
@@ -146,6 +152,9 @@ async def handle_chat(
         content: User message content
         study_uid: StudyInstanceUID
         series_uids: List of SeriesInstanceUIDs for context
+        slice_selections: Per-series slice selections for THIS message. A series
+            with no entry falls back to the runtime preprocessing recipe, which is
+            what a viewer predating the field sends.
     """
     config = get_config()
     runtime_config = get_runtime_config()
@@ -172,6 +181,11 @@ async def handle_chat(
 
     session.last_activity = datetime.now(UTC)
 
+    # Per-series selections for this message, indexed for lookup. A duplicate
+    # entry for one series is a client bug; the last one wins rather than
+    # silently preprocessing twice.
+    selections_by_series = {s.series_uid: s for s in (slice_selections or [])}
+
     try:
         # 1. Ensure all requested series are cached (preprocess if needed)
         series_images = {}
@@ -183,7 +197,15 @@ async def handle_chat(
                 logger.info("Chat cancelled during preprocessing")
                 return
 
-            if not image_cache.has(series_uid):
+            selection = selections_by_series.get(series_uid)
+            # Keyed on series AND recipe: two messages can name the same series and
+            # mean different slices, and a series-only key would answer the second
+            # with the first one's images.
+            cache_key = make_cache_key(
+                series_uid, recipe_signature(runtime_config.preprocessing, selection)
+            )
+
+            if not image_cache.has(cache_key):
                 # Send preprocessing status
                 progress = (i / total) if total > 0 else 0
                 await send_message(
@@ -193,7 +215,8 @@ async def handle_chat(
                     progress=progress,
                 )
 
-                # Preprocess and cache (uses RuntimeConfig for slice params)
+                # Preprocess and cache (RuntimeConfig applies unless the message
+                # named its own slices)
                 try:
                     images = await preprocess_series(
                         series_uid,
@@ -201,10 +224,11 @@ async def handle_chat(
                         runtime_config.preprocessing,
                         config.wado_base_url,
                         config.image_folder,
+                        selection=selection,
                     )
 
                     image_cache.put(
-                        series_uid,
+                        cache_key,
                         CachedSeries(
                             series_uid=series_uid,
                             base64_images=images,
@@ -212,6 +236,12 @@ async def handle_chat(
                             last_accessed=datetime.now(UTC),
                         ),
                     )
+                except SliceSelectionError as e:
+                    # Retrieval worked; the requested slices are not in the series.
+                    # Say that, rather than blaming the retrieval.
+                    logger.warning(f"Unresolvable slice selection for {series_uid}: {e}")
+                    await send_message(websocket, ServerMessageType.ERROR, content=str(e))
+                    return
                 except Exception as e:
                     logger.error(f"Failed to preprocess series {series_uid}: {e}")
                     await send_message(
@@ -222,7 +252,7 @@ async def handle_chat(
                     return
 
             # Get images from cache
-            cached = image_cache.get(series_uid)
+            cached = image_cache.get(cache_key)
             if cached:
                 series_images[series_uid] = cached.base64_images
 

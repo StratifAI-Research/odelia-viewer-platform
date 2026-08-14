@@ -149,3 +149,72 @@ def test_get_updates_last_accessed_timestamp():
     assert c._cache["uid.x"].last_accessed > ancient
 
 
+# ---------- make_cache_key ----------
+#
+# The key decides whether two messages share preprocessed pixels. Keying on the
+# series alone — as this cache originally did — answers the second message in a
+# conversation with the first message's slices as soon as they differ.
+
+def test_make_cache_key_is_prefixed_with_the_series_uid():
+    """Keys stay greppable in logs and in /debug/cache/stats."""
+    from image_cache import make_cache_key
+    key = make_cache_key("1.2.840.SE1", ("recipe", "5", "central", "60"))
+    assert key.startswith("1.2.840.SE1#")
+
+
+def test_make_cache_key_is_stable_for_the_same_recipe():
+    from image_cache import make_cache_key
+    a = make_cache_key("SE1", ("recipe", "5", "central", "60"))
+    b = make_cache_key("SE1", ("recipe", "5", "central", "60"))
+    assert a == b
+
+
+def test_make_cache_key_differs_when_the_recipe_differs():
+    from image_cache import make_cache_key
+    a = make_cache_key("SE1", ("recipe", "5", "central", "60"))
+    b = make_cache_key("SE1", ("recipe", "8", "central", "60"))
+    assert a != b
+
+
+def test_make_cache_key_differs_when_the_series_differs():
+    from image_cache import make_cache_key
+    a = make_cache_key("SE1", ("recipe", "5"))
+    b = make_cache_key("SE2", ("recipe", "5"))
+    assert a != b
+
+
+def test_make_cache_key_is_order_sensitive():
+    """Slice order is part of what was sent, so it must be part of the key."""
+    from image_cache import make_cache_key
+    a = make_cache_key("SE1", ("instances", "1.1", "1.2"))
+    b = make_cache_key("SE1", ("instances", "1.2", "1.1"))
+    assert a != b
+
+
+def test_make_cache_key_stays_short_for_a_long_selection():
+    """64 named instances must not produce an unloggable key."""
+    from image_cache import make_cache_key
+    key = make_cache_key("SE1", ("instances", *[f"1.2.840.113619.2.{i}" for i in range(64)]))
+    assert len(key) < 80
+
+
+def test_make_cache_key_separates_a_selection_from_a_recipe():
+    """A selection of 5 named slices is not the same entry as 'the recipe says 5'."""
+    from image_cache import make_cache_key
+    a = make_cache_key("SE1", ("instances", "1.1", "1.2", "1.3", "1.4", "1.5"))
+    b = make_cache_key("SE1", ("recipe", "5", "central", "60"))
+    assert a != b
+
+
+def test_stats_lists_entry_keys_and_the_series_behind_them():
+    """One series can hold several entries — one per recipe — and stats says so."""
+    from image_cache import ImageCache, make_cache_key
+    c = ImageCache(max_entries=5)
+    k1 = make_cache_key("SE1", ("instances", "1.1"))
+    k2 = make_cache_key("SE1", ("instances", "1.2"))
+    c.put(k1, _make_cached("SE1"))
+    c.put(k2, _make_cached("SE1"))
+    st = c.stats()
+    assert st["size"] == 2
+    assert sorted(st["keys"]) == sorted([k1, k2])
+    assert st["series_uids"] == ["SE1"]

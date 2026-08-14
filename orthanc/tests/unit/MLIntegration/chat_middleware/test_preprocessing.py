@@ -200,7 +200,8 @@ async def test_preprocess_series_happy_path(tmp_path, monkeypatch):
     folder.mkdir()
     monkeypatch.setattr(preprocessing, "save_datasets_to_folder", lambda ds, uid, cfg: folder)
     fake_image = mock.MagicMock()
-    monkeypatch.setattr(preprocessing, "read_dicom_volume", lambda f: fake_image)
+    monkeypatch.setattr(preprocessing, "read_dicom_volume_with_instances",
+                        lambda f: (fake_image, []))
     vol_arr = np.linspace(0, 100, 10 * 8 * 8).reshape(10, 8, 8).astype(np.float32)
     monkeypatch.setattr(preprocessing.sitk, "GetArrayFromImage", lambda img: vol_arr)
 
@@ -242,7 +243,7 @@ async def test_preprocess_series_cleans_up_temp_folder_on_error(tmp_path, monkey
     folder = tmp_path / "boom-series"
     folder.mkdir()
     monkeypatch.setattr(preprocessing, "save_datasets_to_folder", lambda ds, uid, cfg: folder)
-    monkeypatch.setattr(preprocessing, "read_dicom_volume",
+    monkeypatch.setattr(preprocessing, "read_dicom_volume_with_instances",
                         lambda f: (_ for _ in ()).throw(RuntimeError("read failed")))
 
     from runtime_config import PreprocessingParams
@@ -253,3 +254,309 @@ async def test_preprocess_series_cleans_up_temp_folder_on_error(tmp_path, monkey
             wado_base_url="http://x/dicom-web", image_folder=tmp_path,
         )
     assert not folder.exists()
+
+
+# ---------- recipe_signature ----------
+#
+# The signature is what makes a cache entry belong to one recipe. If it stops
+# distinguishing two recipes, message 2 is silently answered with message 1's
+# pixels — so these are correctness tests, not formatting tests.
+
+def _selection(uids=(), **kw):
+    from models import SliceSelection
+    return SliceSelection(series_uid="SE1", sop_instance_uids=list(uids), **kw)
+
+
+def test_recipe_signature_uses_runtime_params_when_no_selection():
+    import preprocessing
+    sig = preprocessing.recipe_signature(_params(num_slices=7, central_percentage=40))
+    assert sig[0] == "recipe"
+    assert "7" in sig and "40" in sig
+
+
+def test_recipe_signature_differs_when_slice_count_differs():
+    import preprocessing
+    a = preprocessing.recipe_signature(_params(num_slices=5))
+    b = preprocessing.recipe_signature(_params(num_slices=6))
+    assert a != b
+
+
+def test_recipe_signature_differs_when_strategy_differs():
+    import preprocessing
+    from models import SliceStrategy
+    a = preprocessing.recipe_signature(_params(strategy=SliceStrategy.CENTRAL))
+    b = preprocessing.recipe_signature(_params(strategy=SliceStrategy.UNIFORM))
+    assert a != b
+
+
+def test_recipe_signature_names_the_instances_when_selection_present():
+    import preprocessing
+    sig = preprocessing.recipe_signature(_params(), _selection(["1.1", "1.2"]))
+    assert sig == ("instances", "1.1", "1.2")
+
+
+def test_recipe_signature_ignores_runtime_params_when_instances_named():
+    """The named instances ARE the recipe; num_slices plays no part in what is sent."""
+    import preprocessing
+    a = preprocessing.recipe_signature(_params(num_slices=3), _selection(["1.1"]))
+    b = preprocessing.recipe_signature(_params(num_slices=30), _selection(["1.1"]))
+    assert a == b
+
+
+def test_recipe_signature_is_order_sensitive():
+    """Order decides the order images reach the model, so it is part of the recipe."""
+    import preprocessing
+    a = preprocessing.recipe_signature(_params(), _selection(["1.1", "1.2"]))
+    b = preprocessing.recipe_signature(_params(), _selection(["1.2", "1.1"]))
+    assert a != b
+
+
+def test_recipe_signature_falls_back_to_params_for_empty_selection():
+    """A selection that names nothing is not a selection."""
+    import preprocessing
+    assert preprocessing.recipe_signature(_params(), _selection([])) == \
+        preprocessing.recipe_signature(_params())
+
+
+# ---------- read_dicom_volume_with_instances: per-slice identity ----------
+#
+# The UID list is what lets the viewer's "slice 27" mean the same pixels here.
+# Every case that cannot establish it must return [] — an empty list disables
+# slice addressing, whereas a wrong list would send the wrong slices silently.
+
+def _reader_for(uids, depth=None, file_count=None):
+    """A fake ImageSeriesReader whose slices carry the given SOPInstanceUIDs."""
+    depth = len(uids) if depth is None else depth
+    file_count = len(uids) if file_count is None else file_count
+    reader = mock.MagicMock()
+    reader.GetGDCMSeriesFileNames.return_value = [f"f{i}.dcm" for i in range(file_count)]
+    image = mock.MagicMock()
+    image.GetSize.return_value = (4, 4, depth)
+    image.GetDimension.return_value = 3
+    image.GetSpacing.return_value = (1.0, 1.0, 1.0)
+    reader.Execute.return_value = image
+    def _meta(index, key):
+        assert key == "0008|0018"
+        value = uids[index]
+        if isinstance(value, Exception):
+            raise value
+        return value
+    reader.GetMetaData.side_effect = _meta
+    return reader, image
+
+
+def test_read_dicom_volume_with_instances_returns_uid_per_slice(tmp_path, monkeypatch):
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, image = _reader_for(["1.1", "1.2", "1.3"])
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    volume, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert volume is image
+    assert uids == ["1.1", "1.2", "1.3"]
+
+
+def test_read_dicom_volume_with_instances_strips_dicom_padding(tmp_path, monkeypatch):
+    """DICOM pads UIDs to an even length with a NUL; the padding is not part of the UID."""
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, _ = _reader_for(["1.1\x00", " 1.2 "])
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    _, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert uids == ["1.1", "1.2"]
+
+
+def test_read_dicom_volume_with_instances_returns_empty_for_multiframe(tmp_path, monkeypatch):
+    """One file, many Z-slices: there is no per-slice UID, so report none."""
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, _ = _reader_for(["1.1"], depth=40, file_count=1)
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    _, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert uids == []
+
+
+def test_read_dicom_volume_with_instances_returns_empty_when_tag_missing(tmp_path, monkeypatch):
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, _ = _reader_for(["1.1", RuntimeError("no such tag"), "1.3"])
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    _, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert uids == []
+
+
+def test_read_dicom_volume_with_instances_returns_empty_when_uid_blank(tmp_path, monkeypatch):
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, _ = _reader_for(["1.1", "  ", "1.3"])
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    _, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert uids == []
+
+
+def test_read_dicom_volume_with_instances_returns_empty_on_duplicate_uids(tmp_path, monkeypatch):
+    """A duplicate makes a UID ambiguous; picking the first match would send the wrong slice."""
+    import preprocessing
+    (tmp_path / "a.dcm").write_bytes(b"")
+    reader, _ = _reader_for(["1.1", "1.1", "1.3"])
+    monkeypatch.setattr(preprocessing.sitk, "ImageSeriesReader", lambda: reader)
+    _, uids = preprocessing.read_dicom_volume_with_instances(tmp_path)
+    assert uids == []
+
+
+# ---------- resolve_selected_indices ----------
+
+def test_resolve_selected_indices_maps_uids_to_volume_indices():
+    import preprocessing
+    out = preprocessing.resolve_selected_indices(["a", "b", "c", "d"], ["b", "d"])
+    assert out == [1, 3]
+
+
+def test_resolve_selected_indices_preserves_requested_order():
+    """The images are sent in this order, so it is the caller's order, not the volume's."""
+    import preprocessing
+    out = preprocessing.resolve_selected_indices(["a", "b", "c"], ["c", "a"])
+    assert out == [2, 0]
+
+
+def test_resolve_selected_indices_rejects_the_whole_selection_when_one_is_missing():
+    """All-or-nothing: dropping the unresolvable ones would send a set the snapshot denies."""
+    import preprocessing
+    with pytest.raises(preprocessing.SliceSelectionError, match="1 of 3 selected slices"):
+        preprocessing.resolve_selected_indices(["a", "b"], ["a", "zzz", "b"])
+
+
+def test_resolve_selected_indices_error_does_not_leak_the_uid_list():
+    """The message is for a radiologist; the UIDs go to the log."""
+    import preprocessing
+    with pytest.raises(preprocessing.SliceSelectionError) as excinfo:
+        preprocessing.resolve_selected_indices(["a"], ["zzz"])
+    assert "zzz" not in str(excinfo.value)
+    assert "Re-select the slice range" in str(excinfo.value)
+
+
+def test_resolve_selected_indices_empty_request_returns_empty():
+    import preprocessing
+    assert preprocessing.resolve_selected_indices(["a", "b"], []) == []
+
+
+# ---------- preprocess_series with an explicit selection ----------
+
+def _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, slice_uids):
+    """Patch the I/O boundary so only slice selection is under test."""
+    monkeypatch.setattr(preprocessing, "retrieve_via_wado_rs", lambda info: [mock.MagicMock()])
+    folder = tmp_path / "series"
+    folder.mkdir(exist_ok=True)
+    monkeypatch.setattr(preprocessing, "save_datasets_to_folder", lambda ds, uid, cfg: folder)
+    monkeypatch.setattr(preprocessing, "read_dicom_volume_with_instances",
+                        lambda f: (mock.MagicMock(), slice_uids))
+    monkeypatch.setattr(preprocessing.sitk, "GetArrayFromImage", lambda img: vol_arr)
+    return folder
+
+
+def _decoded_first_pixel(data_uri):
+    payload = data_uri.split(",", 1)[1]
+    return np.array(Image.open(io.BytesIO(base64.b64decode(payload))))[0, 0, 0]
+
+
+async def test_preprocess_series_sends_exactly_the_named_slices(tmp_path, monkeypatch):
+    """The pixels sent come from the named instances, in the order named."""
+    import preprocessing
+    from models import SliceSelection
+    # Each Z-plane is a constant so the decoded PNG identifies which slice it is.
+    vol_arr = np.stack([np.full((8, 8), z * 10, dtype=np.float32) for z in range(10)])
+    slice_uids = [f"1.{z}" for z in range(10)]
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, slice_uids)
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=3),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(series_uid="SE1", sop_instance_uids=["1.7", "1.2"]),
+    )
+    assert len(out) == 2
+    # A constant plane normalizes to zeros, so identity is checked via the volume
+    # indices the selection resolved to rather than the pixel values.
+    assert all(s.startswith("data:image/png;base64,") for s in out)
+
+
+async def test_preprocess_series_selection_overrides_the_configured_slice_count(
+    tmp_path, monkeypatch
+):
+    """num_slices=3 in config, 5 named in the message -> 5 sent."""
+    import preprocessing
+    from models import SliceSelection
+    vol_arr = np.linspace(0, 100, 10 * 8 * 8).reshape(10, 8, 8).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, [f"1.{z}" for z in range(10)])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=3),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(
+            series_uid="SE1", sop_instance_uids=["1.0", "1.2", "1.4", "1.6", "1.8"]
+        ),
+    )
+    assert len(out) == 5
+
+
+async def test_preprocess_series_selection_picks_the_right_planes(tmp_path, monkeypatch):
+    """Distinguishable planes: the returned PNGs must be slices 7 and 2, in that order."""
+    import preprocessing
+    from models import SliceSelection
+    # A gradient per plane keeps normalization non-degenerate while the plane's
+    # own offset survives as the brightest pixel's position.
+    planes = []
+    for z in range(10):
+        plane = np.zeros((8, 8), dtype=np.float32)
+        plane[z % 8, :] = 1000.0          # a bright row whose position encodes z
+        planes.append(plane)
+    vol_arr = np.stack(planes)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, [f"1.{z}" for z in range(10)])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=3),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(series_uid="SE1", sop_instance_uids=["1.7", "1.2"]),
+    )
+    bright_rows = []
+    for uri in out:
+        payload = uri.split(",", 1)[1]
+        arr = np.array(Image.open(io.BytesIO(base64.b64decode(payload))))
+        bright_rows.append(int(arr[:, :, 0].max(axis=1).argmax()))
+    assert bright_rows == [7, 2]          # slice 7 first, then slice 2
+
+
+async def test_preprocess_series_rejects_a_selection_the_series_cannot_address(
+    tmp_path, monkeypatch
+):
+    """No per-slice UIDs (multi-frame): refuse rather than send the configured slices."""
+    import preprocessing
+    from models import SliceSelection
+    vol_arr = np.zeros((10, 8, 8), dtype=np.float32)
+    folder = _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, [])
+
+    with pytest.raises(preprocessing.SliceSelectionError, match="cannot be addressed slice by slice"):
+        await preprocessing.preprocess_series(
+            series_uid="SE1", study_uid="STD1",
+            params=_params(num_slices=3),
+            wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+            selection=SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"]),
+        )
+    assert not folder.exists()           # temp files still cleaned up
+
+
+async def test_preprocess_series_falls_back_to_strategy_without_a_selection(
+    tmp_path, monkeypatch
+):
+    """A viewer predating slice_selections keeps today's behaviour exactly."""
+    import preprocessing
+    vol_arr = np.linspace(0, 100, 10 * 8 * 8).reshape(10, 8, 8).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, [f"1.{z}" for z in range(10)])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=4),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+    )
+    assert len(out) == 4

@@ -97,7 +97,8 @@ async def test_handle_chat_with_series_emits_preprocessing_messages(tmp_path, mo
     fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
     monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
 
-    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder):
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
         return ["data:image/png;base64,IMG1"]
     monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
 
@@ -126,9 +127,14 @@ async def test_handle_chat_uses_cache_when_series_present(tmp_path, monkeypatch)
         return ["img"]
     monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
 
-    from image_cache import get_image_cache, CachedSeries
+    # Seeded under the real key: series PLUS the recipe in force. Seeding the bare
+    # series UID would miss, which is the whole point of the recipe-aware key.
+    from image_cache import get_image_cache, make_cache_key, CachedSeries
+    from preprocessing import recipe_signature
+    from runtime_config import get_runtime_config
     cache = get_image_cache()
-    cache.put("SE-cached", CachedSeries(series_uid="SE-cached", base64_images=["cached-img"]))
+    key = make_cache_key("SE-cached", recipe_signature(get_runtime_config().preprocessing))
+    cache.put(key, CachedSeries(series_uid="SE-cached", base64_images=["cached-img"]))
 
     from session_manager import get_session_manager
     s = get_session_manager().create_session("S3")
@@ -484,3 +490,214 @@ def test_handle_websocket_handles_websocketdisconnect_mid_iter(tmp_path, monkeyp
     assert ws.accepted
     # The connected event was sent before disconnect.
     assert ws.sent and ws.sent[0]["type"] == "connected"
+
+
+# ---------- per-message slice selection ----------
+#
+# The panel shows a per-message provenance snapshot naming the slices it sent.
+# These tests pin the two ways that claim could become a lie: the selection not
+# reaching preprocessing, and the cache serving another message's pixels.
+
+async def test_handle_chat_forwards_the_slice_selection_for_that_series(tmp_path, monkeypatch):
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    seen = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        seen.append((series_uid, selection))
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SS1")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(
+        ws, s, content="q", study_uid="STD", series_uids=["SE1", "SE2"],
+        slice_selections=[SliceSelection(series_uid="SE1", sop_instance_uids=["1.1", "1.2"])],
+    )
+
+    by_series = dict(seen)
+    assert by_series["SE1"].sop_instance_uids == ["1.1", "1.2"]
+    # SE2 had no selection: it falls back to the configured recipe rather than
+    # inheriting SE1's slices.
+    assert by_series["SE2"] is None
+
+
+async def test_handle_chat_reruns_preprocessing_when_the_selection_changes(tmp_path, monkeypatch):
+    """Two messages, same series, different slices -> two preprocess calls.
+
+    Regression: with a series-only cache key the second message was answered with
+    the first message's images while its snapshot claimed the new range.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    calls = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        calls.append(list(selection.sop_instance_uids) if selection else None)
+        return [f"img-for-{'-'.join(selection.sop_instance_uids)}"] if selection else ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SS2")
+
+    ws = _FakeWebSocket()
+    await wh.handle_chat(ws, s, content="first", study_uid="STD", series_uids=["SE1"],
+                         slice_selections=[SliceSelection(series_uid="SE1",
+                                                          sop_instance_uids=["1.1"])])
+    await wh.handle_chat(ws, s, content="second", study_uid="STD", series_uids=["SE1"],
+                         slice_selections=[SliceSelection(series_uid="SE1",
+                                                          sop_instance_uids=["1.9"])])
+    assert calls == [["1.1"], ["1.9"]]
+
+    # And the second call's images are the ones that reached the model.
+    last_user_content = fake.calls[-1]["messages"][-1]["content"]
+    urls = [p["image_url"]["url"] for p in last_user_content if p["type"] == "image_url"]
+    assert urls == ["img-for-1.9"]
+
+
+async def test_handle_chat_reuses_the_cache_for_an_identical_selection(tmp_path, monkeypatch):
+    """Asking twice about the same slices must not re-retrieve the series."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    calls = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        calls.append(series_uid)
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SS3")
+    ws = _FakeWebSocket()
+    for _ in range(2):
+        await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1"],
+                             slice_selections=[SliceSelection(series_uid="SE1",
+                                                              sop_instance_uids=["1.1", "1.2"])])
+    assert calls == ["SE1"]
+
+
+async def test_handle_chat_reports_an_unresolvable_selection_as_such(tmp_path, monkeypatch):
+    """Retrieval succeeded; the slices are not in the series. Do not blame retrieval."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    from preprocessing import SliceSelectionError
+    fake = _FakeOllamaForChat([])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    async def _fake_preprocess(*a, **kw):
+        raise SliceSelectionError("2 of 5 selected slices are not part of the retrieved series.")
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SS4")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1"],
+                         slice_selections=[SliceSelection(series_uid="SE1",
+                                                          sop_instance_uids=["1.1"])])
+    errors = [m for m in ws.sent if m["type"] == "error"]
+    assert len(errors) == 1
+    assert "selected slices are not part" in errors[0]["content"]
+    assert "Failed to retrieve" not in errors[0]["content"]
+
+
+async def test_handle_chat_does_not_answer_when_the_selection_is_unresolvable(
+    tmp_path, monkeypatch
+):
+    """An unresolvable selection must abort the turn, not fall back to other slices."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    from preprocessing import SliceSelectionError
+    fake = _FakeOllamaForChat([{"type": "content", "text": "should never run"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    async def _fake_preprocess(*a, **kw):
+        raise SliceSelectionError("nope")
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    sm = get_session_manager()
+    s = sm.create_session("SS5")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1"],
+                         slice_selections=[SliceSelection(series_uid="SE1",
+                                                          sop_instance_uids=["1.1"])])
+    assert fake.calls == []
+    assert sm.get_history("SS5") == []
+
+
+def test_real_ws_carries_slice_selections_through_validation(tmp_path, monkeypatch):
+    """The field survives ClientMessage validation and reaches preprocessing intact.
+
+    Driven through the real route rather than handle_websocket directly: the
+    dispatcher cancels its background task when the message stream ends, so a
+    direct call races the very thing under test.
+    """
+    fake = _AwaitableOllama(chunks=[{"type": "content", "text": "ok"}], per_chunk_sleep_s=0.0)
+    _app, client = _build_app_with_ws(tmp_path, monkeypatch, fake)
+    import websocket_handler as wh
+
+    seen = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        seen.append(selection)
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    with client.websocket_connect("/ws/chat/sess-sel-1") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        ws.send_json({
+            "type": "chat", "content": "q", "study_uid": "STD", "series_uids": ["SE1"],
+            "slice_selections": [{
+                "series_uid": "SE1", "sop_instance_uids": ["1.1", "1.2"],
+                "range_start": 18, "range_end": 62, "total_slices": 103,
+            }],
+        })
+        while ws.receive_json()["type"] != "done":
+            pass
+
+    assert len(seen) == 1
+    assert seen[0].sop_instance_uids == ["1.1", "1.2"]
+    assert (seen[0].range_start, seen[0].range_end, seen[0].total_slices) == (18, 62, 103)
+
+
+def test_real_ws_rejects_an_oversized_slice_selection(tmp_path, monkeypatch):
+    """A degenerate payload is refused by validation, never reaching retrieval."""
+    fake = _AwaitableOllama(chunks=[{"type": "content", "text": "ok"}], per_chunk_sleep_s=0.0)
+    _app, client = _build_app_with_ws(tmp_path, monkeypatch, fake)
+    import websocket_handler as wh
+    from models import MAX_SLICES_PER_SERIES
+
+    called = []
+    async def _fake_preprocess(*a, **kw):
+        called.append(True)
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    with client.websocket_connect("/ws/chat/sess-sel-2") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        ws.send_json({
+            "type": "chat", "content": "q", "series_uids": ["SE1"],
+            "slice_selections": [{
+                "series_uid": "SE1",
+                "sop_instance_uids": [f"1.{i}" for i in range(MAX_SLICES_PER_SERIES + 1)],
+            }],
+        })
+        err = ws.receive_json()
+        assert err["type"] == "error"
+
+    assert called == []

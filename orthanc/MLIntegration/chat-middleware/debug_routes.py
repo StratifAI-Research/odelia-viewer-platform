@@ -122,7 +122,12 @@ async def update_debug_config(update: DebugConfigUpdate) -> DebugConfigResponse:
         cloud_model=update.cloud_model,
     )
 
-    # Auto-clear image cache when preprocessing params change
+    # Auto-clear image cache when preprocessing params change.
+    #
+    # No longer load-bearing for correctness: cache keys carry the recipe, so an
+    # entry made under the old params simply misses rather than being served for
+    # the new ones. Kept because those entries can never be hit again either, and
+    # dropping them frees the memory immediately.
     if preprocessing_dict:
         cleared = get_image_cache().clear()
         logger.info(f"Auto-cleared {cleared} cache entries after preprocessing config change")

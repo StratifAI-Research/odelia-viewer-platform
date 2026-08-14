@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import SimpleITK as sitk  # noqa: N813
-from models import SliceStrategy
+from models import SliceSelection, SliceStrategy
 from PIL import Image
 from runtime_config import PreprocessingParams
 from shared.config import StorageConfig
@@ -22,19 +22,68 @@ from shared.wado_retrieval import retrieve_via_wado_rs
 
 logger = logging.getLogger(__name__)
 
+# (0008,0018) SOPInstanceUID. SimpleITK spells DICOM tags with a pipe.
+SOP_INSTANCE_UID_TAG = "0008|0018"
 
-def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
+
+class SliceSelectionError(ValueError):
+    """A message named slices that cannot be resolved in the retrieved series.
+
+    Distinct from a retrieval failure: the series arrived fine, but what the
+    client asked for is not in it. Surfaced to the user rather than silently
+    substituted, because substituting means answering about different pixels than
+    the panel says it sent.
     """
-    Read DICOM series as a 3D volume using SimpleITK.
-    Handles 4D temporal series by extracting the first temporal phase.
 
-    This is adapted from medgemma-mri/preprocessing.py.
+
+def recipe_signature(
+    params: PreprocessingParams, selection: SliceSelection | None = None
+) -> tuple[str, ...]:
+    """
+    Everything that affects the images produced for one series.
+
+    Feeds `image_cache.make_cache_key`. Kept here, next to the code that consumes
+    each input, so that adding a preprocessing input has one place to change --
+    miss it and the cache starts serving pixels from a different recipe.
+
+    Args:
+        params: Runtime preprocessing parameters (used when there is no selection)
+        selection: Per-message slice selection, if the client sent one
+
+    Returns:
+        A stable tuple of strings describing the recipe
+    """
+    if selection is not None and selection.sop_instance_uids:
+        # The named instances ARE the recipe; the runtime params play no part.
+        # Order matters: the images are sent in this order.
+        return ("instances", *selection.sop_instance_uids)
+
+    return (
+        "recipe",
+        str(params.num_slices),
+        params.slice_strategy.value,
+        str(params.central_percentage),
+    )
+
+
+def read_dicom_volume_with_instances(dicom_folder: Path) -> tuple[sitk.Image, list[str]]:
+    """
+    Read a DICOM series as a 3D volume, plus the SOPInstanceUID of each Z-slice.
+
+    The UID list is what makes a client's slice selection resolvable: it maps the
+    viewer's notion of "slice 27" onto this volume's Z index without either side
+    assuming the other sorts the series the same way.
+
+    It is returned EMPTY when the files do not map one-to-one onto the volume --
+    an enhanced/multi-frame instance becomes many Z-slices from a single file, so
+    there is no per-slice UID to report. An empty list means "cannot address this
+    series slice by slice", never "slice 0 for everything".
 
     Args:
         dicom_folder: Path to folder containing DICOM files
 
     Returns:
-        SimpleITK Image object
+        (SimpleITK Image, per-Z-index SOPInstanceUIDs or [])
     """
 
     dicom_path = Path(dicom_folder)
@@ -62,7 +111,107 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
 
     logger.info(f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}")
 
-    return image
+    return image, _slice_instance_uids(reader, image, len(dicom_names))
+
+
+def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
+    """
+    Read DICOM series as a 3D volume using SimpleITK.
+
+    Thin wrapper over `read_dicom_volume_with_instances` for callers that do not
+    need per-slice identity.
+
+    Args:
+        dicom_folder: Path to folder containing DICOM files
+
+    Returns:
+        SimpleITK Image object
+    """
+    volume, _ = read_dicom_volume_with_instances(dicom_folder)
+    return volume
+
+
+def _slice_instance_uids(
+    reader: sitk.ImageSeriesReader, image: sitk.Image, file_count: int
+) -> list[str]:
+    """Per-Z-index SOPInstanceUIDs, or [] when they cannot be established."""
+    size = image.GetSize()
+    depth = size[2] if len(size) >= 3 else 1
+
+    if file_count != depth:
+        # One file per slice is the assumption that makes a per-slice UID
+        # meaningful. Multi-frame instances break it.
+        logger.info(
+            f"Series has {file_count} files for {depth} slices; "
+            "per-slice instance UIDs unavailable"
+        )
+        return []
+
+    uids: list[str] = []
+    for index in range(depth):
+        try:
+            raw = reader.GetMetaData(index, SOP_INSTANCE_UID_TAG)
+        except RuntimeError:
+            logger.warning(f"Slice {index} carries no SOPInstanceUID; cannot address by instance")
+            return []
+        # DICOM UIDs are padded to an even length with a NUL.
+        uid = raw.strip().strip("\x00").strip()
+        if not uid:
+            logger.warning(f"Slice {index} has an empty SOPInstanceUID")
+            return []
+        uids.append(uid)
+
+    if len(set(uids)) != len(uids):
+        # Duplicates would make a UID ambiguous, and picking the first match
+        # would quietly send the wrong slice.
+        logger.warning("Series reports duplicate SOPInstanceUIDs; cannot address by instance")
+        return []
+
+    return uids
+
+
+def resolve_selected_indices(slice_uids: list[str], requested_uids: list[str]) -> list[int]:
+    """
+    Map requested SOPInstanceUIDs onto Z indices of the reconstructed volume.
+
+    Order is the caller's: the images are sent in the order requested, which is
+    the order the panel displayed them in.
+
+    Args:
+        slice_uids: Per-Z-index SOPInstanceUIDs from `read_dicom_volume_with_instances`
+        requested_uids: The instances the message asked for
+
+    Returns:
+        Z indices, one per requested UID
+
+    Raises:
+        SliceSelectionError: if any requested UID is not part of this series
+    """
+    index_of = {uid: index for index, uid in enumerate(slice_uids)}
+
+    resolved: list[int] = []
+    missing: list[str] = []
+    for uid in requested_uids:
+        index = index_of.get(uid)
+        if index is None:
+            missing.append(uid)
+        else:
+            resolved.append(index)
+
+    if missing:
+        # All-or-nothing. Dropping the unresolvable ones would send a different
+        # set of slices than the message claims, which is exactly the failure the
+        # per-message snapshot exists to make impossible.
+        logger.error(
+            f"{len(missing)} of {len(requested_uids)} requested slices are not in this series "
+            f"(first missing: {missing[0]})"
+        )
+        raise SliceSelectionError(
+            f"{len(missing)} of {len(requested_uids)} selected slices are not part of the "
+            "retrieved series. Re-select the slice range and send again."
+        )
+
+    return resolved
 
 
 def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
@@ -191,6 +340,7 @@ async def preprocess_series(
     params: PreprocessingParams,
     wado_base_url: str,
     image_folder: Path,
+    selection: SliceSelection | None = None,
 ) -> list[str]:
     """
     Retrieve and preprocess a DICOM series, returning base64-encoded images.
@@ -199,7 +349,7 @@ async def preprocess_series(
     1. Retrieve via WADO-RS
     2. Save to temp folder
     3. Read as volume
-    4. Extract slices based on strategy
+    4. Select slices -- the instances the message named, else the configured strategy
     5. Normalize and convert to base64 PNG
     6. Cleanup temp files
 
@@ -209,9 +359,14 @@ async def preprocess_series(
         params: Preprocessing parameters (slice count, strategy, etc.)
         wado_base_url: Base URL for WADO-RS retrieval
         image_folder: Base folder for temporary storage
+        selection: Per-message slice selection. When it names instances they are
+            used verbatim and `params` is ignored; otherwise `params` applies.
 
     Returns:
         List of base64-encoded PNG image strings
+
+    Raises:
+        SliceSelectionError: if the message named slices this series does not hold
     """
     logger.info(f"Preprocessing series {series_uid} from study {study_uid}")
 
@@ -241,14 +396,29 @@ async def preprocess_series(
         # Save to disk
         dicom_folder = save_datasets_to_folder(datasets, series_uid, storage_config)
 
-        # Read as volume
-        volume = read_dicom_volume(dicom_folder)
+        # Read as volume, with per-slice identity where the series allows it
+        volume, slice_uids = read_dicom_volume_with_instances(dicom_folder)
         volume_array = sitk.GetArrayFromImage(volume)  # Shape: (Z, Y, X)
 
         logger.info(f"Volume shape: {volume_array.shape} (Z, Y, X)")
 
-        # Extract slices based on strategy
-        slice_arrays = extract_slices(volume_array, params)
+        # Select slices: the instances the message named, else the configured strategy
+        if selection is not None and selection.sop_instance_uids:
+            if not slice_uids:
+                raise SliceSelectionError(
+                    "This series cannot be addressed slice by slice, so a slice range "
+                    "cannot be applied to it. Clear the range to send the configured "
+                    "slices instead."
+                )
+            indices = resolve_selected_indices(slice_uids, selection.sop_instance_uids)
+            logger.info(
+                f"Sending {len(indices)} selected slices at volume indices {indices} "
+                f"(viewer range {selection.range_start}-{selection.range_end} "
+                f"of {selection.total_slices})"
+            )
+            slice_arrays = [volume_array[i, :, :] for i in indices]
+        else:
+            slice_arrays = extract_slices(volume_array, params)
 
         # Convert to base64
         base64_images = slices_to_base64(slice_arrays)

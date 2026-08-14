@@ -53,7 +53,53 @@ class SliceStrategy(str, Enum):
 
 # =============================================================================
 # WebSocket Messages
-# =============================================================================cd
+# =============================================================================
+
+# A DICOM UID is at most 64 characters. Bounded generously rather than exactly so
+# a non-conforming-but-harmless source is not rejected, while a degenerate value
+# still cannot reach the cache key or the log.
+MAX_UID_LEN = 128
+
+# A message names the slices it wants explicitly, so the list needs an upper
+# bound: it decides how many images are encoded into one LLM call. 64 sits well
+# above the panel's own ceiling (50 slices per series).
+MAX_SLICES_PER_SERIES = 64
+
+# Attaching more than a handful of series already exceeds any vision model's
+# image budget. The bound exists so one message cannot trigger an unbounded
+# number of WADO retrievals.
+MAX_SERIES_PER_MESSAGE = 16
+
+
+class SliceSelection(BaseModel):
+    """Which slices of one series a single message sends.
+
+    Carried per message rather than read from the runtime config, so two
+    questions in the same conversation can legitimately ask about different
+    slices -- and so the panel's per-message provenance snapshot describes
+    something this service actually honoured.
+
+    Slices are named by SOPInstanceUID, never by index. The viewer orders a
+    series by its own instance sort; this service builds its volume with GDCM's
+    geometric sort. The two normally agree, but an index would mean *different
+    pixels* on the day they do not, and neither side would report it. A UID
+    resolves to exactly one slice of the reconstructed volume, or to none -- and
+    "to none" is an error the user is told about, not something to paper over.
+    """
+
+    series_uid: str = Field(min_length=1, max_length=MAX_UID_LEN)
+
+    # The slices to encode, in send order. Empty means "no explicit selection":
+    # the service falls back to the runtime preprocessing recipe, which is what
+    # a viewer predating this field gets.
+    sop_instance_uids: list[str] = Field(default_factory=list, max_length=MAX_SLICES_PER_SERIES)
+
+    # 1-based inclusive range the selection was sampled from, in the viewer's
+    # slice order. Audit and logging only -- nothing is selected from these, so a
+    # client that reports them wrongly cannot change which pixels are sent.
+    range_start: int | None = Field(default=None, ge=1)
+    range_end: int | None = Field(default=None, ge=1)
+    total_slices: int | None = Field(default=None, ge=0)
 
 
 class ClientMessage(BaseModel):
@@ -63,6 +109,11 @@ class ClientMessage(BaseModel):
     content: str | None = None  # User message text (for CHAT)
     study_uid: str | None = None  # StudyInstanceUID (for CHAT)
     series_uids: list[str] | None = None  # Series context for this message (for CHAT)
+    # Per-series slice selection for THIS message. A series listed in
+    # `series_uids` with no entry here falls back to the runtime recipe.
+    slice_selections: list[SliceSelection] | None = Field(
+        default=None, max_length=MAX_SERIES_PER_MESSAGE
+    )
 
 
 class ServerMessage(BaseModel):

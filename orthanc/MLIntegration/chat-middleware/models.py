@@ -5,7 +5,7 @@ Pydantic models for WebSocket messages and debug API
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Upper bound for the runtime system prompt. Operator-controlled config, not user
 # input; ~16k chars (~4k tokens) far exceeds any realistic radiology prompt while
@@ -71,6 +71,34 @@ MAX_SLICES_PER_SERIES = 64
 MAX_SERIES_PER_MESSAGE = 16
 
 
+class RegionOfInterest(BaseModel):
+    """A rectangular crop applied to every slice a message sends.
+
+    Expressed as fractions of the image from its top-left corner, not pixels. A
+    fraction stays meaningful whatever in-plane matrix the volume reconstructs to,
+    and it cannot address a pixel outside the image the way a stale pixel box
+    could -- validation alone bounds it.
+
+    `x`/`y` are the corner, `width`/`height` the extent, so `x + width` may reach
+    1.0 exactly. A degenerate rectangle is rejected rather than silently widened:
+    the user drew something, and the images they get back must be that something.
+    """
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    width: float = Field(gt=0.0, le=1.0)
+    height: float = Field(gt=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _within_the_image(self) -> "RegionOfInterest":
+        # Tolerance because the viewer computes these from floating-point world
+        # coordinates; a rectangle drawn flush to the edge lands a hair over 1.0.
+        tolerance = 1e-6
+        if self.x + self.width > 1.0 + tolerance or self.y + self.height > 1.0 + tolerance:
+            raise ValueError("Region of interest extends past the edge of the image")
+        return self
+
+
 class SliceSelection(BaseModel):
     """Which slices of one series a single message sends.
 
@@ -112,6 +140,12 @@ class SliceSelection(BaseModel):
     num_slices: int | None = Field(default=None, ge=0, le=MAX_SLICES_PER_SERIES)
     slice_strategy: SliceStrategy | None = None
     central_percentage: int | None = Field(default=None, ge=1, le=100)
+
+    # Crop applied to every slice this selection sends. The panel decides which
+    # slices an ROI covers -- one slice or the whole range -- so by the time a
+    # selection arrives here the question is already settled and the crop applies
+    # uniformly to the instances named above.
+    roi: RegionOfInterest | None = None
 
     def has_recipe(self) -> bool:
         """Whether this selection carries its own preprocessing recipe."""

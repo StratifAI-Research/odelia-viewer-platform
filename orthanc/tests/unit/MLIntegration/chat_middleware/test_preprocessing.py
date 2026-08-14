@@ -636,3 +636,135 @@ async def test_preprocess_series_applies_the_recipe_the_message_carries(tmp_path
                                  slice_strategy=SliceStrategy.UNIFORM),
     )
     assert len(out) == 6
+
+
+# ---------- crop_to_roi ----------
+
+def _make_roi(x=0.0, y=0.0, width=1.0, height=1.0):
+    from models import RegionOfInterest
+    return RegionOfInterest(x=x, y=y, width=width, height=height)
+
+
+def test_crop_to_roi_takes_the_named_fraction():
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    out = preprocessing.crop_to_roi(arr, _make_roi(x=0.2, y=0.3, width=0.5, height=0.4))
+    assert out.shape == (4, 5)          # rows 3:7, cols 2:7
+
+
+def test_crop_to_roi_keeps_the_right_pixels():
+    """Position matters, not just size: an off-by-one here crops the wrong region."""
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    out = preprocessing.crop_to_roi(arr, _make_roi(x=0.2, y=0.3, width=0.5, height=0.4))
+    assert out[0, 0] == arr[3, 2]
+    assert out[-1, -1] == arr[6, 6]
+
+
+def test_crop_to_roi_returns_the_whole_slice_for_a_full_frame_roi():
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    out = preprocessing.crop_to_roi(arr, _make_roi())
+    assert out.shape == arr.shape
+
+
+def test_crop_to_roi_never_returns_an_empty_array():
+    """A rectangle smaller than a pixel still has to yield an image."""
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    out = preprocessing.crop_to_roi(arr, _make_roi(x=0.5, y=0.5, width=0.001, height=0.001))
+    assert out.size > 0
+    assert out.shape == (1, 1)
+
+
+def test_crop_to_roi_stays_inside_a_slice_flush_to_the_edge():
+    import preprocessing
+    arr = np.arange(100, dtype=np.float32).reshape(10, 10)
+    out = preprocessing.crop_to_roi(arr, _make_roi(x=0.9, y=0.9, width=0.1, height=0.1))
+    assert out.shape == (1, 1)
+    assert out[0, 0] == arr[9, 9]
+
+
+def test_crop_to_roi_handles_a_non_square_slice():
+    import preprocessing
+    arr = np.arange(200, dtype=np.float32).reshape(10, 20)   # 10 rows, 20 cols
+    out = preprocessing.crop_to_roi(arr, _make_roi(x=0.0, y=0.0, width=0.5, height=0.5))
+    assert out.shape == (5, 10)
+
+
+def test_recipe_signature_separates_a_cropped_request_from_an_uncropped_one():
+    """Otherwise the second question would be answered with the first's framing."""
+    import preprocessing
+    from models import SliceSelection
+    plain = SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"])
+    cropped = SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"], roi=_make_roi(
+        x=0.1, y=0.1, width=0.2, height=0.2))
+    assert preprocessing.recipe_signature(_params(), plain) != \
+        preprocessing.recipe_signature(_params(), cropped)
+
+
+def test_recipe_signature_separates_two_different_crops():
+    import preprocessing
+    from models import SliceSelection
+    a = SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"],
+                       roi=_make_roi(x=0.1, y=0.1, width=0.2, height=0.2))
+    b = SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"],
+                       roi=_make_roi(x=0.4, y=0.1, width=0.2, height=0.2))
+    assert preprocessing.recipe_signature(_params(), a) != \
+        preprocessing.recipe_signature(_params(), b)
+
+
+async def test_preprocess_series_crops_the_slices_it_sends(tmp_path, monkeypatch):
+    """End to end: the encoded PNG is the cropped region, not the whole slice."""
+    import preprocessing
+    from models import SliceSelection
+    vol_arr = np.linspace(0, 100, 4 * 40 * 40).reshape(4, 40, 40).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, ["1.0", "1.1", "1.2", "1.3"])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=1),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(
+            series_uid="SE1", sop_instance_uids=["1.1"],
+            roi=_make_roi(x=0.25, y=0.25, width=0.5, height=0.5),
+        ),
+    )
+    payload = out[0].split(",", 1)[1]
+    img = Image.open(io.BytesIO(base64.b64decode(payload)))
+    assert img.size == (20, 20)         # half of 40x40
+
+
+async def test_preprocess_series_sends_the_full_slice_without_an_roi(tmp_path, monkeypatch):
+    import preprocessing
+    from models import SliceSelection
+    vol_arr = np.linspace(0, 100, 4 * 40 * 40).reshape(4, 40, 40).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, ["1.0", "1.1", "1.2", "1.3"])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=1),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"]),
+    )
+    payload = out[0].split(",", 1)[1]
+    assert Image.open(io.BytesIO(base64.b64decode(payload))).size == (40, 40)
+
+
+async def test_preprocess_series_crops_every_slice_it_sends(tmp_path, monkeypatch):
+    import preprocessing
+    from models import SliceSelection
+    vol_arr = np.linspace(0, 100, 4 * 40 * 40).reshape(4, 40, 40).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, ["1.0", "1.1", "1.2", "1.3"])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=1),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(
+            series_uid="SE1", sop_instance_uids=["1.0", "1.2"],
+            roi=_make_roi(x=0.0, y=0.0, width=0.5, height=0.25),
+        ),
+    )
+    sizes = [Image.open(io.BytesIO(base64.b64decode(u.split(",", 1)[1]))).size for u in out]
+    assert sizes == [(20, 10), (20, 10)]

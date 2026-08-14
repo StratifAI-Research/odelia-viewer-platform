@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import SimpleITK as sitk  # noqa: N813
-from models import SliceSelection, SliceStrategy
+from models import RegionOfInterest, SliceSelection, SliceStrategy
 from PIL import Image
 from runtime_config import PreprocessingParams
 from shared.config import StorageConfig
@@ -88,10 +88,16 @@ def recipe_signature(
     Returns:
         A stable tuple of strings describing the recipe
     """
+    # The crop changes the pixels, so it changes the cache entry. Left out, the
+    # same slices requested with and without a region would share one entry and
+    # the second request would get the first one's framing.
+    roi = selection.roi if selection is not None else None
+    roi_part = (f"roi:{roi.x:.6f},{roi.y:.6f},{roi.width:.6f},{roi.height:.6f}",) if roi else ()
+
     if selection is not None and selection.sop_instance_uids:
         # The named instances ARE the recipe; the parameters play no part.
         # Order matters: the images are sent in this order.
-        return ("instances", *selection.sop_instance_uids)
+        return ("instances", *selection.sop_instance_uids, *roi_part)
 
     resolved = effective_params(params, selection)
     return (
@@ -99,6 +105,7 @@ def recipe_signature(
         str(resolved.num_slices),
         resolved.slice_strategy.value,
         str(resolved.central_percentage),
+        *roi_part,
     )
 
 
@@ -340,6 +347,37 @@ def extract_slices(volume_array: np.ndarray, params: PreprocessingParams) -> lis
     return [volume_array[i, :, :] for i in indices]
 
 
+def crop_to_roi(slice_array: np.ndarray, roi: RegionOfInterest) -> np.ndarray:
+    """
+    Crop one slice to a fractional region of interest.
+
+    The crop happens BEFORE normalization, so the region is windowed against its
+    own contents rather than against the whole slice. That is the point of asking
+    about a region: a small bright lesion in a mostly dark breast is invisible at
+    the slice's own window.
+
+    The result is always at least one pixel in each direction -- a rectangle
+    smaller than a pixel is rounded up rather than yielding an empty array that
+    would fail deep inside PIL with an unrecognisable error.
+
+    Args:
+        slice_array: 2D array shaped (rows, cols)
+        roi: Fractional rectangle from the client
+
+    Returns:
+        The cropped 2D array
+    """
+    rows, cols = slice_array.shape[:2]
+
+    left = min(int(round(roi.x * cols)), max(cols - 1, 0))
+    top = min(int(round(roi.y * rows)), max(rows - 1, 0))
+    right = min(max(int(round((roi.x + roi.width) * cols)), left + 1), cols)
+    bottom = min(max(int(round((roi.y + roi.height) * rows)), top + 1), rows)
+
+    logger.info(f"Cropping slice to rows {top}:{bottom}, cols {left}:{right} of {rows}x{cols}")
+    return slice_array[top:bottom, left:right]
+
+
 def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
     """
     Convert slice arrays to base64-encoded PNG images.
@@ -456,6 +494,11 @@ async def preprocess_series(
         else:
             # The message's own recipe wins over the service's global config.
             slice_arrays = extract_slices(volume_array, effective_params(params, selection))
+
+        # Crop before encoding, and before normalization, so the region is
+        # windowed on its own contents.
+        if selection is not None and selection.roi is not None:
+            slice_arrays = [crop_to_roi(s, selection.roi) for s in slice_arrays]
 
         # Convert to base64
         base64_images = slices_to_base64(slice_arrays)

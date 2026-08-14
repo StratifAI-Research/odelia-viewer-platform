@@ -209,3 +209,57 @@ def test_client_message_rejects_too_many_series_selections():
     ]
     with pytest.raises(pydantic.ValidationError):
         models.ClientMessage(type="chat", content="hi", slice_selections=too_many)
+
+
+# ---------- RegionOfInterest ----------
+
+def _roi(**kw):
+    import models
+    return models.RegionOfInterest(**{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, **kw})
+
+
+def test_roi_round_trips_its_fractions():
+    import models
+    roi = _roi()
+    parsed = models.RegionOfInterest.model_validate_json(roi.model_dump_json())
+    assert (parsed.x, parsed.y, parsed.width, parsed.height) == (0.1, 0.2, 0.3, 0.4)
+
+
+def test_roi_accepts_the_whole_image():
+    roi = _roi(x=0.0, y=0.0, width=1.0, height=1.0)
+    assert roi.width == 1.0
+
+
+def test_roi_rejects_a_zero_width_rectangle():
+    """A degenerate rectangle would crop to nothing; refuse rather than widen it."""
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _roi(width=0.0)
+
+
+def test_roi_rejects_a_negative_origin():
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _roi(x=-0.1)
+
+
+def test_roi_rejects_a_rectangle_running_past_the_edge():
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _roi(x=0.8, width=0.5)
+
+
+def test_roi_tolerates_a_rectangle_drawn_flush_to_the_edge():
+    """World-coordinate arithmetic lands a hair over 1.0; that is not an error."""
+    roi = _roi(x=0.5, width=0.5 + 5e-7)
+    assert roi.x == 0.5
+
+
+def test_slice_selection_carries_an_optional_roi():
+    import models
+    sel = models.SliceSelection(series_uid="SE1", roi=_roi())
+    assert sel.roi.width == 0.3
+    assert models.SliceSelection(series_uid="SE1").roi is None

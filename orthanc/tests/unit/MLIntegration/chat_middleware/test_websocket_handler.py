@@ -74,7 +74,7 @@ async def test_handle_chat_streams_tokens_and_signals_done(tmp_path, monkeypatch
         {"type": "content", "text": "Hello "},
         {"type": "content", "text": "world"},
     ])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
 
     from session_manager import get_session_manager
     sm = get_session_manager()
@@ -95,7 +95,7 @@ async def test_handle_chat_with_series_emits_preprocessing_messages(tmp_path, mo
     _reset_singletons(tmp_path, monkeypatch)
     import websocket_handler as wh
     fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
 
     async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder):
         return ["data:image/png;base64,IMG1"]
@@ -118,7 +118,7 @@ async def test_handle_chat_uses_cache_when_series_present(tmp_path, monkeypatch)
     _reset_singletons(tmp_path, monkeypatch)
     import websocket_handler as wh
     fake = _FakeOllamaForChat([{"type": "content", "text": "x"}])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
 
     pp_calls = []
     async def _fake_preprocess(*a, **kw):
@@ -141,7 +141,7 @@ async def test_handle_chat_emits_error_when_preprocess_fails(tmp_path, monkeypat
     _reset_singletons(tmp_path, monkeypatch)
     import websocket_handler as wh
     fake = _FakeOllamaForChat([])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
 
     async def _fake_preprocess(*a, **kw):
         raise RuntimeError("WADO unreachable")
@@ -163,7 +163,7 @@ async def test_handle_chat_emits_thinking_token_for_reasoning_chunks(tmp_path, m
         {"type": "thinking", "text": "let me think"},
         {"type": "content", "text": "answer"},
     ])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
     from session_manager import get_session_manager
     s = get_session_manager().create_session("S5")
     ws = _FakeWebSocket()
@@ -178,7 +178,7 @@ async def test_handle_chat_skips_when_cancel_event_already_set(tmp_path, monkeyp
     _reset_singletons(tmp_path, monkeypatch)
     import websocket_handler as wh
     fake = _FakeOllamaForChat([{"type": "content", "text": "should not see"}])
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:fake)
     from session_manager import get_session_manager
     s = get_session_manager().create_session("S6")
     s.cancel_event.set()
@@ -196,7 +196,7 @@ async def test_handle_chat_emits_error_when_ollama_stream_raises(tmp_path, monke
         async def chat_stream(self, *a, **kw):
             raise RuntimeError("ollama down")
             yield   # unreachable but makes it an async generator
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: _Boom())
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:_Boom())
 
     from session_manager import get_session_manager
     s = get_session_manager().create_session("S7")
@@ -223,7 +223,7 @@ async def test_handle_chat_does_not_persist_history_when_cancelled_mid_stream(tm
             yield {"type": "content", "text": "partial"}
             cancel_event.set()
             yield {"type": "content", "text": "should be ignored after cancel"}
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: _CancellingClient())
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw:_CancellingClient())
 
     ws = _FakeWebSocket()
     await wh.handle_chat(ws, s, content="x", study_uid="", series_uids=[])
@@ -309,8 +309,9 @@ def _build_app_with_ws(tmp_path, monkeypatch, fake_ollama):
     import sys
     sys.modules.pop("websocket_handler", None)
     import websocket_handler as wh
-    # Also reach the dispatcher'''s module-level alias if it imported get_ollama_client by name
-    monkeypatch.setattr(wh, "get_ollama_client", lambda *a, **kw: fake_ollama)
+    # Also reach the dispatcher's module-level alias. handle_chat resolves its client
+    # through get_client_for_provider(provider, model), so that is the seam to patch.
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake_ollama)
 
     from fastapi import FastAPI, WebSocket
     from fastapi.testclient import TestClient

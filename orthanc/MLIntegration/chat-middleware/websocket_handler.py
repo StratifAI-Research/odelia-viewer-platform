@@ -11,7 +11,7 @@ from config import get_config
 from fastapi import WebSocket, WebSocketDisconnect
 from image_cache import CachedSeries, get_image_cache
 from models import ClientMessage, ClientMessageType, ServerMessageType
-from ollama_client import get_ollama_client
+from ollama_client import CloudBackendUnavailableError, get_client_for_provider
 from preprocessing import preprocess_series
 from prompt_builder import get_prompt_builder
 from pydantic import ValidationError
@@ -151,8 +151,19 @@ async def handle_chat(
     runtime_config = get_runtime_config()
     image_cache = get_image_cache()
     prompt_builder = get_prompt_builder()
-    ollama_client = get_ollama_client()
     session_manager = get_session_manager()
+
+    # Resolve the backend before any DICOM is fetched. A misconfigured cloud
+    # provider should fail here rather than after retrieving and preprocessing a
+    # series -- and, for the cloud case, before any image data has been assembled.
+    try:
+        ollama_client = get_client_for_provider(
+            runtime_config.provider.value, runtime_config.active_model
+        )
+    except CloudBackendUnavailableError as e:
+        logger.warning(f"Cloud backend unavailable for session {session.session_id}: {e}")
+        await send_message(websocket, ServerMessageType.ERROR, content=str(e))
+        return
 
     # Check if cancelled before we even start
     if session.cancel_event.is_set():
@@ -232,7 +243,9 @@ async def handle_chat(
         # 3. Stream response from Ollama
         full_response = ""
         try:
-            ollama_client.model = runtime_config.model
+            # Model already resolved from the active provider above; do not
+            # reassign it here or the cloud selection would be overwritten with
+            # the local model tag.
             ollama_runtime_options = runtime_config.ollama_options.to_dict()
 
             async for chunk in ollama_client.chat_stream(

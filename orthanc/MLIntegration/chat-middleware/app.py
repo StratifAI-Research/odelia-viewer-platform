@@ -75,6 +75,18 @@ async def lifespan(app: FastAPI):
     logger.info(f"Image folder: {config.image_folder}")
     logger.info(f"Max cache entries: {config.max_cache_entries}")
 
+    # Cloud backend status. Logs whether a key is present, never the key itself.
+    if config.allow_cloud_backend:
+        logger.warning(
+            "Ollama Cloud backend: ENABLED (url=%s, api_key=%s, default_model=%s). "
+            "Selecting it sends preprocessed DICOM slices to a third party.",
+            config.ollama_cloud_url,
+            "set" if config.ollama_cloud_api_key else "MISSING",
+            config.ollama_cloud_model or "(none, user picks)",
+        )
+    else:
+        logger.info("Ollama Cloud backend: disabled (set ALLOW_CLOUD_BACKEND=1 to enable)")
+
     # Initialize singletons
     get_runtime_config()
     get_session_manager()

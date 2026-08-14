@@ -171,6 +171,16 @@ services:
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"
       BACKEND_TYPE: "${BACKEND_TYPE:-ollama}"
       OLLAMA_NUM_CTX: "128000"  # 128k context window
+      # Optional Ollama Cloud backend, off unless an operator opts in.
+      #
+      # Enabling it lets chat users route a study to Ollama's hosted models,
+      # which means the preprocessed DICOM slices leave this network and are sent
+      # to a third party. Keep it disabled for any deployment holding patient
+      # data. See docs/setup/setup_chat.md.
+      ALLOW_CLOUD_BACKEND: "${ALLOW_CLOUD_BACKEND:-0}"
+      OLLAMA_CLOUD_URL: "${OLLAMA_CLOUD_URL:-https://ollama.com}"
+      OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
+      OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-}"
       WADO_BASE_URL: "http://orthanc-viewer:8042/dicom-web"
       NUM_SLICES: "5"
       MAX_CACHE_ENTRIES: "100"

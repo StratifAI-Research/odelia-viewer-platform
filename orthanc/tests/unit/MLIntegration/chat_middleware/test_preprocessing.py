@@ -560,3 +560,79 @@ async def test_preprocess_series_falls_back_to_strategy_without_a_selection(
         wado_base_url="http://x/dicom-web", image_folder=tmp_path,
     )
     assert len(out) == 4
+
+
+# ---------- effective_params: the message's recipe wins ----------
+#
+# The runtime config is global and mutable. A message that carries its own recipe
+# must be preprocessed with THAT recipe, or a second browser changing the config
+# between compose and send would silently rewrite the first browser's request —
+# and its provenance snapshot would describe something that never happened.
+
+def test_effective_params_uses_the_runtime_config_by_default():
+    import preprocessing
+    out = preprocessing.effective_params(_params(num_slices=7, central_percentage=40))
+    assert out.num_slices == 7
+    assert out.central_percentage == 40
+
+
+def test_effective_params_returns_a_copy_not_the_caller_object():
+    """A concurrent config update mutates the runtime params in place."""
+    import preprocessing
+    params = _params(num_slices=5)
+    out = preprocessing.effective_params(params)
+    assert out is not params
+    params.num_slices = 99
+    assert out.num_slices == 5
+
+
+def test_effective_params_prefers_the_recipe_the_message_carries():
+    import preprocessing
+    from models import SliceSelection, SliceStrategy
+    sel = SliceSelection(
+        series_uid="SE1", num_slices=12, slice_strategy=SliceStrategy.UNIFORM
+    )
+    out = preprocessing.effective_params(_params(num_slices=5), sel)
+    assert out.num_slices == 12
+    assert out.slice_strategy == SliceStrategy.UNIFORM
+
+
+def test_effective_params_falls_back_for_a_partial_recipe():
+    """num_slices without a strategy is not a recipe; do not half-apply it."""
+    import preprocessing
+    from models import SliceSelection
+    sel = SliceSelection(series_uid="SE1", num_slices=12)
+    out = preprocessing.effective_params(_params(num_slices=5), sel)
+    assert out.num_slices == 5
+
+
+def test_recipe_signature_distinguishes_two_message_recipes():
+    """Two messages with different recipes must not share a cache entry."""
+    import preprocessing
+    from models import SliceSelection, SliceStrategy
+    a = preprocessing.recipe_signature(
+        _params(), SliceSelection(series_uid="SE1", num_slices=5,
+                                  slice_strategy=SliceStrategy.UNIFORM)
+    )
+    b = preprocessing.recipe_signature(
+        _params(), SliceSelection(series_uid="SE1", num_slices=9,
+                                  slice_strategy=SliceStrategy.UNIFORM)
+    )
+    assert a != b
+
+
+async def test_preprocess_series_applies_the_recipe_the_message_carries(tmp_path, monkeypatch):
+    """Config says 3 slices; the message says 6, and 6 is what gets encoded."""
+    import preprocessing
+    from models import SliceSelection, SliceStrategy
+    vol_arr = np.linspace(0, 100, 20 * 8 * 8).reshape(20, 8, 8).astype(np.float32)
+    _patch_pipeline(preprocessing, monkeypatch, tmp_path, vol_arr, [])
+
+    out = await preprocessing.preprocess_series(
+        series_uid="SE1", study_uid="STD1",
+        params=_params(num_slices=3),
+        wado_base_url="http://x/dicom-web", image_folder=tmp_path,
+        selection=SliceSelection(series_uid="SE1", num_slices=6,
+                                 slice_strategy=SliceStrategy.UNIFORM),
+    )
+    assert len(out) == 6

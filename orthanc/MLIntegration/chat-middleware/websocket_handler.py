@@ -5,6 +5,7 @@ WebSocket handler for chat sessions
 import asyncio
 import contextlib
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from config import get_config
@@ -135,6 +136,49 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
         logger.debug(f"WebSocket handler finished for session: {session.session_id}")
 
 
+def merge_selections(selections: list[SliceSelection]) -> dict[str, SliceSelection]:
+    """
+    Index selections by series, combining any that name the same one.
+
+    OHIF splits some series into several display sets -- one per instance for
+    mammography and other single-image modalities -- and the panel then sends one
+    selection per display set. Keeping only the last would send a subset of what
+    the message says it sent, so the named instances are concatenated instead,
+    in arrival order and without duplicates.
+
+    Args:
+        selections: Per-series selections as they arrived
+
+    Returns:
+        One selection per series UID
+    """
+    merged: dict[str, SliceSelection] = {}
+    for selection in selections:
+        existing = merged.get(selection.series_uid)
+        if existing is None:
+            merged[selection.series_uid] = selection
+            continue
+
+        seen = set(existing.sop_instance_uids)
+        combined = list(existing.sop_instance_uids)
+        combined.extend(uid for uid in selection.sop_instance_uids if uid not in seen)
+        logger.info(
+            f"Merged {len(selections)} selections for series {selection.series_uid} "
+            f"into {len(combined)} instances"
+        )
+        merged[selection.series_uid] = existing.model_copy(
+            update={
+                "sop_instance_uids": combined,
+                # The range no longer describes a single contiguous span once two
+                # display sets are combined, and claiming otherwise in the log
+                # would be worse than saying nothing.
+                "range_start": None,
+                "range_end": None,
+            }
+        )
+    return merged
+
+
 async def handle_chat(
     websocket: WebSocket,
     session: Session,
@@ -181,17 +225,29 @@ async def handle_chat(
 
     session.last_activity = datetime.now(UTC)
 
-    # Per-series selections for this message, indexed for lookup. A duplicate
-    # entry for one series is a client bug; the last one wins rather than
-    # silently preprocessing twice.
-    selections_by_series = {s.series_uid: s for s in (slice_selections or [])}
+    # Per-series selections for this message, indexed for lookup. Two entries for
+    # one series are merged rather than letting the last one win: OHIF can split a
+    # series into several display sets, and dropping one would send fewer slices
+    # than the panel's snapshot claims.
+    selections_by_series = merge_selections(slice_selections or [])
+
+    # One read of the runtime preprocessing config, taken before any await.
+    # `RuntimeConfig.update` mutates its params in place, so a PUT arriving while
+    # this turn is suspended would otherwise change the recipe *after* the cache
+    # key was computed from it -- storing one recipe's images under another's key.
+    base_params = replace(runtime_config.preprocessing)
+
+    # De-duplicated, order preserved. A series can appear twice when OHIF split it
+    # into several display sets; retrieving it twice would only waste a WADO round
+    # trip, but it would also make the progress fractions below wrong.
+    unique_series_uids = list(dict.fromkeys(series_uids))
 
     try:
         # 1. Ensure all requested series are cached (preprocess if needed)
         series_images = {}
-        total = len(series_uids) if series_uids else 0
+        total = len(unique_series_uids)
 
-        for i, series_uid in enumerate(series_uids):
+        for i, series_uid in enumerate(unique_series_uids):
             # Check for cancellation
             if session.cancel_event.is_set():
                 logger.info("Chat cancelled during preprocessing")
@@ -201,9 +257,7 @@ async def handle_chat(
             # Keyed on series AND recipe: two messages can name the same series and
             # mean different slices, and a series-only key would answer the second
             # with the first one's images.
-            cache_key = make_cache_key(
-                series_uid, recipe_signature(runtime_config.preprocessing, selection)
-            )
+            cache_key = make_cache_key(series_uid, recipe_signature(base_params, selection))
 
             if not image_cache.has(cache_key):
                 # Send preprocessing status
@@ -221,7 +275,7 @@ async def handle_chat(
                     images = await preprocess_series(
                         series_uid,
                         study_uid,
-                        runtime_config.preprocessing,
+                        base_params,
                         config.wado_base_url,
                         config.image_folder,
                         selection=selection,

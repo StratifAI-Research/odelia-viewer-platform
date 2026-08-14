@@ -101,6 +101,22 @@ class SliceSelection(BaseModel):
     range_end: int | None = Field(default=None, ge=1)
     total_slices: int | None = Field(default=None, ge=0)
 
+    # The recipe to apply when this series cannot be addressed instance by
+    # instance (a multi-frame instance, say). Carried per message so the panel's
+    # provenance snapshot describes what was actually used: the runtime config is
+    # global and mutable, so a second browser changing it between compose and send
+    # would otherwise make the first browser's snapshot quietly wrong.
+    #
+    # Ignored when `sop_instance_uids` is non-empty -- the named instances are the
+    # whole recipe there.
+    num_slices: int | None = Field(default=None, ge=0, le=MAX_SLICES_PER_SERIES)
+    slice_strategy: SliceStrategy | None = None
+    central_percentage: int | None = Field(default=None, ge=1, le=100)
+
+    def has_recipe(self) -> bool:
+        """Whether this selection carries its own preprocessing recipe."""
+        return self.num_slices is not None and self.slice_strategy is not None
+
 
 class ClientMessage(BaseModel):
     """Message sent from client to server via WebSocket"""

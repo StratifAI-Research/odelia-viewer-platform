@@ -7,6 +7,7 @@ import base64
 import io
 import logging
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +37,40 @@ class SliceSelectionError(ValueError):
     """
 
 
+def effective_params(
+    params: PreprocessingParams, selection: SliceSelection | None = None
+) -> PreprocessingParams:
+    """
+    The preprocessing parameters actually in force for one series.
+
+    A message may carry its own recipe, which then wins over the service's global
+    runtime config. That is what lets the panel's snapshot describe what was used:
+    the runtime config is shared and mutable, so a second browser changing it
+    between compose and send would otherwise silently rewrite the first browser's
+    request.
+
+    Args:
+        params: Runtime preprocessing parameters (the fallback)
+        selection: Per-message slice selection, if the client sent one
+
+    Returns:
+        Parameters to preprocess with -- a copy, never the caller's object
+    """
+    if selection is not None and selection.has_recipe():
+        return PreprocessingParams(
+            num_slices=selection.num_slices,
+            slice_strategy=selection.slice_strategy,
+            central_percentage=(
+                selection.central_percentage
+                if selection.central_percentage is not None
+                else params.central_percentage
+            ),
+        )
+    # Copied so a concurrent config update cannot change the recipe out from
+    # under a request that has already been keyed against it.
+    return replace(params)
+
+
 def recipe_signature(
     params: PreprocessingParams, selection: SliceSelection | None = None
 ) -> tuple[str, ...]:
@@ -47,22 +82,23 @@ def recipe_signature(
     miss it and the cache starts serving pixels from a different recipe.
 
     Args:
-        params: Runtime preprocessing parameters (used when there is no selection)
+        params: Preprocessing parameters in force (see `effective_params`)
         selection: Per-message slice selection, if the client sent one
 
     Returns:
         A stable tuple of strings describing the recipe
     """
     if selection is not None and selection.sop_instance_uids:
-        # The named instances ARE the recipe; the runtime params play no part.
+        # The named instances ARE the recipe; the parameters play no part.
         # Order matters: the images are sent in this order.
         return ("instances", *selection.sop_instance_uids)
 
+    resolved = effective_params(params, selection)
     return (
         "recipe",
-        str(params.num_slices),
-        params.slice_strategy.value,
-        str(params.central_percentage),
+        str(resolved.num_slices),
+        resolved.slice_strategy.value,
+        str(resolved.central_percentage),
     )
 
 
@@ -418,7 +454,8 @@ async def preprocess_series(
             )
             slice_arrays = [volume_array[i, :, :] for i in indices]
         else:
-            slice_arrays = extract_slices(volume_array, params)
+            # The message's own recipe wins over the service's global config.
+            slice_arrays = extract_slices(volume_array, effective_params(params, selection))
 
         # Convert to base64
         base64_images = slices_to_base64(slice_arrays)

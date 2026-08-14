@@ -701,3 +701,128 @@ def test_real_ws_rejects_an_oversized_slice_selection(tmp_path, monkeypatch):
         assert err["type"] == "error"
 
     assert called == []
+
+
+# ---------- merge_selections ----------
+#
+# OHIF can split one series into several display sets (one per instance for
+# mammography and other single-image modalities). The panel then sends a
+# selection per display set, and keeping only the last would send fewer slices
+# than the message's snapshot claims.
+
+def _sel(series_uid, uids, **kw):
+    from models import SliceSelection
+    return SliceSelection(series_uid=series_uid, sop_instance_uids=uids, **kw)
+
+
+def test_merge_selections_indexes_by_series():
+    import websocket_handler as wh
+    out = wh.merge_selections([_sel("SE1", ["1.1"]), _sel("SE2", ["2.1"])])
+    assert sorted(out) == ["SE1", "SE2"]
+
+
+def test_merge_selections_combines_two_entries_for_one_series():
+    import websocket_handler as wh
+    out = wh.merge_selections([_sel("SE1", ["1.1", "1.2"]), _sel("SE1", ["1.3"])])
+    assert out["SE1"].sop_instance_uids == ["1.1", "1.2", "1.3"]
+
+
+def test_merge_selections_does_not_duplicate_a_shared_instance():
+    import websocket_handler as wh
+    out = wh.merge_selections([_sel("SE1", ["1.1", "1.2"]), _sel("SE1", ["1.2", "1.3"])])
+    assert out["SE1"].sop_instance_uids == ["1.1", "1.2", "1.3"]
+
+
+def test_merge_selections_drops_a_range_that_no_longer_describes_the_result():
+    """Two display sets combined are not one contiguous span; say nothing rather
+    than something false."""
+    import websocket_handler as wh
+    out = wh.merge_selections([
+        _sel("SE1", ["1.1"], range_start=1, range_end=1, total_slices=2),
+        _sel("SE1", ["1.2"], range_start=2, range_end=2, total_slices=2),
+    ])
+    assert out["SE1"].range_start is None
+    assert out["SE1"].range_end is None
+
+
+def test_merge_selections_keeps_a_lone_selections_range():
+    import websocket_handler as wh
+    out = wh.merge_selections([_sel("SE1", ["1.1"], range_start=18, range_end=62)])
+    assert out["SE1"].range_start == 18
+
+
+async def test_handle_chat_retrieves_a_repeated_series_only_once(tmp_path, monkeypatch):
+    """A series listed twice (two display sets) is one retrieval, not two."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    calls = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        calls.append(series_uid)
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SM1")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1", "SE1"])
+    assert calls == ["SE1"]
+
+
+async def test_handle_chat_sends_every_instance_of_a_split_series(tmp_path, monkeypatch):
+    """Both display sets' slices reach preprocessing, not just the last one's."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from models import SliceSelection
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    seen = []
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        seen.append(list(selection.sop_instance_uids) if selection else None)
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SM2")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(
+        ws, s, content="q", study_uid="STD", series_uids=["SE1", "SE1"],
+        slice_selections=[
+            SliceSelection(series_uid="SE1", sop_instance_uids=["1.1"]),
+            SliceSelection(series_uid="SE1", sop_instance_uids=["1.2"]),
+        ],
+    )
+    assert seen == [["1.1", "1.2"]]
+
+
+async def test_handle_chat_reads_the_recipe_once_before_any_await(tmp_path, monkeypatch):
+    """A config change mid-turn must not land this turn's images under the key
+    computed from the old recipe."""
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    fake = _FakeOllamaForChat([{"type": "content", "text": "ok"}])
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    from runtime_config import get_runtime_config
+    runtime = get_runtime_config()
+
+    captured = {}
+    async def _fake_preprocess(series_uid, study_uid, params, wado_url, image_folder,
+                               selection=None):
+        # Simulate a PUT landing while this turn is suspended.
+        runtime.preprocessing.num_slices = 99
+        captured["num_slices"] = params.num_slices
+        return ["img"]
+    monkeypatch.setattr(wh, "preprocess_series", _fake_preprocess)
+
+    from session_manager import get_session_manager
+    s = get_session_manager().create_session("SM3")
+    ws = _FakeWebSocket()
+    await wh.handle_chat(ws, s, content="q", study_uid="STD", series_uids=["SE1"])
+    # The turn preprocessed with the recipe it was keyed against, not the new one.
+    assert captured["num_slices"] == 5

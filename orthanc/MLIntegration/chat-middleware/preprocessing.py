@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import SimpleITK as sitk  # noqa: N813
-from models import RegionOfInterest, SliceSelection, SliceStrategy
+from models import RegionOfInterest, SliceSelection, SliceStrategy, WindowLevel
 from PIL import Image
 from runtime_config import PreprocessingParams
 from shared.config import StorageConfig
@@ -95,10 +95,17 @@ def recipe_signature(
     roi = selection.roi if selection is not None else None
     roi_part = (f"roi:{roi.x:.6f},{roi.y:.6f},{roi.width:.6f},{roi.height:.6f}",) if roi else ()
 
+    # The window changes every pixel of every slice, so it changes the entry.
+    # Left out, two messages differing only in window would share one cached
+    # image and the second would be answered through the first one's window --
+    # the same failure the slice recipe had before it was keyed.
+    voi = selection.voi if selection is not None else None
+    voi_part = (f"voi:{voi.lower:.6f},{voi.upper:.6f},{int(voi.invert)}",) if voi else ()
+
     if selection is not None and selection.sop_instance_uids:
         # The named instances ARE the recipe; the parameters play no part.
         # Order matters: the images are sent in this order.
-        return ("instances", *selection.sop_instance_uids, *roi_part)
+        return ("instances", *selection.sop_instance_uids, *roi_part, *voi_part)
 
     resolved = effective_params(params, selection)
     return (
@@ -107,6 +114,7 @@ def recipe_signature(
         resolved.slice_strategy.value,
         str(resolved.central_percentage),
         *roi_part,
+        *voi_part,
     )
 
 
@@ -258,19 +266,42 @@ def resolve_selected_indices(slice_uids: list[str], requested_uids: list[str]) -
     return resolved
 
 
-def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
+def normalize_slice(slice_array: np.ndarray, voi: WindowLevel | None = None) -> np.ndarray:
     """
-    Normalize a slice to 0-255 range for PIL Image conversion.
-    Uses percentile-based windowing for robust normalization.
+    Render a slice to 8-bit grey for PNG conversion.
 
-    Adapted from medgemma-mri/preprocessing.py.
+    With a `voi`, the window the radiologist set is applied: clip to
+    [lower, upper] and map that range linearly onto 0-255. This reproduces what
+    is on their screen, which is the point -- a window chosen to bring out one
+    tissue is a clinical decision, and a service that ignores it answers about a
+    different image.
+
+    Deliberately linear, and deliberately not a mean/std normalisation. The model
+    receives an 8-bit PNG and was trained on windowed 8-bit images; a mean/std
+    pass would put the content-dependent auto-scaling back in, just with
+    different arithmetic.
+
+    Without a `voi` -- the viewer could not report one, or the reader turned it
+    off -- each slice falls back to its own 1st-99th percentile, which is what
+    this service always did. Robust to outliers, but content-dependent: two
+    slices of the same study come back with different windows, and no window the
+    reader sets has any effect.
 
     Args:
-        slice_array: 2D numpy array
+        slice_array: 2D numpy array, in the volume's own units
+        voi: The window to apply, or None to auto-window on this slice
 
     Returns:
         Normalized uint8 array
     """
+    if voi is not None:
+        low, high = float(voi.lower), float(voi.upper)
+        windowed = np.clip(slice_array, low, high)
+        scaled = ((windowed - low) / (high - low) * 255).astype(np.uint8)
+        # Inverted greyscale is part of the same choice: a lesion that reads as
+        # bright to the reader must not read as dark to the model.
+        return (255 - scaled) if voi.invert else scaled
+
     # Use percentile-based windowing (robust to outliers)
     p_low, p_high = np.percentile(slice_array, [1, 99])
 
@@ -384,12 +415,16 @@ def crop_to_roi(slice_array: np.ndarray, roi: RegionOfInterest) -> np.ndarray:
     return slice_array[top:bottom, left:right]
 
 
-def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
+def slices_to_base64(slice_arrays: list[np.ndarray], voi: WindowLevel | None = None) -> list[str]:
     """
     Convert slice arrays to base64-encoded PNG images.
 
     Args:
         slice_arrays: List of 2D numpy arrays
+        voi: The reader's window, applied to every slice alike. One window for
+            the whole set on purpose: these slices are compared against each
+            other, and per-slice auto-windowing is what makes that comparison
+            meaningless.
 
     Returns:
         List of base64-encoded PNG strings
@@ -397,8 +432,8 @@ def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
     base64_images = []
 
     for slice_arr in slice_arrays:
-        # Normalize to 0-255
-        normalized = normalize_slice(slice_arr)
+        # Render to 0-255, through the reader's window when there is one
+        normalized = normalize_slice(slice_arr, voi)
 
         # Convert grayscale to RGB (model expects RGB)
         rgb_array = np.stack([normalized, normalized, normalized], axis=-1)
@@ -501,15 +536,25 @@ async def preprocess_series(
             # The message's own recipe wins over the service's global config.
             slice_arrays = extract_slices(volume_array, effective_params(params, selection))
 
-        # Crop before encoding, and before normalization, so the region is
-        # windowed on its own contents.
+        # Crop before encoding. With an explicit window the order no longer
+        # changes the result -- the window is absolute, not derived from the
+        # pixels present -- but without one the region is still auto-windowed on
+        # its own contents, which is the more useful of the two fallbacks.
         if selection is not None and selection.roi is not None:
             slice_arrays = [crop_to_roi(s, selection.roi) for s in slice_arrays]
 
-        # Convert to base64
-        base64_images = slices_to_base64(slice_arrays)
+        voi = selection.voi if selection is not None else None
+        base64_images = slices_to_base64(slice_arrays, voi)
 
-        logger.info(f"Preprocessed {len(base64_images)} slices for series {series_uid}")
+        logger.info(
+            f"Preprocessed {len(base64_images)} slices for series {series_uid} "
+            + (
+                f"through the viewer window [{voi.lower:.1f}, {voi.upper:.1f}]"
+                + (" inverted" if voi.invert else "")
+                if voi
+                else "auto-windowed per slice (no viewer window sent)"
+            )
+        )
 
         return base64_images
 

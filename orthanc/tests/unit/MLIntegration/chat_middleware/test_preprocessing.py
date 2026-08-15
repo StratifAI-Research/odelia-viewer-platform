@@ -784,3 +784,133 @@ def test_crop_to_roi_covers_what_was_outlined_rather_than_shaving_it():
     # The same three-pixel-wide rectangle shifted by one pixel: 2.5 .. 5.5.
     b = preprocessing.crop_to_roi(arr, _make_roi(x=0.25, y=0.25, width=0.3, height=0.3))
     assert a.shape == b.shape
+
+
+# ---------------------------------------------------------------------------
+# Window / level
+#
+# Before the viewer could report a VOI, every slice was auto-windowed on its own
+# 1st-99th percentile. That made the window a radiologist set have no effect at
+# all on what was sent: a viewport clipped to black still produced a normally
+# exposed image, and the model answered about it confidently.
+# ---------------------------------------------------------------------------
+
+
+def _ramp(low=0, high=1000, size=32):
+    """A slice whose values run linearly from `low` to `high`."""
+    return np.linspace(low, high, size * size).reshape(size, size).astype(np.float32)
+
+
+def _decode_grey(data_uri):
+    payload = data_uri.split(",", 1)[1]
+    return np.array(Image.open(io.BytesIO(base64.b64decode(payload))))[:, :, 0]
+
+
+def test_a_window_maps_its_own_range_across_the_full_grey_scale():
+    import preprocessing
+    from models import WindowLevel
+
+    sl = _ramp(0, 1000)
+    out = preprocessing.normalize_slice(sl, WindowLevel(lower=400, upper=600))
+
+    # Everything at or below the window floor is black, at or above it is white.
+    assert out[sl <= 400].max() == 0
+    assert out[sl >= 600].min() == 255
+    # And the middle of the window lands mid-grey.
+    middle = np.abs(sl - 500).argmin()
+    assert 120 <= out.flat[middle] <= 135
+
+
+def test_a_window_that_excludes_the_content_renders_flat():
+    """The reader's window is honoured even when it shows nothing.
+
+    This is the behaviour the auto-window hid: clip the viewport to a range the
+    anatomy does not occupy and the model should see what the reader sees.
+    """
+    import preprocessing
+    from models import WindowLevel
+
+    sl = _ramp(0, 100)
+    out = preprocessing.normalize_slice(sl, WindowLevel(lower=5000, upper=6000))
+    assert out.max() == 0
+
+
+def test_the_same_window_is_applied_to_every_slice():
+    """Slices are compared against each other; per-slice windows break that.
+
+    A bright slice and a dim one must stay bright and dim relative to one
+    another, which auto-windowing each of them separately does not preserve.
+    """
+    import preprocessing
+    from models import WindowLevel
+
+    bright = np.full((16, 16), 800.0, dtype=np.float32)
+    dim = np.full((16, 16), 200.0, dtype=np.float32)
+
+    decoded = [
+        _decode_grey(e)
+        for e in preprocessing.slices_to_base64([bright, dim], WindowLevel(lower=0, upper=1000))
+    ]
+    assert decoded[0].mean() > decoded[1].mean()
+
+    # Without a window each slice is constant, so both come back black and the
+    # difference between them is gone entirely.
+    auto = [_decode_grey(e) for e in preprocessing.slices_to_base64([bright, dim])]
+    assert auto[0].mean() == auto[1].mean()
+
+
+def test_invert_flips_the_grey_scale():
+    import preprocessing
+    from models import WindowLevel
+
+    sl = _ramp(0, 1000)
+    plain = preprocessing.normalize_slice(sl, WindowLevel(lower=0, upper=1000))
+    flipped = preprocessing.normalize_slice(sl, WindowLevel(lower=0, upper=1000, invert=True))
+    assert np.array_equal(flipped, 255 - plain)
+
+
+def test_no_window_falls_back_to_the_percentile_auto_window():
+    """The fallback is unchanged, for a viewer that cannot report a VOI."""
+    import preprocessing
+
+    out = preprocessing.normalize_slice(_ramp(0, 1000))
+    assert out.min() == 0
+    assert out.max() == 255
+
+
+def test_the_window_is_part_of_the_cache_key():
+    """Two messages differing only in window must not share a cached image."""
+    import preprocessing
+    from models import SliceSelection, SliceStrategy, WindowLevel
+    from runtime_config import PreprocessingParams
+
+    params = PreprocessingParams(num_slices=3, slice_strategy=SliceStrategy.CENTRAL)
+    base = dict(series_uid="1.2.3", sop_instance_uids=["a", "b"])
+
+    narrow = preprocessing.recipe_signature(
+        params, SliceSelection(**base, voi=WindowLevel(lower=0, upper=100))
+    )
+    wide = preprocessing.recipe_signature(
+        params, SliceSelection(**base, voi=WindowLevel(lower=0, upper=1000))
+    )
+    none = preprocessing.recipe_signature(params, SliceSelection(**base))
+
+    assert narrow != wide
+    assert narrow != none
+    assert wide != none
+
+
+def test_inverting_changes_the_cache_key():
+    import preprocessing
+    from models import SliceSelection, SliceStrategy, WindowLevel
+    from runtime_config import PreprocessingParams
+
+    params = PreprocessingParams(num_slices=3, slice_strategy=SliceStrategy.CENTRAL)
+    base = dict(series_uid="1.2.3", sop_instance_uids=["a"])
+    plain = preprocessing.recipe_signature(
+        params, SliceSelection(**base, voi=WindowLevel(lower=0, upper=100))
+    )
+    flipped = preprocessing.recipe_signature(
+        params, SliceSelection(**base, voi=WindowLevel(lower=0, upper=100, invert=True))
+    )
+    assert plain != flipped

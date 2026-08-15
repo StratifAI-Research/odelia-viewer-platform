@@ -99,6 +99,36 @@ class RegionOfInterest(BaseModel):
         return self
 
 
+class WindowLevel(BaseModel):
+    """The grey-level window a message's images are rendered with.
+
+    This is the VOI the radiologist set in the viewport, in the same units the
+    volume carries (post rescale slope/intercept), sent so the model sees what
+    the reader sees. Without it the service auto-windows each slice on its own
+    1st-99th percentile, which means a window chosen to bring out one tissue --
+    or a viewport deliberately clipped to black -- has no effect at all on what
+    is sent, and the model answers confidently about an image the reader is not
+    looking at.
+
+    `invert` travels with it because an inverted greyscale is part of the same
+    choice; a lesion that reads as bright to the reader must not read as dark to
+    the model.
+    """
+
+    lower: float
+    upper: float
+    invert: bool = False
+
+    @model_validator(mode="after")
+    def _is_a_window(self) -> "WindowLevel":
+        if not self.upper > self.lower:
+            # A zero or inverted width maps every pixel to one value. Refused
+            # rather than clamped: the caller has sent something meaningless and
+            # silently substituting a window would hide it.
+            raise ValueError("Window upper bound must be greater than the lower bound")
+        return self
+
+
 class SliceSelection(BaseModel):
     """Which slices of one series a single message sends.
 
@@ -146,6 +176,11 @@ class SliceSelection(BaseModel):
     # selection arrives here the question is already settled and the crop applies
     # uniformly to the instances named above.
     roi: RegionOfInterest | None = None
+    # Absent means "window each slice on its own contents", which is what this
+    # service did for every message before the viewer could report a VOI. It is
+    # a fallback, not a default anyone chose: a slice auto-windowed on its own
+    # percentiles is not the image the reader was looking at.
+    voi: WindowLevel | None = None
 
     def has_recipe(self) -> bool:
         """Whether this selection carries its own preprocessing recipe."""

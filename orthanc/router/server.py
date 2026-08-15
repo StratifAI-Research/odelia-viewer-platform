@@ -26,6 +26,51 @@ AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
+# Patient and study identity a derived object inherits verbatim. Type 1/2 in the
+# Patient and General Study modules: present even when the source has no value,
+# which is why they are written unconditionally.
+_INHERITED_REQUIRED_TAGS = (
+    "PatientName",
+    "PatientID",
+    "PatientBirthDate",
+    "PatientSex",
+    "StudyInstanceUID",
+    "StudyDate",
+    "StudyTime",
+    "StudyID",
+)
+
+# Type 3: copied when the source has a value, omitted when it does not. A blank
+# StudyDescription disagrees with the rest of the study exactly as loudly as a
+# wrong one, so an absent tag stays absent.
+_INHERITED_OPTIONAL_TAGS = ("StudyDescription",)
+
+
+def copy_study_identity(original_dicom: Dataset, ds: Dataset) -> None:
+    """
+    Give a derived object the patient and study identity of the image it came from.
+
+    Every SR and SC this module writes is filed under the *original*
+    StudyInstanceUID, so it joins that study rather than starting one of its own.
+    Study-level attributes therefore describe the patient's study, not the object
+    carrying them, and the whole study has to agree on them: an archive keeps
+    whichever value it saw first and reports that as the study's, and a viewer
+    aggregating study metadata reads whichever instance it happens to reach.
+
+    That is why nothing here fabricates a StudyDescription. Writing "AI
+    Classification Report" into (0008,1030) does not label the report — it
+    renames the patient's study, and which name wins is a race between the
+    original series and the derived object. What the object *is* belongs on the
+    object: SeriesDescription already says so, at the level that owns it.
+    """
+    for tag in _INHERITED_REQUIRED_TAGS:
+        setattr(ds, tag, getattr(original_dicom, tag, None))
+    for tag in _INHERITED_OPTIONAL_TAGS:
+        value = getattr(original_dicom, tag, None)
+        if value is not None and str(value).strip() != "":
+            setattr(ds, tag, value)
+
+
 def add_text_overlay(
     pixel_array: np.ndarray[Any, np.dtype[Any]], text: str = "PROCESSED BY AI", color: str = "red"
 ) -> np.ndarray[Any, np.dtype[Any]]:
@@ -118,18 +163,8 @@ def create_multiframe_attention_sc(
     meta.TransferSyntaxUID = ExplicitVRLittleEndian
     ds.file_meta = meta
 
-    # Copy metadata from original
-    for tag in [
-        "PatientName",
-        "PatientID",
-        "PatientBirthDate",
-        "PatientSex",
-        "StudyInstanceUID",
-        "StudyDate",
-        "StudyTime",
-        "StudyID",
-    ]:
-        setattr(ds, tag, getattr(original_dicom, tag, None))
+    # Copy patient/study identity from original
+    copy_study_identity(original_dicom, ds)
 
     # Copy spatial reference tags for synchronization
     # These allow OHIF to sync heatmap with original series
@@ -152,8 +187,8 @@ def create_multiframe_attention_sc(
     ds.SOPClassUID = SecondaryCaptureImageStorage
     ds.SOPInstanceUID = generate_uid()
 
-    # Multi-frame attention heatmap description
-    ds.StudyDescription = "AI Attention Heatmap Visualization"
+    # Multi-frame attention heatmap description. Series-level only: the study is
+    # the patient's, not this heatmap's (see `copy_study_identity`).
     ds.SeriesDescription = f"{AI_NAME} - Complete 3D Attention Heatmap"
 
     # Add AI model metadata
@@ -327,18 +362,8 @@ def create_text_overlay_sc(
     meta.TransferSyntaxUID = ExplicitVRLittleEndian
     ds.file_meta = meta
 
-    # Copy metadata
-    for tag in [
-        "PatientName",
-        "PatientID",
-        "PatientBirthDate",
-        "PatientSex",
-        "StudyInstanceUID",
-        "StudyDate",
-        "StudyTime",
-        "StudyID",
-    ]:
-        setattr(ds, tag, getattr(original_dicom, tag, None))
+    # Copy patient/study identity
+    copy_study_identity(original_dicom, ds)
 
     # Set derived attributes
     ds.Modality = "SC"
@@ -347,8 +372,7 @@ def create_text_overlay_sc(
     ds.SOPClassUID = SecondaryCaptureImageStorage
     ds.SOPInstanceUID = generate_uid()
 
-    # AI-specific descriptions
-    ds.StudyDescription = "AI Heatmap Visualization"
+    # AI-specific description, at series level (see `copy_study_identity`)
     ds.SeriesDescription = f"{AI_NAME} - Heatmap"
 
     # Add AI model metadata to EXACTLY match SR content
@@ -475,16 +499,14 @@ def create_mst_sr(
     ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification
-    ds.PatientName = original_ds.PatientName
-    ds.PatientID = original_ds.PatientID
-    ds.StudyInstanceUID = original_ds.StudyInstanceUID
+    copy_study_identity(original_ds, ds)
     ds.SeriesInstanceUID = generate_uid()
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
-    # SR-specific attributes
+    # SR-specific attributes. The description of what this report is lives at
+    # series level; the study keeps its own (see `copy_study_identity`).
     ds.Modality = "SR"
     ds.SOPClassUID = ComprehensiveSRStorage
-    ds.StudyDescription = "AI Classification Report - MST"
     ds.SeriesDescription = "MST Attention-Based Classification"
 
     # Timestamps
@@ -590,16 +612,14 @@ def create_bilateral_sr(
     ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)  # type: ignore[arg-type]
 
     # Basic patient/study identification (link to original study)
-    ds.PatientName = original_ds.PatientName
-    ds.PatientID = original_ds.PatientID
-    ds.StudyInstanceUID = original_ds.StudyInstanceUID
+    copy_study_identity(original_ds, ds)
     ds.SeriesInstanceUID = generate_uid()  # New UID for SR series
     ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
 
-    # SR-specific attributes
+    # SR-specific attributes. The description of what this report is lives at
+    # series level; the study keeps its own (see `copy_study_identity`).
     ds.Modality = "SR"
     ds.SOPClassUID = ComprehensiveSRStorage
-    ds.StudyDescription = "AI Classification Report"
     ds.SeriesDescription = "Automated Diagnostic Findings"
 
     # Use consistent timestamps for SR-SC matching

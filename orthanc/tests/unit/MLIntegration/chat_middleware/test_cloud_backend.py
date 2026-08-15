@@ -768,3 +768,70 @@ def test_cloud_model_listing_surfaces_upstream_rejection(tmp_path, monkeypatch, 
     r = client.get("/debug/cloud/models")
     assert r.status_code == 502
     assert "401" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Local model listing
+#
+# The panel used to take the local model as free text, so a typo or a model that
+# was never pulled failed only when a message was sent, and failed as an opaque
+# backend error rather than as "that model is not here".
+# ---------------------------------------------------------------------------
+
+
+def test_local_model_listing_returns_what_the_server_has(tmp_path, monkeypatch, patch_session):
+    client = _client(tmp_path, monkeypatch)
+    patch_session({
+        ("GET", "/api/tags"): _FakeResponse(json_payload={
+            "models": [{"name": "medgemma:4b"}, {"name": "llama4:8b"}]
+        }),
+        ("POST", "/api/show"): lambda body: _FakeResponse(json_payload={
+            "capabilities": ["completion", "vision"]
+            if body["model"] == "medgemma:4b"
+            else ["completion"]
+        }),
+    })
+
+    r = client.get("/debug/local/models")
+    assert r.status_code == 200
+    data = r.json()
+    by_name = {m["name"]: m for m in data["models"]}
+    assert by_name["medgemma:4b"]["supports_vision"] is True
+    assert by_name["llama4:8b"]["supports_vision"] is False
+    assert data["capabilities_reported"] is True
+
+
+def test_local_model_listing_needs_no_cloud_gate(tmp_path, monkeypatch, patch_session):
+    """The local catalogue is not behind ALLOW_CLOUD_BACKEND — it never left the site."""
+    client = _client(tmp_path, monkeypatch)
+    patch_session({
+        ("GET", "/api/tags"): _FakeResponse(json_payload={"models": []}),
+    })
+    assert client.get("/debug/cloud/models").status_code == 403
+    assert client.get("/debug/local/models").status_code == 200
+
+
+def test_local_model_listing_reports_an_unreachable_server(tmp_path, monkeypatch, patch_session):
+    """An unreachable Ollama and one with nothing pulled need different actions.
+
+    Returning an empty list for the first would report the second.
+    """
+    client = _client(tmp_path, monkeypatch)
+    patch_session({
+        ("GET", "/api/tags"): _FakeResponse(status=500, body=b"boom"),
+    })
+
+    r = client.get("/debug/local/models")
+    assert r.status_code == 502
+
+
+def test_local_model_listing_distinguishes_empty_from_broken(tmp_path, monkeypatch, patch_session):
+    client = _client(tmp_path, monkeypatch)
+    patch_session({
+        ("GET", "/api/tags"): _FakeResponse(json_payload={"models": []}),
+    })
+
+    r = client.get("/debug/local/models")
+    assert r.status_code == 200
+    assert r.json()["models"] == []
+

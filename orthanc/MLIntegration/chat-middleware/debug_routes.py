@@ -180,6 +180,33 @@ async def list_cloud_models() -> CloudModelListResponse:
     return CloudModelListResponse(models=models, capabilities_reported=capabilities_reported)
 
 
+@router.get("/local/models", response_model=CloudModelListResponse)
+async def list_local_models() -> CloudModelListResponse:
+    """
+    List the models the local Ollama server actually has pulled.
+
+    The panel used to take the local model as free text, which meant a typo, or a
+    model that was never pulled, failed only when a message was sent — and failed
+    as an opaque backend error rather than as "that model is not here". Asking the
+    server what it has turns that into a list.
+
+    Same shape as the cloud listing on purpose: to the reader they are one
+    catalogue of models with two sources.
+    """
+    client = get_ollama_client()
+
+    try:
+        models = await client.list_models_detailed()
+    except ModelListError as e:
+        # 502 rather than an empty list: an unreachable Ollama and an Ollama with
+        # no models pulled need different actions, and an empty list would say the
+        # second when the truth is the first.
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    capabilities_reported = any(m["capabilities"] for m in models)
+    return CloudModelListResponse(models=models, capabilities_reported=capabilities_reported)
+
+
 @router.delete("/cache", response_model=CacheClearResponse)
 async def clear_cache() -> CacheClearResponse:
     """

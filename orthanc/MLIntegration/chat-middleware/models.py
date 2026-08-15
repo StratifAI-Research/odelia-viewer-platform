@@ -240,7 +240,7 @@ class DebugConfigResponse(BaseModel):
 
 
 class CloudModelInfo(BaseModel):
-    """A model offered by the cloud backend."""
+    """A model offered by a backend, cloud or local."""
 
     name: str
     capabilities: list[str] = Field(default_factory=list)
@@ -248,7 +248,13 @@ class CloudModelInfo(BaseModel):
 
 
 class CloudModelListResponse(BaseModel):
-    """Response body for the cloud model listing endpoint."""
+    """
+    Response body for a model listing endpoint.
+
+    Shared by the cloud and local listings: the panel offers both as one catalogue
+    of models to choose from, so a difference in shape between them would only be
+    a difference the UI had to paper over.
+    """
 
     models: list[CloudModelInfo]
     # True when the backend reported capability data at all. When False the

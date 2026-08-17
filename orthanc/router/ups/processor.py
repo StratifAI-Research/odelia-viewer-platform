@@ -24,8 +24,6 @@ except Exception:
 
 # Get MODEL_BACKEND_URL from environment (configured per router instance in docker-compose)
 MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://breast-cancer-classification:5555")
-AI_TEXT = os.environ.get("AI_TEXT", "PROCESSED BY AI")
-AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 

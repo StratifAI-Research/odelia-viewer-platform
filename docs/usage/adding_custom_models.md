@@ -245,6 +245,51 @@ strategy = WadoRSRetrieval(
 dicom_folder, series_uid = strategy.retrieve()
 ```
 
+## Preferred Path: Add a Roster Model to odelia-classification
+
+If your model is a breast-MRI classifier, add it as a subunit of the
+generalized `odelia-classification` service instead of writing a bespoke
+service (the guide below). One image serves one model; everything else is
+shared.
+
+1. **Add a subunit** under `orthanc/MLIntegration/odelia-classification/models/<name>/`
+   with a `loader.py` exposing `NAME`, `INPUT_SIZE`, and `create()` (lazy
+   arch import). See `models/pimed/loader.py` for the minimal shape; the
+   startup pre-flight forward will fail the container if the contract is
+   violated.
+2. **Build the image**, selecting your subunit and optionally baking weights:
+
+   ```bash
+   docker build -f orthanc/MLIntegration/odelia-classification/Dockerfile \
+     --build-arg MODEL=<NAME> --build-arg WEIGHT_PATH=<path-or-empty> \
+     -t stratifai/odelia-classification-<name> orthanc/MLIntegration
+   ```
+
+   Without `WEIGHT_PATH` the service runs init-only weights and logs it.
+3. **Wire the router+service pair**: copy the blocks from
+   [`docker-compose.model-template.yml`](../../docker-compose.model-template.yml)
+   into `docker-compose.yml` and fill the placeholders. The template header
+   lists every placeholder and the current host-port allocation; keep that
+   table current. `MODEL_DEVICE` is required (`cpu` or `cuda`).
+   Add `profiles: [odelia-models]` to both services unless the model should
+   start with the default stack.
+4. **Add a CI leg** in `.github/workflows/docker-build-push.yml`: one
+   `matrix.include` entry in the **`build-preview`** job (image
+   `odelia-classification-<name>`, kebab-case, `build_args: MODEL=<NAME>`).
+   Give it `cache_scope: odelia-classification-shared` and a per-image
+   `cache_to: type=gha,mode=max,scope=odelia-classification-<name>` --
+   omitting `cache_to` silently disables cache export for that leg, it
+   won't fail the build. Do **not** add the image to the `build` job or
+   to the `promote` job's `images=` list yet: `build-preview` never
+   pushes, so an entry there has no SHA manifest to promote. Once the
+   model has trained weights (`WEIGHT_PATH` set) and its Docker Hub repo
+   exists, publish it by moving the whole entry into the `build` job's
+   matrix **and** adding the image to `images=` in the same change --
+   doing only one half either 404s `promote` on that image or leaves it
+   silently un-promoted.
+5. **Register the endpoint in the viewer** (see
+   [Register in Viewer](#step-7-register-in-viewer)).
+
 ## Implementation Guide
 
 ### Step 1: Create Model Service Directory
@@ -595,7 +640,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create directories
 RUN mkdir -p models images
 
-# Expose port (choose a unique port — 5556/5557/5560 are already taken)
+# Expose the port your service listens on. This is a container-internal port, so it
+# need not be globally unique — it only has to match the service's port mapping and the
+# router's MODEL_BACKEND_URL. (The host-port allocation table governs host-side ports.)
 EXPOSE 5558
 
 # Run service
@@ -604,68 +651,42 @@ CMD ["python", "app_refactored.py"]
 
 ### Step 6: Add to Docker Compose
 
-Edit `docker-compose.yml` (at the repo root) and add your model service. The
-`${BIND_HOST:-}` prefix on each port keeps it consistent with the rest of the stack (see
-[`restrict-to-localhost.md`](../security/restrict-to-localhost.md)):
+Copy the two service blocks from
+[`docker-compose.model-template.yml`](../../docker-compose.model-template.yml)
+(at the repo root) into `docker-compose.yml` and replace the placeholders —
+the template header documents each one and carries the authoritative
+host-port allocation table. For a bespoke service (this guide), point the
+`build:` at your own directory/Dockerfile instead of
+`odelia-classification/Dockerfile` and drop the `MODEL` build-arg. Also
+change the container port `5556` to the port your service actually listens
+on (e.g. `5558` from Step 5's Dockerfile) in **all three places** it
+appears: the service's port mapping, the router's `MODEL_BACKEND_URL`, and
+the `healthcheck.test` curl URL. Drop `MODEL_DEVICE` unless your service
+uses it. If your service has no `/health` route, delete the `healthcheck:`
+block and downgrade the router's dependency to the short form
+(`depends_on: [<svc>]`) — with the block left in, the healthcheck never
+passes, `service_healthy` is never satisfied, and the router never starts.
 
-```yaml
-  # Your Custom Model
-  your-model-name:
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: your-model-name/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-your-model-name:${TAG:-0.1.0}
-    container_name: odelia-your-model-name
-    environment:
-      ORTHANC_URL: "http://orthanc-router-yourmodel:8042"
-      IMAGE_FOLDER: "/app/your-service/images"
-      MODEL_PATH: "/app/your-service/models/your_model.pth"
-      # Add any custom environment variables
-    networks:
-      - odelia-network
-    ports:
-      - '${BIND_HOST:-}5558:5558'
-```
+Notes:
 
-If you want a dedicated router for your model, add:
-
-```yaml
-  # Orthanc Router for Your Model
-  orthanc-router-yourmodel:
-    build:
-      context: ./orthanc/router
-      dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
-    hostname: orthanc-router-yourmodel
-    container_name: odelia-orthanc-router-yourmodel
-    volumes:
-      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
-      - ./volumes/orthanc-router-yourmodel-db/:/var/lib/orthanc/db/
-      - ./orthanc/router/server.py:/python/server.py
-    restart: unless-stopped
-    networks:
-      - odelia-network
-    ports:
-      - '${BIND_HOST:-}4245:4242'  # DICOM port (unique — 4243/4244 taken)
-      - '${BIND_HOST:-}8045:8042'  # HTTP port (unique — 8043/8044 taken)
-    environment:
-      - ORTHANC__NAME=orthanc-router-yourmodel
-      - VERBOSE_ENABLED=true
-      - VERBOSE_STARTUP=true
-      - ORTHANC__PYTHON_SCRIPT=/python/server.py
-      - ORTHANC__PYTHON_VERBOSE=true
-      - MODEL_BACKEND_URL=http://your-model-name:5558
-      - AI_TEXT=YOUR MODEL
-      - AI_COLOR=green
-      - AI_NAME=Your Model Name
-    depends_on:
-      - your-model-name
-```
+- The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is served by
+  the router as the model's capability manifest. It is optional: without it
+  the router's `/manifest` returns 404 and the viewer falls back to flat
+  series selection (`orthanc-router-medgemma` runs without one). When you do
+  provide one, use
+  [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
+  as the worked example.
+- The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
+  working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
+- A live example of a filled-in pair is the `odelia-classification-mst` /
+  `orthanc-router-odelia-mst` pair in `docker-compose.yml`; all six ODELIA
+  roster pairs sit behind `profiles: [odelia-models]`
+  (`docker compose --profile odelia-models up`).
 
 ### Step 7: Register in Viewer
 
 Edit `config/app-config.js` and add your model to the `aiEndpoints` array. Out of the box
-only the MST endpoint is registered, so you are appending to it:
+one endpoint is registered (`mst-ai`), so you are appending to it:
 
 ```javascript
   aiEndpoints: [
@@ -681,6 +702,8 @@ only the MST endpoint is registered, so you are appending to it:
     },
   ],
 ```
+
+Profiled (opt-in) models can be registered the same way — the endpoint is only reachable while its profile is up.
 
 **Important:** After editing `app-config.js`, users must clear their browser's localStorage for changes to take effect.
 

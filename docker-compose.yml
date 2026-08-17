@@ -157,6 +157,337 @@ services:
 #              count: 1
 #              capabilities: [gpu]
 
+  # ODELIA classification roster (ODV-218): one router+service pair per model,
+  # instantiated from docker-compose.model-template.yml. All pairs are behind
+  # profile odelia-models (nothing default-on): docker compose --profile odelia-models up
+  # Note: none of these routers is registered in config/app-config.js aiEndpoints
+  # yet (viewer registration is ODV-220), so the profile boots containers the
+  # viewer UI cannot target. After editing aiEndpoints, clear the browser's
+  # localStorage or the viewer keeps the cached endpoint list.
+  orthanc-router-odelia-agaldran:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-agaldran
+    container_name: odelia-orthanc-router-odelia-agaldran
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-agaldran-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4245:4242' # DICOM
+      - '${BIND_HOST:-}8045:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-agaldran
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-agaldran:5556
+      - AI_NAME=ODELIA agaldran (init weights preview)
+    depends_on:
+      odelia-classification-agaldran:
+        condition: service_healthy
+
+  odelia-classification-agaldran:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: agaldran
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-agaldran:${TAG:-0.1.0}
+    container_name: odelia-classification-agaldran
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-agaldran:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5558:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  orthanc-router-odelia-bcn-aim:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-bcn-aim
+    container_name: odelia-orthanc-router-odelia-bcn-aim
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-bcn-aim-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4246:4242' # DICOM
+      - '${BIND_HOST:-}8046:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-bcn-aim
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-bcn-aim:5556
+      - AI_NAME=ODELIA BCN_AIM (init weights preview)
+    depends_on:
+      odelia-classification-bcn-aim:
+        condition: service_healthy
+
+  odelia-classification-bcn-aim:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: BCN_AIM
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-bcn-aim:${TAG:-0.1.0}
+    container_name: odelia-classification-bcn-aim
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-bcn-aim:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5559:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  orthanc-router-odelia-divide-and-conquer:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-divide-and-conquer
+    container_name: odelia-orthanc-router-odelia-divide-and-conquer
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-divide-and-conquer-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4247:4242' # DICOM
+      - '${BIND_HOST:-}8047:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-divide-and-conquer
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-divide-and-conquer:5556
+      - AI_NAME=ODELIA DivideAndConquer (init weights preview)
+    depends_on:
+      odelia-classification-divide-and-conquer:
+        condition: service_healthy
+
+  odelia-classification-divide-and-conquer:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: DivideAndConquer
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-divide-and-conquer:${TAG:-0.1.0}
+    container_name: odelia-classification-divide-and-conquer
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-divide-and-conquer:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5561:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  orthanc-router-odelia-lme-abmil:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-lme-abmil
+    container_name: odelia-orthanc-router-odelia-lme-abmil
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-lme-abmil-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4248:4242' # DICOM
+      - '${BIND_HOST:-}8048:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-lme-abmil
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-lme-abmil:5556
+      - AI_NAME=ODELIA LME_ABMIL (init weights preview)
+    depends_on:
+      odelia-classification-lme-abmil:
+        condition: service_healthy
+
+  odelia-classification-lme-abmil:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: LME_ABMIL
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-lme-abmil:${TAG:-0.1.0}
+    container_name: odelia-classification-lme-abmil
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-lme-abmil:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5562:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  orthanc-router-odelia-mst:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-mst
+    container_name: odelia-orthanc-router-odelia-mst
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-mst-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4249:4242' # DICOM
+      - '${BIND_HOST:-}8049:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-mst
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
+      - AI_NAME=ODELIA MST (init weights preview)
+    depends_on:
+      odelia-classification-mst:
+        condition: service_healthy
+
+  odelia-classification-mst:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: MST
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-mst:${TAG:-0.1.0}
+    container_name: odelia-classification-mst
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-mst:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5563:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  orthanc-router-odelia-pimed:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/router
+      dockerfile: Dockerfile
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    hostname: orthanc-router-odelia-pimed
+    container_name: odelia-orthanc-router-odelia-pimed
+    volumes:
+      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
+      - ./volumes/orthanc-router-odelia-pimed-db/:/var/lib/orthanc/db/
+      - ./orthanc/router/server.py:/python/server.py
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}4250:4242' # DICOM
+      - '${BIND_HOST:-}8050:8042' # HTTP
+    environment:
+      - ORTHANC__NAME=orthanc-router-odelia-pimed
+      - VERBOSE_ENABLED=true
+      - VERBOSE_STARTUP=true
+      - ORTHANC__PYTHON_SCRIPT=/python/server.py
+      - ORTHANC__PYTHON_VERBOSE=true
+      - MODEL_BACKEND_URL=http://odelia-classification-pimed:5556
+      - AI_NAME=ODELIA Pimed (init weights preview)
+    depends_on:
+      odelia-classification-pimed:
+        condition: service_healthy
+
+  odelia-classification-pimed:
+    profiles: [odelia-models]
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: odelia-classification/Dockerfile
+      args:
+        MODEL: Pimed
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-pimed:${TAG:-0.1.0}
+    container_name: odelia-classification-pimed
+    environment:
+      ORTHANC_URL: "http://orthanc-router-odelia-pimed:8042"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+    networks:
+      - odelia-network
+    ports:
+      - '${BIND_HOST:-}5564:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
   # Chat Middleware - WebSocket-based chat for DICOM study analysis
   # Supports two backends: Ollama (default) and llama.cpp (optional).
   # Override via .env or shell: BACKEND_TYPE=llamacpp OLLAMA_URL=http://llamacpp-server:8090

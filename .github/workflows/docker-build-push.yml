@@ -21,54 +21,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # cache_scope equals `image` for every leg here (none write a shared
+        # scope), so cache-from lists the same scope twice. Kept on every
+        # entry anyway for uniformity with build-preview, where cache_scope
+        # differs from image for the shared classification legs.
         include:
           - image: odelia-orthanc-viewer
             context: ./orthanc/viewer
             dockerfile: ./orthanc/viewer/Dockerfile
+            cache_scope: odelia-orthanc-viewer
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-viewer
           - image: odelia-orthanc-router
             context: ./orthanc/router
             dockerfile: ./orthanc/router/Dockerfile
+            cache_scope: odelia-orthanc-router
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-router
           - image: odelia-model-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
+            cache_scope: odelia-model-mst
+            cache_to: type=gha,mode=max,scope=odelia-model-mst
           - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
+            cache_scope: odelia-model-medgemma
+            cache_to: type=gha,mode=max,scope=odelia-model-medgemma
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
-          # Generalized model service (ODV-218): one image per roster model,
-          # named stratifai/odelia-classification-<model> (kebab-case subunit).
-          - image: odelia-classification-agaldran
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=agaldran
-          - image: odelia-classification-bcn-aim
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=BCN_AIM
-          - image: odelia-classification-divide-and-conquer
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=DivideAndConquer
-          - image: odelia-classification-lme-abmil
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=LME_ABMIL
-          - image: odelia-classification-mst
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=MST
-          - image: odelia-classification-pimed
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
-            build_args: |
-              MODEL=Pimed
+            cache_scope: odelia-chat
+            cache_to: type=gha,mode=max,scope=odelia-chat
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -82,8 +64,8 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       # Build phase pushes ONLY the immutable per-commit SHA tag. The mutable
-      # latest/semver tags are promoted in a separate job that needs: all legs,
-      # so latest never advances unless every component built successfully.
+      # latest/semver tags are promoted in a separate job that needs: build,
+      # so latest never advances unless all five publishing legs succeed.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -100,12 +82,111 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: ${{ matrix.cache_to }}
 
-  # Atomic-ish promotion: only runs once ALL build legs succeed, so a partial
-  # build failure can never leave latest/semver split across commits. Re-tags
-  # the already-pushed SHA manifests (no rebuild / no pull) via imagetools.
+  # Preview roster (ODV-218): six odelia-classification-* images with init-only
+  # weights (no trained checkpoint yet, ODV-216). Built on every push/PR to catch
+  # breakage, but never pushed and never gates promote -- a broken preview model
+  # must not block latest/semver from advancing for the five publishing images.
+  build-preview:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: odelia-classification-agaldran
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=agaldran
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-agaldran
+          - image: odelia-classification-bcn-aim
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=BCN_AIM
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-bcn-aim
+          - image: odelia-classification-divide-and-conquer
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=DivideAndConquer
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-divide-and-conquer
+          - image: odelia-classification-lme-abmil
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=LME_ABMIL
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-lme-abmil
+          - image: odelia-classification-mst
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=MST
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-mst
+          - image: odelia-classification-pimed
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=Pimed
+            cache_scope: odelia-classification-shared
+            # Sole writer of the shared scope. The writer is arbitrary -- the
+            # reusable layers are everything before `RUN test -n "$MODEL"`,
+            # the first instruction after ARG MODEL comes into scope, which is
+            # where the cache first diverges; the DINOv2 pre-cache step runs
+            # after that point and is irrelevant to this choice.
+            cache_to: |
+              type=gha,mode=max,scope=odelia-classification-pimed
+              type=gha,mode=max,scope=odelia-classification-shared
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to DockerHub (push events only)
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: stratifai/${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+
+      - name: Build (never pushed -- init-only preview roster)
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=gha,scope=${{ matrix.cache_scope }}
+          # Shared classification cache only helps runs AFTER a requirements.txt
+          # change lands, since the six matrix jobs run in parallel this run.
+          cache-to: ${{ matrix.cache_to }}
+
+  # Atomic-ish promotion: only runs once every publishing build leg succeeds,
+  # so a partial build failure can never leave latest/semver split across
+  # commits. Re-tags the already-pushed SHA manifests (no rebuild / no pull)
+  # via imagetools. Gates on the publishing `build` job only -- preview
+  # models (build-preview) are deliberately excluded, since they are never
+  # pushed and have no SHA manifest to promote.
   promote:
     needs: build
     if: github.event_name == 'push'
@@ -126,7 +207,9 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat odelia-classification-agaldran odelia-classification-bcn-aim odelia-classification-divide-and-conquer odelia-classification-lme-abmil odelia-classification-mst odelia-classification-pimed"
+          # odelia-classification-* omitted: they build in build-preview, are
+          # never pushed, and so have no SHA manifest to promote.
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
           tags=()
           if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
             tags+=("latest")

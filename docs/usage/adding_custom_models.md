@@ -274,9 +274,19 @@ shared.
    Add `profiles: [odelia-models]` to both services unless the model should
    start with the default stack.
 4. **Add a CI leg** in `.github/workflows/docker-build-push.yml`: one
-   `matrix.include` entry (image `odelia-classification-<name>`, kebab-case,
-   `build_args: MODEL=<NAME>`) plus the same image name in the promote job's
-   `images=` list. The Docker Hub repo must exist before it lands on main.
+   `matrix.include` entry in the **`build-preview`** job (image
+   `odelia-classification-<name>`, kebab-case, `build_args: MODEL=<NAME>`).
+   Give it `cache_scope: odelia-classification-shared` and a per-image
+   `cache_to: type=gha,mode=max,scope=odelia-classification-<name>` --
+   omitting `cache_to` silently disables cache export for that leg, it
+   won't fail the build. Do **not** add the image to the `build` job or
+   to the `promote` job's `images=` list yet: `build-preview` never
+   pushes, so an entry there has no SHA manifest to promote. Once the
+   model has trained weights (`WEIGHT_PATH` set) and its Docker Hub repo
+   exists, publish it by moving the whole entry into the `build` job's
+   matrix **and** adding the image to `images=` in the same change --
+   doing only one half either 404s `promote` on that image or leaves it
+   silently un-promoted.
 5. **Register the endpoint in the viewer** (see
    [Register in Viewer](#step-7-register-in-viewer)).
 
@@ -648,15 +658,24 @@ the template header documents each one and carries the authoritative
 host-port allocation table. For a bespoke service (this guide), point the
 `build:` at your own directory/Dockerfile instead of
 `odelia-classification/Dockerfile` and drop the `MODEL` build-arg. Also
-change the container port `5556` in the service's port mapping and in the
-router's `MODEL_BACKEND_URL` to the port your service actually listens on
-(e.g. `5558` from Step 5's Dockerfile), and drop `MODEL_DEVICE` unless your
-service uses it.
+change the container port `5556` to the port your service actually listens
+on (e.g. `5558` from Step 5's Dockerfile) in **all three places** it
+appears: the service's port mapping, the router's `MODEL_BACKEND_URL`, and
+the `healthcheck.test` curl URL. Drop `MODEL_DEVICE` unless your service
+uses it. If your service has no `/health` route, delete the `healthcheck:`
+block and downgrade the router's dependency to the short form
+(`depends_on: [<svc>]`) — with the block left in, the healthcheck never
+passes, `service_healthy` is never satisfied, and the router never starts.
 
 Notes:
 
-- The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is what the
-  router serves as the model's capability manifest — don't omit it.
+- The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is served by
+  the router as the model's capability manifest. It is optional: without it
+  the router's `/manifest` returns 404 and the viewer falls back to flat
+  series selection (`orthanc-router-medgemma` runs without one). When you do
+  provide one, use
+  [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
+  as the worked example.
 - The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
 - A live example of a filled-in pair is the `odelia-classification-mst` /

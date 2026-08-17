@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import torch
 from models import resolve_baked_model
 
-SERVICE_VERSION = "0.1.0"  # keep in sync with pyproject.toml [project] version
+SERVICE_VERSION = "0.1.0"  # lockstep with pyproject.toml [project] version (test-enforced)
 
 
 def resolve_device() -> str:

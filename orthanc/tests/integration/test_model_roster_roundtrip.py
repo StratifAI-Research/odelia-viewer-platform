@@ -1,7 +1,8 @@
 """Per-model send-to-AI round-trip: viewer -> router -> service -> SR (ODV-219).
 
 Proves the acceptance criterion that a routed study produces an SR back in the
-viewer's Orthanc. Assertions are structural: weights are init-only (ODV-216), so
+viewer's Orthanc -- once via the legacy flat path and once via the manifest-driven
+multiphase configuration. Assertions are structural: weights are init-only (ODV-216), so
 prediction values carry no information.
 """
 
@@ -57,12 +58,23 @@ def study(base_url):
     """A study plus its largest MR series -- the multiphase input the model needs.
 
     The viewer study also holds SC heatmaps and SRs from earlier AI runs, so the
-    input series must be chosen by modality, never by position.
+    input series must be chosen by modality, never by position. Studies whose
+    PatientName starts with SYNTH are QA fixtures with degenerate intensities
+    (two-valued subtractions), which the MediSwarm ZNormalization mask rejects.
     """
     studies = requests.get(f"{base_url}/studies", timeout=10).json()
-    if not studies:
-        pytest.skip("no study loaded in orthanc-viewer")
-    study_id = studies[0]
+    real = []
+    for sid in studies:
+        try:
+            meta = requests.get(f"{base_url}/studies/{sid}", timeout=10).json()
+        except requests.RequestException as exc:
+            pytest.skip(f"could not read study {sid}: {exc}")
+        name = meta.get("PatientMainDicomTags", {}).get("PatientName", "")
+        if not name.startswith("SYNTH"):
+            real.append(sid)
+    if not real:
+        pytest.skip("no non-synthetic study loaded in orthanc-viewer")
+    study_id = real[0]
 
     series = requests.get(f"{base_url}/studies/{study_id}/series", timeout=10).json()
     mr = [s for s in series if s["MainDicomTags"].get("Modality") == "MR"]
@@ -75,7 +87,8 @@ def study(base_url):
 
 
 @pytest.mark.parametrize("model", ROSTER, ids=ROSTER_IDS)
-def test_send_to_ai_produces_sr(base_url, study, model):
+@pytest.mark.parametrize("input_mode", ["flat", "multiphase"])
+def test_send_to_ai_produces_sr(base_url, study, model, input_mode):
     _skip_if_down(model)
     study_id, input_uid = study
     before_srs = _sr_instance_ids(base_url, study_id)
@@ -85,8 +98,13 @@ def test_send_to_ai_produces_sr(base_url, study, model):
         "target": model.ai_name,
         "target_url": f"http://{model.router_host}:8042/dicom-web",
         "series_uids": [input_uid],
-        "input_mapping": {"Multi-phase Series": input_uid},
     }
+    if input_mode == "multiphase":
+        # Manifest-driven path: config id + role key from manifest.json. The
+        # viewer API takes bare series UIDs; the router processor builds the
+        # per-role WADO-RS dicts itself.
+        payload["input_configuration_id"] = "multiphase"
+        payload["input_mapping"] = {"multiphase": input_uid}
     r = requests.post(f"{base_url}/send-to-ai", json=payload, timeout=120)
     assert r.status_code == 200, f"send-to-ai failed: {r.text[:300]}"
 
@@ -106,7 +124,9 @@ def test_send_to_ai_produces_sr(base_url, study, model):
     assert final_state is not None, "router never reported a state for the workitem"
     assert final_state == "COMPLETED", (
         f"workitem ended {final_state}, not COMPLETED "
-        "(a CANCELED here is the Unknown-response-format regression)"
+        "(CANCELED means the model backend failed or rejected the request -- "
+        "check its logs; known causes: the flat-path Unknown-response-format "
+        "regression, or multiphase preprocessing rejecting the input series)"
     )
 
     sr_deadline = time.time() + _SR_UPLOAD_TIMEOUT_S

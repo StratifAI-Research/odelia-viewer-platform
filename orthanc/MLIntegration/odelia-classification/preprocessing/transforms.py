@@ -84,10 +84,12 @@ class ZNormalization(tio.ZNormalization):
         image_name: str,
         image_path: object,
     ) -> torch.Tensor:
-        cutoff = torch.quantile(
-            image_data.masked_select(mask).float(),
-            torch.tensor(self.percentiles) / 100.0,
-        )
+        masked = image_data.masked_select(mask).float()
+        if masked.numel() == 0:
+            raise RuntimeError(
+                f'Intensity mask selects no voxels in image "{image_name}" ({image_path})'
+            )
+        cutoff = torch.quantile(masked, torch.tensor(self.percentiles) / 100.0)
         torch.clamp(image_data, *cutoff.to(image_data.dtype).tolist(), out=image_data)
         standardized = self.znorm(image_data, mask)
         if standardized is None:

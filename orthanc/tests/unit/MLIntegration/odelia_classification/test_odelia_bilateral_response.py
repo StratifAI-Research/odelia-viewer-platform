@@ -163,3 +163,23 @@ class TestInferAndRespondShape:
         assert "left" not in resp
         assert "model_metadata" not in resp
         assert len(resp["views"]) == 3
+
+
+class TestClassCountGuard:
+    """CLASS_NAMES indexing must refuse a probs vector of the wrong length."""
+
+    def test_two_class_probs_raise_instead_of_mislabeling(self):
+        from exceptions import InferenceError
+        from response_builder import build_bilateral_response
+
+        two = [("left", [0.4, 0.6]), ("right", [0.5, 0.5])]
+        with pytest.raises(InferenceError, match="probabilities"):
+            build_bilateral_response(two, _INFO)
+
+    def test_four_class_probs_raise_instead_of_indexerror(self):
+        from exceptions import InferenceError
+        from response_builder import build_bilateral_response
+
+        four = [("left", [0.1, 0.2, 0.3, 0.4]), ("right", [0.4, 0.3, 0.2, 0.1])]
+        with pytest.raises(InferenceError, match="probabilities"):
+            build_bilateral_response(four, _INFO)

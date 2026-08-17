@@ -6,6 +6,8 @@ Single Responsibility: format inference results into an API response.
 import logging
 from typing import Any
 
+from exceptions import InferenceError
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,9 +73,15 @@ def build_bilateral_response(
     """
     info = model_info or {}
     response = build_multiview_response(results, model_info)
-    for label, probs in results:
-        idx = max(range(len(probs)), key=probs.__getitem__)
-        response[label] = {
+    for view in response["views"]:
+        probs = view["probabilities"]
+        if len(probs) != len(CLASS_NAMES):
+            raise InferenceError(
+                f"view {view['label']!r} returned {len(probs)} probabilities "
+                f"for {len(CLASS_NAMES)} class names"
+            )
+        idx = view["predicted_class"]
+        response[view["label"]] = {
             "prediction": CLASS_NAMES[idx],
             "confidence": float(probs[idx]) * 100.0,
         }

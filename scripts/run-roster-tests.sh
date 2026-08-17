@@ -14,7 +14,15 @@ declare -A ROSTER_SLUGS=(
   [5564]=pimed
 )
 
-sudo docker compose --profile odelia-models up -d
+# Scope up to the roster pairs: unscoped `up` also starts every profile-less
+# service, whose fixed container names collide with a viewer stack running
+# under a different compose project.
+roster_services=()
+for port in "${ROSTER_PORTS[@]}"; do
+  slug="${ROSTER_SLUGS[$port]}"
+  roster_services+=("orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
+done
+sudo docker compose --profile odelia-models up -d "${roster_services[@]}"
 
 if [[ -n "${VIEWER_NETWORK:-}" ]]; then
   echo "Re-attaching roster containers to viewer network '${VIEWER_NETWORK}'..."
@@ -57,6 +65,13 @@ for port in "${ROSTER_PORTS[@]}"; do
   done
   echo "  backend ${port} (${slug}) ready"
 done
+
+VIEWER_URL="${ORTHANC_VIEWER_BASE_URL:-http://localhost:8000}"
+if ! curl -sf "${VIEWER_URL}/feedback/health" >/dev/null; then
+  echo "ERROR: orthanc-viewer not reachable at ${VIEWER_URL} -- both suites would skip and exit 0." >&2
+  echo "Start the viewer stack, or point ORTHANC_VIEWER_BASE_URL at it." >&2
+  exit 1
+fi
 
 cd orthanc
 

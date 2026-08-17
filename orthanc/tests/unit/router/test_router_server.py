@@ -191,6 +191,15 @@ def test_create_code_sequence_loinc(srv):
 # create_measurement
 # ---------------------------------------------------------------------------
 
+def test_create_measurement_float32_confidence_fits_ds_vr(srv):
+    """A float32-derived softmax confidence must encode within DS's 16 bytes."""
+    raw = 61.39874458312988  # float(np.float32(0.61398745)) * 100 -- 17-char repr
+    m = srv.create_measurement(raw, "%", "%", "UCUM")
+    encoded = str(m["NumericValue"].value)
+    assert len(encoded) <= 16
+    assert float(encoded) == pytest.approx(raw)
+
+
 def test_create_measurement_numeric_value(srv):
     m = srv.create_measurement(85.5, "%", "%", "UCUM")
     assert hasattr(m, "NumericValue")

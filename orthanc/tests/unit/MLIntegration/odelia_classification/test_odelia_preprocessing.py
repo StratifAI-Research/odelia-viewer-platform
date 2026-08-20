@@ -35,6 +35,26 @@ class TestZNormalization:
 
         return tio.Subject(img=tio.ScalarImage(tensor=tensor))
 
+    def test_two_valued_volume_raises_clear_error(self):
+        """A binary volume empties the strict min/max mask; the error must say so."""
+        import pytest
+
+        from preprocessing.pipeline import _mask
+        from preprocessing.transforms import ZNormalization
+
+        data = torch.zeros(1, 10, 10, 10)
+        data[0, :5] = 4080.0
+        subject = self._subject(data)
+
+        transform = ZNormalization(
+            percentiles=(0.5, 99.5),
+            per_channel=True,
+            per_slice=False,
+            masking_method=_mask,
+        )
+        with pytest.raises(RuntimeError, match="no voxels"):
+            transform(subject)
+
     def test_clips_outlier_to_percentile_then_standardizes(self):
         import torchio as tio
 

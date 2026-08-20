@@ -400,10 +400,26 @@ def ServeManifest(output: Any, uri: str, **request: Any) -> None:
         output.SendHttpStatus(500, f"Error reading manifest: {e}")
 
 
+def WorkitemsCollection(output: Any, uri: str, **request: Any) -> None:
+    """Dispatch /ups-rs/workitems by method: POST creates, GET queries (RAD-81)."""
+    method = request["method"]
+    if method == "POST":
+        CreateWorkitem(output, uri, **request)
+    elif method == "GET":
+        QueryWorkitems(output, uri, **request)
+    else:
+        output.SendMethodNotAllowed("POST,GET")
+
+
 # Helper to register all UPS routes
 def register_ups_routes() -> None:
-    """Register all UPS-RS REST endpoints"""
-    orthanc.RegisterRestCallback("/ups-rs/workitems$", CreateWorkitem)
+    """Register all UPS-RS REST endpoints.
+
+    /ups-rs/workitems$ is shared by CreateWorkitem (POST) and QueryWorkitems
+    (GET) via the WorkitemsCollection dispatcher -- Orthanc maps one callback
+    per regex, so both methods must route through a single registration.
+    """
+    orthanc.RegisterRestCallback("/ups-rs/workitems$", WorkitemsCollection)
     orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)$", GetWorkitem)
     orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)/state$", UpdateWorkitemState)
     orthanc.RegisterRestCallback("/ups-rs/workitems/([0-9.]+)/subscribers$", SubscribeToWorkitem)

@@ -866,3 +866,62 @@ Both examples demonstrate:
 - [DICOMweb Standard](https://www.dicomstandard.org/using/dicomweb)
 - [Orthanc Documentation](https://orthanc.uclouvain.be/book/)
 - [UPS-RS Specification](https://www.dicomstandard.org/using/dicomweb/ups-rs)
+
+## Testing the model roster
+
+The six `odelia-classification` pairs ship behind the `odelia-models` compose
+profile and are covered by two integration suites, neither of which runs in CI
+(CI selects `-m unit`):
+
+- `orthanc/tests/integration/test_model_roster_smoke.py` — per model: `/health`
+  reports the baked model, the router serves its manifest, UPS-RS answers.
+  Needs the profile up; no study required.
+- `orthanc/tests/integration/test_model_roster_roundtrip.py` — per model: a
+  study routed through `/send-to-ai` completes its UPS workitem and writes an SR
+  back into the viewer's Orthanc. Needs a study loaded.
+
+Docker needs `sudo` on the dev host. Run both suites over the whole roster:
+
+    ./scripts/run-roster-tests.sh
+
+Models whose pair is not running are skipped, not failed, so a partial roster
+(one pair up) is a valid run.
+
+Or a single model:
+
+    cd orthanc
+    .venv/bin/python -m pytest tests/integration/test_model_roster_roundtrip.py -m integration -k Pimed
+
+Override `ROSTER_HOST` if the stack is not on `localhost`. On a warmed-up dev
+host a round-trip completes in about 5 seconds (retrieve, NIfTI conversion,
+preprocessing and inference each take roughly a second); `ROUNDTRIP_TIMEOUT_S`
+(default 900) is a generous ceiling for slower or first-run CPU inference, not
+the expected runtime.
+
+Assertions are structural. Weights are init-only until ODV-216, so predictions
+carry no clinical meaning and no test asserts on their values.
+
+### Requirements for a working round-trip
+
+The round-trip only works when the model pair and the viewer can resolve each
+other by hostname. If the viewer stack runs under a different compose project
+than the model pairs, they land on separate Docker networks and `send-to-ai`
+fails with a DNS error. Either run both from this compose file, or attach the
+pair to the viewer's network:
+
+    sudo docker network connect <viewer-project>_odelia-network odelia-orthanc-router-odelia-<model>
+    sudo docker network connect <viewer-project>_odelia-network odelia-classification-<model>
+
+Both containers need it: the router posts the finished SR back to the viewer,
+and the model service fetches the source series from the viewer over WADO-RS.
+Recreating a container drops a manually attached network -- re-attach after any
+`compose up` that recreates it.
+
+`scripts/run-roster-tests.sh` recreates all six pairs via `up -d`, so it drops
+any manual attachment on every run. Set `VIEWER_NETWORK=<viewer-project>_odelia-network`
+and the script re-attaches both containers of each pair after `up -d` (tolerating
+the already-attached error). Leave it unset when the viewer runs in this same
+compose project; the script then just prints a reminder to attach manually.
+
+Model display names (`AI_NAME`) must match `[A-Za-z0-9 _-]+`; the viewer's
+DICOMweb server-name validator rejects anything else, including parentheses.

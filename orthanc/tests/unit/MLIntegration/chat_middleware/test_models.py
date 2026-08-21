@@ -263,3 +263,107 @@ def test_slice_selection_carries_an_optional_roi():
     sel = models.SliceSelection(series_uid="SE1", roi=_roi())
     assert sel.roi.width == 0.3
     assert models.SliceSelection(series_uid="SE1").roi is None
+
+
+# ---------- WindowLevel ----------
+
+def _voi(**kw):
+    import models
+    return models.WindowLevel(**{"lower": 0.0, "upper": 1000.0, **kw})
+
+
+def test_window_round_trips_its_bounds():
+    import models
+    voi = _voi(invert=True)
+    parsed = models.WindowLevel.model_validate_json(voi.model_dump_json())
+    assert (parsed.lower, parsed.upper, parsed.invert) == (0.0, 1000.0, True)
+
+
+def test_window_rejects_a_zero_width():
+    """Every pixel would map to one value; refuse rather than substitute a window."""
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _voi(lower=500.0, upper=500.0)
+
+
+def test_window_rejects_an_inverted_window():
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _voi(lower=1000.0, upper=0.0)
+
+
+def test_window_rejects_an_infinite_bound():
+    """An infinity satisfies `upper > lower` and then blanks the slice.
+
+    `(x - lower) / (upper - lower)` is 0.0 for every finite pixel, so the model
+    would receive an all-black PNG with nothing logged and nothing raised.
+    """
+    import pydantic
+    import pytest
+    for kw in ({"upper": float("inf")}, {"lower": float("-inf")}):
+        with pytest.raises(pydantic.ValidationError):
+            _voi(**kw)
+
+
+def test_window_rejects_a_nan_bound():
+    """Held by the field rather than by comparison semantics.
+
+    `nan > x` and `x > nan` are both False, so `_is_a_window` already refused
+    these -- but only as a side effect. Pinned so the guarantee survives a
+    rewrite of that comparison.
+    """
+    import pydantic
+    import pytest
+    for kw in ({"upper": float("nan")}, {"lower": float("nan")}):
+        with pytest.raises(pydantic.ValidationError):
+            _voi(**kw)
+
+
+def test_window_rejects_a_width_that_overflows_to_infinity():
+    """Finite bounds are not enough: the width is what the pixels are divided by."""
+    import pydantic
+    import pytest
+    with pytest.raises(pydantic.ValidationError):
+        _voi(lower=-1e308, upper=1e308)
+
+
+def test_window_accepts_a_window_far_outside_the_pixel_range():
+    """A window wider than the data, or clear of it, is a real reader action.
+
+    Clipping the viewport to black is deliberate and well defined for any finite
+    window. Only a non-finite one is meaningless, so the bound stays on
+    finiteness and not on the volume's value range -- which this model could not
+    consult anyway, being validated before any DICOM is retrieved.
+    """
+    voi = _voi(lower=100_000.0, upper=200_000.0)
+    assert (voi.lower, voi.upper) == (100_000.0, 200_000.0)
+
+
+def test_window_from_a_json_payload_carrying_infinity_is_rejected():
+    """The transport really can deliver this.
+
+    `websocket.iter_json()` parses with `json.loads`, which accepts the
+    non-standard `Infinity` literal, so the guard has to hold at the model rather
+    than relying on JSON being unable to express it. A browser cannot send this
+    (`JSON.stringify(Infinity)` is `null`), but `/ws/chat/` is proxied without
+    authentication, so a hand-written frame is in scope.
+    """
+    import json
+
+    import models
+    import pydantic
+    import pytest
+
+    payload = json.loads('{"lower": 0, "upper": Infinity}')
+    assert payload["upper"] == float("inf")  # json.loads accepted it
+    with pytest.raises(pydantic.ValidationError):
+        models.WindowLevel(**payload)
+
+
+def test_slice_selection_carries_an_optional_voi():
+    import models
+    sel = models.SliceSelection(series_uid="SE1", voi=_voi())
+    assert sel.voi.upper == 1000.0
+    assert models.SliceSelection(series_uid="SE1").voi is None

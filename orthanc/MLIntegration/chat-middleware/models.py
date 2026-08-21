@@ -2,6 +2,7 @@
 Pydantic models for WebSocket messages and debug API
 """
 
+import math
 from enum import Enum
 from typing import Any
 
@@ -115,8 +116,13 @@ class WindowLevel(BaseModel):
     the model.
     """
 
-    lower: float
-    upper: float
+    # Finite on both bounds. An infinity passes every ordering check -- `inf`
+    # really is greater than any lower bound -- and then divides the whole slice
+    # to a single value: the reader gets an all-black PNG with no error anywhere.
+    # `allow_inf_nan=False` refuses it where the rest of this model refuses
+    # meaningless input, at the edge, before any DICOM is fetched.
+    lower: float = Field(allow_inf_nan=False)
+    upper: float = Field(allow_inf_nan=False)
     invert: bool = False
 
     @model_validator(mode="after")
@@ -126,6 +132,12 @@ class WindowLevel(BaseModel):
             # rather than clamped: the caller has sent something meaningless and
             # silently substituting a window would hide it.
             raise ValueError("Window upper bound must be greater than the lower bound")
+        if not math.isfinite(self.upper - self.lower):
+            # Both bounds finite is not enough: two values near the float limit
+            # overflow to `inf` on subtraction, and the width is what the pixels
+            # are divided by. Same all-black slice, reached by arithmetic rather
+            # than by an infinity in the payload.
+            raise ValueError("Window is too wide to render")
         return self
 
 

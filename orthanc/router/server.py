@@ -15,14 +15,13 @@ from pydicom.uid import (
     SecondaryCaptureImageStorage,
     generate_uid,
 )
+from pydicom.valuerep import format_number_as_ds
 
 # UPS-RS functionality
 from ups.routes import register_ups_routes
 
 # Configuration
 MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://breast-cancer-classification:5555")
-AI_TEXT = os.environ.get("AI_TEXT", "PROCESSED BY AI")
-AI_COLOR = os.environ.get("AI_COLOR", "red")
 AI_NAME = os.environ.get("AI_NAME", "Breast Cancer Classification Model")
 
 
@@ -465,7 +464,8 @@ def create_code_sequence(code_value: str, coding_scheme: str, code_meaning: str)
 def create_measurement(value: float, unit: str, code_value: str, coding_scheme: str) -> Dataset:
     """Helper for numeric measurements"""
     measurement = Dataset()
-    measurement.NumericValue = value
+    # DS VR caps at 16 bytes; a raw float32-derived repr can be 17 chars.
+    measurement.NumericValue = format_number_as_ds(float(value))
     measurement.MeasurementUnitsCodeSequence = [
         create_code_sequence(code_value=code_value, coding_scheme=coding_scheme, code_meaning=unit)
     ]

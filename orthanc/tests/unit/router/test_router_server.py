@@ -191,6 +191,15 @@ def test_create_code_sequence_loinc(srv):
 # create_measurement
 # ---------------------------------------------------------------------------
 
+def test_create_measurement_float32_confidence_fits_ds_vr(srv):
+    """A float32-derived softmax confidence must encode within DS's 16 bytes."""
+    raw = 61.39874458312988  # float(np.float32(0.61398745)) * 100 -- 17-char repr
+    m = srv.create_measurement(raw, "%", "%", "UCUM")
+    encoded = str(m["NumericValue"].value)
+    assert len(encoded) <= 16
+    assert float(encoded) == pytest.approx(raw)
+
+
 def test_create_measurement_numeric_value(srv):
     m = srv.create_measurement(85.5, "%", "%", "UCUM")
     assert hasattr(m, "NumericValue")
@@ -875,3 +884,49 @@ def test_copy_study_identity_leaves_required_tags_present_when_source_lacks_them
     for tag in ("PatientName", "PatientID", "StudyDate", "StudyTime", "StudyID"):
         assert tag in target, f"{tag} dropped"
     assert "StudyDescription" not in target
+
+
+# ODV-219: the odelia-classification payload the router must accept.
+_ODELIA_BILATERAL_RESULTS = {
+    "model_info": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+        "num_classes": 3,
+        "device": "cpu",
+        "weights": "init-only",
+    },
+    "views": [
+        {"label": "left", "probabilities": [0.1, 0.7, 0.2], "predicted_class": 1},
+        {"label": "right", "probabilities": [0.8, 0.1, 0.1], "predicted_class": 0},
+    ],
+    "left": {"prediction": "Benign", "confidence": 70.0},
+    "right": {"prediction": "No lesion", "confidence": 80.0},
+    "model_metadata": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+    },
+}
+
+
+def test_detect_response_format_accepts_odelia_payload(srv):
+    assert srv.detect_response_format(_ODELIA_BILATERAL_RESULTS) == "bilateral"
+
+
+def test_create_bilateral_sr_from_odelia_payload_uses_model_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    from pydicom import dcmread
+    parsed = dcmread(io.BytesIO(sr_bytes))
+
+    algorithm = parsed.ContentSequence[0].ContentSequence[-1]
+    assert algorithm.TextValue == "Pimed"
+    assert algorithm.AlgorithmName == "ResNet"
+    assert algorithm.AlgorithmVersion == "0.1.0"
+
+
+def test_create_bilateral_sr_from_odelia_payload_carries_no_weight_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    assert b"init-only" not in sr_bytes

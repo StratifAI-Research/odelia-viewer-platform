@@ -6,12 +6,14 @@ Reuses core DICOM handling from medgemma-mri/preprocessing.py.
 import base64
 import io
 import logging
+import math
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import SimpleITK as sitk  # noqa: N813
-from models import SliceStrategy
+from models import RegionOfInterest, SliceSelection, SliceStrategy, WindowLevel
 from PIL import Image
 from runtime_config import PreprocessingParams
 from shared.config import StorageConfig
@@ -22,19 +24,118 @@ from shared.wado_retrieval import retrieve_via_wado_rs
 
 logger = logging.getLogger(__name__)
 
+# (0008,0018) SOPInstanceUID. SimpleITK spells DICOM tags with a pipe.
+SOP_INSTANCE_UID_TAG = "0008|0018"
 
-def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
+
+class SliceSelectionError(ValueError):
+    """A message named slices that cannot be resolved in the retrieved series.
+
+    Distinct from a retrieval failure: the series arrived fine, but what the
+    client asked for is not in it. Surfaced to the user rather than silently
+    substituted, because substituting means answering about different pixels than
+    the panel says it sent.
     """
-    Read DICOM series as a 3D volume using SimpleITK.
-    Handles 4D temporal series by extracting the first temporal phase.
 
-    This is adapted from medgemma-mri/preprocessing.py.
+
+def effective_params(
+    params: PreprocessingParams, selection: SliceSelection | None = None
+) -> PreprocessingParams:
+    """
+    The preprocessing parameters actually in force for one series.
+
+    A message may carry its own recipe, which then wins over the service's global
+    runtime config. That is what lets the panel's snapshot describe what was used:
+    the runtime config is shared and mutable, so a second browser changing it
+    between compose and send would otherwise silently rewrite the first browser's
+    request.
+
+    Args:
+        params: Runtime preprocessing parameters (the fallback)
+        selection: Per-message slice selection, if the client sent one
+
+    Returns:
+        Parameters to preprocess with -- a copy, never the caller's object
+    """
+    if selection is not None and selection.has_recipe():
+        return PreprocessingParams(
+            num_slices=selection.num_slices,
+            slice_strategy=selection.slice_strategy,
+            central_percentage=(
+                selection.central_percentage
+                if selection.central_percentage is not None
+                else params.central_percentage
+            ),
+        )
+    # Copied so a concurrent config update cannot change the recipe out from
+    # under a request that has already been keyed against it.
+    return replace(params)
+
+
+def recipe_signature(
+    params: PreprocessingParams, selection: SliceSelection | None = None
+) -> tuple[str, ...]:
+    """
+    Everything that affects the images produced for one series.
+
+    Feeds `image_cache.make_cache_key`. Kept here, next to the code that consumes
+    each input, so that adding a preprocessing input has one place to change --
+    miss it and the cache starts serving pixels from a different recipe.
+
+    Args:
+        params: Preprocessing parameters in force (see `effective_params`)
+        selection: Per-message slice selection, if the client sent one
+
+    Returns:
+        A stable tuple of strings describing the recipe
+    """
+    # The crop changes the pixels, so it changes the cache entry. Left out, the
+    # same slices requested with and without a region would share one entry and
+    # the second request would get the first one's framing.
+    roi = selection.roi if selection is not None else None
+    roi_part = (f"roi:{roi.x:.6f},{roi.y:.6f},{roi.width:.6f},{roi.height:.6f}",) if roi else ()
+
+    # The window changes every pixel of every slice, so it changes the entry.
+    # Left out, two messages differing only in window would share one cached
+    # image and the second would be answered through the first one's window --
+    # the same failure the slice recipe had before it was keyed.
+    voi = selection.voi if selection is not None else None
+    voi_part = (f"voi:{voi.lower:.6f},{voi.upper:.6f},{int(voi.invert)}",) if voi else ()
+
+    if selection is not None and selection.sop_instance_uids:
+        # The named instances ARE the recipe; the parameters play no part.
+        # Order matters: the images are sent in this order.
+        return ("instances", *selection.sop_instance_uids, *roi_part, *voi_part)
+
+    resolved = effective_params(params, selection)
+    return (
+        "recipe",
+        str(resolved.num_slices),
+        resolved.slice_strategy.value,
+        str(resolved.central_percentage),
+        *roi_part,
+        *voi_part,
+    )
+
+
+def read_dicom_volume_with_instances(dicom_folder: Path) -> tuple[sitk.Image, list[str]]:
+    """
+    Read a DICOM series as a 3D volume, plus the SOPInstanceUID of each Z-slice.
+
+    The UID list is what makes a client's slice selection resolvable: it maps the
+    viewer's notion of "slice 27" onto this volume's Z index without either side
+    assuming the other sorts the series the same way.
+
+    It is returned EMPTY when the files do not map one-to-one onto the volume --
+    an enhanced/multi-frame instance becomes many Z-slices from a single file, so
+    there is no per-slice UID to report. An empty list means "cannot address this
+    series slice by slice", never "slice 0 for everything".
 
     Args:
         dicom_folder: Path to folder containing DICOM files
 
     Returns:
-        SimpleITK Image object
+        (SimpleITK Image, per-Z-index SOPInstanceUIDs or [])
     """
 
     dicom_path = Path(dicom_folder)
@@ -62,22 +163,145 @@ def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
 
     logger.info(f"Read DICOM series: size={image.GetSize()}, spacing={image.GetSpacing()}")
 
-    return image
+    return image, _slice_instance_uids(reader, image, len(dicom_names))
 
 
-def normalize_slice(slice_array: np.ndarray) -> np.ndarray:
+def read_dicom_volume(dicom_folder: Path) -> sitk.Image:
     """
-    Normalize a slice to 0-255 range for PIL Image conversion.
-    Uses percentile-based windowing for robust normalization.
+    Read DICOM series as a 3D volume using SimpleITK.
 
-    Adapted from medgemma-mri/preprocessing.py.
+    Thin wrapper over `read_dicom_volume_with_instances` for callers that do not
+    need per-slice identity.
 
     Args:
-        slice_array: 2D numpy array
+        dicom_folder: Path to folder containing DICOM files
+
+    Returns:
+        SimpleITK Image object
+    """
+    volume, _ = read_dicom_volume_with_instances(dicom_folder)
+    return volume
+
+
+def _slice_instance_uids(
+    reader: sitk.ImageSeriesReader, image: sitk.Image, file_count: int
+) -> list[str]:
+    """Per-Z-index SOPInstanceUIDs, or [] when they cannot be established."""
+    size = image.GetSize()
+    depth = size[2] if len(size) >= 3 else 1
+
+    if file_count != depth:
+        # One file per slice is the assumption that makes a per-slice UID
+        # meaningful. Multi-frame instances break it.
+        logger.info(
+            f"Series has {file_count} files for {depth} slices; "
+            "per-slice instance UIDs unavailable"
+        )
+        return []
+
+    uids: list[str] = []
+    for index in range(depth):
+        try:
+            raw = reader.GetMetaData(index, SOP_INSTANCE_UID_TAG)
+        except RuntimeError:
+            logger.warning(f"Slice {index} carries no SOPInstanceUID; cannot address by instance")
+            return []
+        # DICOM UIDs are padded to an even length with a NUL.
+        uid = raw.strip().strip("\x00").strip()
+        if not uid:
+            logger.warning(f"Slice {index} has an empty SOPInstanceUID")
+            return []
+        uids.append(uid)
+
+    if len(set(uids)) != len(uids):
+        # Duplicates would make a UID ambiguous, and picking the first match
+        # would quietly send the wrong slice.
+        logger.warning("Series reports duplicate SOPInstanceUIDs; cannot address by instance")
+        return []
+
+    return uids
+
+
+def resolve_selected_indices(slice_uids: list[str], requested_uids: list[str]) -> list[int]:
+    """
+    Map requested SOPInstanceUIDs onto Z indices of the reconstructed volume.
+
+    Order is the caller's: the images are sent in the order requested, which is
+    the order the panel displayed them in.
+
+    Args:
+        slice_uids: Per-Z-index SOPInstanceUIDs from `read_dicom_volume_with_instances`
+        requested_uids: The instances the message asked for
+
+    Returns:
+        Z indices, one per requested UID
+
+    Raises:
+        SliceSelectionError: if any requested UID is not part of this series
+    """
+    index_of = {uid: index for index, uid in enumerate(slice_uids)}
+
+    resolved: list[int] = []
+    missing: list[str] = []
+    for uid in requested_uids:
+        index = index_of.get(uid)
+        if index is None:
+            missing.append(uid)
+        else:
+            resolved.append(index)
+
+    if missing:
+        # All-or-nothing. Dropping the unresolvable ones would send a different
+        # set of slices than the message claims, which is exactly the failure the
+        # per-message snapshot exists to make impossible.
+        logger.error(
+            f"{len(missing)} of {len(requested_uids)} requested slices are not in this series "
+            f"(first missing: {missing[0]})"
+        )
+        raise SliceSelectionError(
+            f"{len(missing)} of {len(requested_uids)} selected slices are not part of the "
+            "retrieved series. Re-select the slice range and send again."
+        )
+
+    return resolved
+
+
+def normalize_slice(slice_array: np.ndarray, voi: WindowLevel | None = None) -> np.ndarray:
+    """
+    Render a slice to 8-bit grey for PNG conversion.
+
+    With a `voi`, the window the radiologist set is applied: clip to
+    [lower, upper] and map that range linearly onto 0-255. This reproduces what
+    is on their screen, which is the point -- a window chosen to bring out one
+    tissue is a clinical decision, and a service that ignores it answers about a
+    different image.
+
+    Deliberately linear, and deliberately not a mean/std normalisation. The model
+    receives an 8-bit PNG and was trained on windowed 8-bit images; a mean/std
+    pass would put the content-dependent auto-scaling back in, just with
+    different arithmetic.
+
+    Without a `voi` -- the viewer could not report one, or the reader turned it
+    off -- each slice falls back to its own 1st-99th percentile, which is what
+    this service always did. Robust to outliers, but content-dependent: two
+    slices of the same study come back with different windows, and no window the
+    reader sets has any effect.
+
+    Args:
+        slice_array: 2D numpy array, in the volume's own units
+        voi: The window to apply, or None to auto-window on this slice
 
     Returns:
         Normalized uint8 array
     """
+    if voi is not None:
+        low, high = float(voi.lower), float(voi.upper)
+        windowed = np.clip(slice_array, low, high)
+        scaled = ((windowed - low) / (high - low) * 255).astype(np.uint8)
+        # Inverted greyscale is part of the same choice: a lesion that reads as
+        # bright to the reader must not read as dark to the model.
+        return (255 - scaled) if voi.invert else scaled
+
     # Use percentile-based windowing (robust to outliers)
     p_low, p_high = np.percentile(slice_array, [1, 99])
 
@@ -155,12 +379,52 @@ def extract_slices(volume_array: np.ndarray, params: PreprocessingParams) -> lis
     return [volume_array[i, :, :] for i in indices]
 
 
-def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
+def crop_to_roi(slice_array: np.ndarray, roi: RegionOfInterest) -> np.ndarray:
+    """
+    Crop one slice to a fractional region of interest.
+
+    The crop happens BEFORE normalization, so the region is windowed against its
+    own contents rather than against the whole slice. That is the point of asking
+    about a region: a small bright lesion in a mostly dark breast is invisible at
+    the slice's own window.
+
+    The result is always at least one pixel in each direction -- a rectangle
+    smaller than a pixel is rounded up rather than yielding an empty array that
+    would fail deep inside PIL with an unrecognisable error.
+
+    Args:
+        slice_array: 2D array shaped (rows, cols)
+        roi: Fractional rectangle from the client
+
+    Returns:
+        The cropped 2D array
+    """
+    rows, cols = slice_array.shape[:2]
+
+    # Floor the near edges and ceil the far ones, rather than rounding both. Two
+    # reasons: the crop then always covers what the user outlined instead of
+    # shaving a pixel off it, and Python's round() is tie-to-even, so a rectangle
+    # landing on exact half-pixels came out a pixel wider or narrower depending
+    # only on where it sat.
+    left = min(int(math.floor(roi.x * cols)), max(cols - 1, 0))
+    top = min(int(math.floor(roi.y * rows)), max(rows - 1, 0))
+    right = min(max(int(math.ceil((roi.x + roi.width) * cols)), left + 1), cols)
+    bottom = min(max(int(math.ceil((roi.y + roi.height) * rows)), top + 1), rows)
+
+    logger.info(f"Cropping slice to rows {top}:{bottom}, cols {left}:{right} of {rows}x{cols}")
+    return slice_array[top:bottom, left:right]
+
+
+def slices_to_base64(slice_arrays: list[np.ndarray], voi: WindowLevel | None = None) -> list[str]:
     """
     Convert slice arrays to base64-encoded PNG images.
 
     Args:
         slice_arrays: List of 2D numpy arrays
+        voi: The reader's window, applied to every slice alike. One window for
+            the whole set on purpose: these slices are compared against each
+            other, and per-slice auto-windowing is what makes that comparison
+            meaningless.
 
     Returns:
         List of base64-encoded PNG strings
@@ -168,8 +432,8 @@ def slices_to_base64(slice_arrays: list[np.ndarray]) -> list[str]:
     base64_images = []
 
     for slice_arr in slice_arrays:
-        # Normalize to 0-255
-        normalized = normalize_slice(slice_arr)
+        # Render to 0-255, through the reader's window when there is one
+        normalized = normalize_slice(slice_arr, voi)
 
         # Convert grayscale to RGB (model expects RGB)
         rgb_array = np.stack([normalized, normalized, normalized], axis=-1)
@@ -191,6 +455,7 @@ async def preprocess_series(
     params: PreprocessingParams,
     wado_base_url: str,
     image_folder: Path,
+    selection: SliceSelection | None = None,
 ) -> list[str]:
     """
     Retrieve and preprocess a DICOM series, returning base64-encoded images.
@@ -199,7 +464,7 @@ async def preprocess_series(
     1. Retrieve via WADO-RS
     2. Save to temp folder
     3. Read as volume
-    4. Extract slices based on strategy
+    4. Select slices -- the instances the message named, else the configured strategy
     5. Normalize and convert to base64 PNG
     6. Cleanup temp files
 
@@ -209,9 +474,14 @@ async def preprocess_series(
         params: Preprocessing parameters (slice count, strategy, etc.)
         wado_base_url: Base URL for WADO-RS retrieval
         image_folder: Base folder for temporary storage
+        selection: Per-message slice selection. When it names instances they are
+            used verbatim and `params` is ignored; otherwise `params` applies.
 
     Returns:
         List of base64-encoded PNG image strings
+
+    Raises:
+        SliceSelectionError: if the message named slices this series does not hold
     """
     logger.info(f"Preprocessing series {series_uid} from study {study_uid}")
 
@@ -241,19 +511,50 @@ async def preprocess_series(
         # Save to disk
         dicom_folder = save_datasets_to_folder(datasets, series_uid, storage_config)
 
-        # Read as volume
-        volume = read_dicom_volume(dicom_folder)
+        # Read as volume, with per-slice identity where the series allows it
+        volume, slice_uids = read_dicom_volume_with_instances(dicom_folder)
         volume_array = sitk.GetArrayFromImage(volume)  # Shape: (Z, Y, X)
 
         logger.info(f"Volume shape: {volume_array.shape} (Z, Y, X)")
 
-        # Extract slices based on strategy
-        slice_arrays = extract_slices(volume_array, params)
+        # Select slices: the instances the message named, else the configured strategy
+        if selection is not None and selection.sop_instance_uids:
+            if not slice_uids:
+                raise SliceSelectionError(
+                    "This series cannot be addressed slice by slice, so a slice range "
+                    "cannot be applied to it. Clear the range to send the configured "
+                    "slices instead."
+                )
+            indices = resolve_selected_indices(slice_uids, selection.sop_instance_uids)
+            logger.info(
+                f"Sending {len(indices)} selected slices at volume indices {indices} "
+                f"(viewer range {selection.range_start}-{selection.range_end} "
+                f"of {selection.total_slices})"
+            )
+            slice_arrays = [volume_array[i, :, :] for i in indices]
+        else:
+            # The message's own recipe wins over the service's global config.
+            slice_arrays = extract_slices(volume_array, effective_params(params, selection))
 
-        # Convert to base64
-        base64_images = slices_to_base64(slice_arrays)
+        # Crop before encoding. With an explicit window the order no longer
+        # changes the result -- the window is absolute, not derived from the
+        # pixels present -- but without one the region is still auto-windowed on
+        # its own contents, which is the more useful of the two fallbacks.
+        if selection is not None and selection.roi is not None:
+            slice_arrays = [crop_to_roi(s, selection.roi) for s in slice_arrays]
 
-        logger.info(f"Preprocessed {len(base64_images)} slices for series {series_uid}")
+        voi = selection.voi if selection is not None else None
+        base64_images = slices_to_base64(slice_arrays, voi)
+
+        logger.info(
+            f"Preprocessed {len(base64_images)} slices for series {series_uid} "
+            + (
+                f"through the viewer window [{voi.lower:.1f}, {voi.upper:.1f}]"
+                + (" inverted" if voi.invert else "")
+                if voi
+                else "auto-windowed per slice (no viewer window sent)"
+            )
+        )
 
         return base64_images
 

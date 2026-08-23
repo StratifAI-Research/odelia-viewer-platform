@@ -502,6 +502,16 @@ services:
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"
       BACKEND_TYPE: "${BACKEND_TYPE:-ollama}"
       OLLAMA_NUM_CTX: "128000"  # 128k context window
+      # Optional Ollama Cloud backend, off unless an operator opts in.
+      #
+      # Enabling it lets chat users route a study to Ollama's hosted models,
+      # which means the preprocessed DICOM slices leave this network and are sent
+      # to a third party. Keep it disabled for any deployment holding patient
+      # data. See docs/setup/setup_chat.md.
+      ALLOW_CLOUD_BACKEND: "${ALLOW_CLOUD_BACKEND:-0}"
+      OLLAMA_CLOUD_URL: "${OLLAMA_CLOUD_URL:-https://ollama.com}"
+      OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
+      OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-}"
       WADO_BASE_URL: "http://orthanc-viewer:8042/dicom-web"
       NUM_SLICES: "5"
       MAX_CACHE_ENTRIES: "100"
@@ -636,3 +646,17 @@ volumes:
 networks:
   odelia-network:
     driver: bridge
+    driver_opts:
+      # Docker defaults every bridge to 1500, which is wrong whenever the host's
+      # own uplink is smaller -- notably WSL2, where eth0 is commonly 1420. The
+      # containers then emit packets the path cannot carry, and because Path MTU
+      # Discovery depends on ICMP getting back, the failure is intermittent: it
+      # strands the TLS handshake (OpenSSL 3.5 sends a ~1.5 KB ClientHello) and
+      # clears again whenever the kernel's PMTU cache is repopulated, expiring
+      # every net.ipv4.route.mtu_expires seconds (600 by default).
+      #
+      # Left at 1500 so ordinary Linux hosts are unaffected. On WSL2 set
+      # DOCKER_MTU to match `ip link show eth0`:
+      #   echo 'DOCKER_MTU=1420' >> .env && docker compose down && docker compose up -d
+      # (the network is only reconfigured when it is recreated).
+      com.docker.network.driver.mtu: "${DOCKER_MTU:-1500}"

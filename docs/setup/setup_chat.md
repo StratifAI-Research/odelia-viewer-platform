@@ -7,6 +7,10 @@ used as the example throughout this guide. The model needs a local LLM backend �
 - **Ollama** (default) — runs on the host. Simplest; works without a GPU.
 - **llama.cpp** (optional) — runs in Docker on an NVIDIA GPU. Typically faster.
 
+There is also an optional [**Ollama Cloud** backend](#option-c--ollama-cloud-optional-sends-images-off-site),
+disabled by default. It runs no model locally, but **sends the study's images to a third party** —
+see the warning in that section before enabling it.
+
 > [!NOTE]
 > **No Hugging Face token is needed for the chat.** Ollama and llama.cpp load models from the
 > Ollama registry or local GGUF files, not via `HF_TOKEN`. (A token is only needed for *gated*
@@ -112,6 +116,73 @@ To use a smaller quantization (e.g. `Q8_0`, `Q4_K_M`) download it from
 [unsloth/medgemma-1.5-4b-it-GGUF](https://huggingface.co/unsloth/medgemma-1.5-4b-it-GGUF) and set
 `GGUF_MODEL_FILE` / `OLLAMA_MODEL` accordingly. A benchmark comparing the two backends lives at
 [`orthanc/MLIntegration/chat-middleware/benchmark.py`](../../orthanc/MLIntegration/chat-middleware/benchmark.py).
+
+---
+
+## Option C — Ollama Cloud (optional, sends images off-site)
+
+> [!WARNING]
+> **This sends patient imaging outside your network.** The chat uploads the preprocessed DICOM
+> slices of the open study to Ollama's hosted service for analysis. Everything else in this stack
+> runs locally by design. Do not enable this on a deployment holding patient data unless your
+> institution explicitly permits it, and prefer it only for non-patient or already-public data.
+
+The cloud backend runs no model on your hardware, so it needs no GPU and no multi-GB download. It
+is **disabled by default** and an operator has to opt in.
+
+### 1. Create an API key
+
+Create one at <https://ollama.com/settings/keys>.
+
+The key is held only by the `chat-middleware` service. It is never sent to the browser, never
+returned by any endpoint, and never written to the logs — so chat users select a model but never
+see or enter the key.
+
+### 2. Enable it in `.env`
+
+```bash
+ALLOW_CLOUD_BACKEND=1
+OLLAMA_API_KEY=<your key>
+# Optional: preselect a model. Otherwise users pick one in the chat panel.
+OLLAMA_CLOUD_MODEL=qwen3.5
+```
+
+```bash
+docker compose up -d chat-middleware
+```
+
+### 3. Select it in the viewer
+
+Open the **Chat AI** panel → settings (gear) → **Backend** → *Provider* → **Ollama Cloud**, then
+pick a **Cloud Model**. The list is fetched live from your account.
+
+> [!IMPORTANT]
+> **Pick a model marked “vision”.** The chat sends slices as images, and many Ollama Cloud models
+> are text-only — at the time of writing roughly half. A text-only model cannot see the study at
+> all. The panel marks vision-capable models and warns if you select one that is not.
+
+Capabilities are read from Ollama's `/api/show`, not the `capabilities` array in `/api/tags`; the
+two disagree, and `/api/tags` under-reports vision.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ALLOW_CLOUD_BACKEND` | `0` | Operator gate. While `0`, the UI hides the option and the middleware refuses cloud requests. |
+| `OLLAMA_API_KEY` | *(empty)* | Ollama Cloud API key. Stays server-side. |
+| `OLLAMA_CLOUD_URL` | `https://ollama.com` | Cloud host. Ollama Cloud behaves as a remote Ollama host. |
+| `OLLAMA_CLOUD_MODEL` | *(empty)* | Optional preselected cloud model. |
+
+### Scope and caveats
+
+- **The provider is a deployment-wide setting**, like the existing model and system-prompt
+  settings: switching to cloud affects every chat user of this deployment, not just you. The
+  panel shows which backend is active.
+- `/chat-api/` and `/ws/chat/` are proxied **without authentication** (see
+  [production hardening](../security/production-hardening.md)). Anyone who can reach the viewer
+  host can therefore flip the provider whenever the gate is on. Leaving `ALLOW_CLOUD_BACKEND=0`
+  is what prevents that.
+- The service always starts on the **local** backend, even with cloud enabled, so a restart never
+  silently resumes sending data off-site.
+- Billing and rate limits are attached to the single operator key.
 
 ---
 

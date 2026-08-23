@@ -86,3 +86,13 @@ Requires a running LLM backend with the model loaded. The default is **Ollama**
 optional **llama.cpp** backend (`BACKEND_TYPE=llamacpp`) serves the same model from a
 GGUF file inside Docker. Override via the `OLLAMA_URL` / `OLLAMA_MODEL` / `BACKEND_TYPE`
 environment variables — see [`setup_chat.md`](../setup/setup_chat.md).
+
+### Data egress
+
+Both backends above run **on your own hardware**: no image data leaves the deployment.
+
+An optional **Ollama Cloud** backend (`ALLOW_CLOUD_BACKEND=1`) instead routes chat to Ollama's
+hosted models, which means **the preprocessed DICOM slices are uploaded to a third party**. It is
+disabled by default, the service always starts on the local backend, and the panel warns whenever
+it is active. Note also that many cloud models are text-only and cannot accept the slices at all —
+see [`setup_chat.md`](../setup/setup_chat.md#option-c--ollama-cloud-optional-sends-images-off-site).

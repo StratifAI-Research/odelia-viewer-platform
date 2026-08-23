@@ -164,14 +164,26 @@ async def test_chat_stream_swallows_invalid_json_chunks(monkeypatch):
 
 
 async def test_chat_stream_raises_on_non_200_status(monkeypatch):
-    """Non-200 surfaces as a generic Exception with the body text."""
+    """Non-200 surfaces as UpstreamChatError carrying the body text and status.
+
+    A plain-text body passes through unchanged; a JSON error envelope is reduced
+    to its message instead (see test_cloud_backend.py), because this string is
+    rendered directly in the chat panel.
+    """
     import ollama_client
     resp = _FakeResponse(status=500, body=b"backend overloaded")
     session = _FakeAiohttpSession(post_response=resp)
     _patch_session(monkeypatch, session)
 
     client = ollama_client.OllamaClient(base_url="http://x", model="m")
-    with pytest.raises(Exception, match="Ollama API error: 500"):
+    with pytest.raises(ollama_client.UpstreamChatError, match="backend overloaded"):
+        async for _ in client.chat_stream(messages=[]):
+            pass
+
+    # The status code is still available to the reader.
+    resp2 = _FakeResponse(status=500, body=b"backend overloaded")
+    _patch_session(monkeypatch, _FakeAiohttpSession(post_response=resp2))
+    with pytest.raises(ollama_client.UpstreamChatError, match="HTTP 500"):
         async for _ in client.chat_stream(messages=[]):
             pass
 

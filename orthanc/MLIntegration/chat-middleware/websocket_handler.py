@@ -5,14 +5,15 @@ WebSocket handler for chat sessions
 import asyncio
 import contextlib
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from config import get_config
 from fastapi import WebSocket, WebSocketDisconnect
-from image_cache import CachedSeries, get_image_cache
-from models import ClientMessage, ClientMessageType, ServerMessageType
-from ollama_client import get_ollama_client
-from preprocessing import preprocess_series
+from image_cache import CachedSeries, get_image_cache, make_cache_key
+from models import ClientMessage, ClientMessageType, ServerMessageType, SliceSelection
+from ollama_client import CloudBackendUnavailableError, get_client_for_provider
+from preprocessing import SliceSelectionError, preprocess_series, recipe_signature
 from prompt_builder import get_prompt_builder
 from pydantic import ValidationError
 from runtime_config import get_runtime_config
@@ -88,6 +89,7 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                             msg.content or "",
                             msg.study_uid or "",
                             msg.series_uids or [],
+                            msg.slice_selections or [],
                         )
                     )
                     session.active_task = task
@@ -134,8 +136,61 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
         logger.debug(f"WebSocket handler finished for session: {session.session_id}")
 
 
+def plan_series(
+    series_uids: list[str], selections: list[SliceSelection]
+) -> list[tuple[str, SliceSelection | None]]:
+    """
+    What to preprocess for one message, as (series, selection) pairs.
+
+    One entry per selection rather than one per series. OHIF can split a series
+    into several display sets and the panel sends a selection for each, which may
+    legitimately differ -- a region of interest on one and not the other, say.
+    Collapsing them to one selection per series either drops a crop or applies it
+    to images it was never drawn on, and the transcript stays per-display-set
+    either way, so its provenance would disagree with what the model saw.
+
+    Two identical requests for one series are still collapsed: they would produce
+    the same pixels, and the cache would serve the second from the first anyway.
+
+    A series with no selection at all contributes one entry with None, which is
+    the pre-existing behaviour.
+
+    Args:
+        series_uids: Series attached to the message, in display order
+        selections: Per-display-set selections, in display order
+
+    Returns:
+        Pairs to preprocess, in order, without duplicates
+    """
+    plan: list[tuple[str, SliceSelection | None]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for selection in selections:
+        # `model_dump_json` is a faithful identity: two selections are the same
+        # request exactly when every field matches, ROI included.
+        fingerprint = (selection.series_uid, selection.model_dump_json())
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        plan.append((selection.series_uid, selection))
+
+    selected_series = {selection.series_uid for selection in selections}
+    for series_uid in series_uids:
+        if series_uid in selected_series or any(uid == series_uid for uid, _ in plan):
+            continue
+        plan.append((series_uid, None))
+        selected_series.add(series_uid)
+
+    return plan
+
+
 async def handle_chat(
-    websocket: WebSocket, session: Session, content: str, study_uid: str, series_uids: list[str]
+    websocket: WebSocket,
+    session: Session,
+    content: str,
+    study_uid: str,
+    series_uids: list[str],
+    slice_selections: list[SliceSelection] | None = None,
 ) -> None:
     """
     Handle a chat message with study and series context.
@@ -146,13 +201,27 @@ async def handle_chat(
         content: User message content
         study_uid: StudyInstanceUID
         series_uids: List of SeriesInstanceUIDs for context
+        slice_selections: Per-series slice selections for THIS message. A series
+            with no entry falls back to the runtime preprocessing recipe, which is
+            what a viewer predating the field sends.
     """
     config = get_config()
     runtime_config = get_runtime_config()
     image_cache = get_image_cache()
     prompt_builder = get_prompt_builder()
-    ollama_client = get_ollama_client()
     session_manager = get_session_manager()
+
+    # Resolve the backend before any DICOM is fetched. A misconfigured cloud
+    # provider should fail here rather than after retrieving and preprocessing a
+    # series -- and, for the cloud case, before any image data has been assembled.
+    try:
+        ollama_client = get_client_for_provider(
+            runtime_config.provider.value, runtime_config.active_model
+        )
+    except CloudBackendUnavailableError as e:
+        logger.warning(f"Cloud backend unavailable for session {session.session_id}: {e}")
+        await send_message(websocket, ServerMessageType.ERROR, content=str(e))
+        return
 
     # Check if cancelled before we even start
     if session.cancel_event.is_set():
@@ -161,18 +230,37 @@ async def handle_chat(
 
     session.last_activity = datetime.now(UTC)
 
-    try:
-        # 1. Ensure all requested series are cached (preprocess if needed)
-        series_images = {}
-        total = len(series_uids) if series_uids else 0
+    # What to preprocess, as (series, selection) pairs -- one per selection, so a
+    # series split across display sets keeps each one's own slices and crop.
+    plan = plan_series(series_uids, slice_selections or [])
 
-        for i, series_uid in enumerate(series_uids):
+    # One read of the runtime preprocessing config, taken before any await.
+    # `RuntimeConfig.update` mutates its params in place, so a PUT arriving while
+    # this turn is suspended would otherwise change the recipe *after* the cache
+    # key was computed from it -- storing one recipe's images under another's key.
+    base_params = replace(runtime_config.preprocessing)
+
+    try:
+        # 1. Ensure everything the message asks for is cached (preprocess if needed).
+        #
+        # Keyed by cache key, not by series: one series can appear more than once
+        # under different recipes, and a dict keyed on the series UID would keep
+        # only the last -- sending fewer images than the message asked for.
+        images_by_key: dict[str, list[str]] = {}
+        total = len(plan)
+
+        for i, (series_uid, selection) in enumerate(plan):
             # Check for cancellation
             if session.cancel_event.is_set():
                 logger.info("Chat cancelled during preprocessing")
                 return
 
-            if not image_cache.has(series_uid):
+            # Keyed on series AND recipe: two messages can name the same series and
+            # mean different slices, and a series-only key would answer the second
+            # with the first one's images.
+            cache_key = make_cache_key(series_uid, recipe_signature(base_params, selection))
+
+            if not image_cache.has(cache_key):
                 # Send preprocessing status
                 progress = (i / total) if total > 0 else 0
                 await send_message(
@@ -182,18 +270,20 @@ async def handle_chat(
                     progress=progress,
                 )
 
-                # Preprocess and cache (uses RuntimeConfig for slice params)
+                # Preprocess and cache (RuntimeConfig applies unless the message
+                # named its own slices)
                 try:
                     images = await preprocess_series(
                         series_uid,
                         study_uid,
-                        runtime_config.preprocessing,
+                        base_params,
                         config.wado_base_url,
                         config.image_folder,
+                        selection=selection,
                     )
 
                     image_cache.put(
-                        series_uid,
+                        cache_key,
                         CachedSeries(
                             series_uid=series_uid,
                             base64_images=images,
@@ -201,6 +291,12 @@ async def handle_chat(
                             last_accessed=datetime.now(UTC),
                         ),
                     )
+                except SliceSelectionError as e:
+                    # Retrieval worked; the requested slices are not in the series.
+                    # Say that, rather than blaming the retrieval.
+                    logger.warning(f"Unresolvable slice selection for {series_uid}: {e}")
+                    await send_message(websocket, ServerMessageType.ERROR, content=str(e))
+                    return
                 except Exception as e:
                     logger.error(f"Failed to preprocess series {series_uid}: {e}")
                     await send_message(
@@ -211,9 +307,9 @@ async def handle_chat(
                     return
 
             # Get images from cache
-            cached = image_cache.get(series_uid)
+            cached = image_cache.get(cache_key)
             if cached:
-                series_images[series_uid] = cached.base64_images
+                images_by_key[cache_key] = cached.base64_images
 
         # Update preprocessing progress to complete
         if total > 0:
@@ -226,13 +322,15 @@ async def handle_chat(
 
         # 2. Build messages and get user content for history storage
         messages, user_content_for_history = prompt_builder.build_messages(
-            session.conversation_history, content, series_images
+            session.conversation_history, content, images_by_key
         )
 
         # 3. Stream response from Ollama
         full_response = ""
         try:
-            ollama_client.model = runtime_config.model
+            # Model already resolved from the active provider above; do not
+            # reassign it here or the cloud selection would be overwritten with
+            # the local model tag.
             ollama_runtime_options = runtime_config.ollama_options.to_dict()
 
             async for chunk in ollama_client.chat_stream(

@@ -3,8 +3,8 @@ WebSocket handler for chat sessions
 """
 
 import asyncio
-import contextlib
 import logging
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -28,6 +28,32 @@ async def send_message(websocket: WebSocket, msg_type: ServerMessageType, **kwar
     await websocket.send_json(message)
 
 
+def make_task_done_callback(session: Session) -> Callable[[asyncio.Task], None]:
+    """Release the session's hold on a finished generation, and report how it ended.
+
+    A module-level factory rather than a closure in the dispatcher so the
+    cancelled case can be tested without driving a socket to the point of
+    forcing one.
+
+    `Task.exception()` re-raises on a cancelled task, so cancellation has to be
+    answered before asking. Reachable through the CANCEL message, and now
+    through session deletion too, which cancels whatever the session was
+    generating; without the guard the cleanup callback itself raises inside the
+    event loop, where nothing is waiting to handle it.
+    """
+
+    def task_done_callback(t: asyncio.Task) -> None:
+        if session.active_task is t:
+            session.active_task = None
+        if t.cancelled():
+            logger.info(f"Chat task cancelled for session {session.session_id}")
+            return
+        if t.exception():
+            logger.error(f"Chat task failed: {t.exception()}")
+
+    return task_done_callback
+
+
 async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
     """
     Handle WebSocket connection for a chat session.
@@ -41,6 +67,11 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
     # Get or create session (if session_id is "new", generate new ID)
     session = session_manager.get_or_create_session(session_id)
 
+    # The generation THIS socket started, if any. The session is shared -- the
+    # same object is handed to anyone who asks for the ID -- so `active_task` is
+    # not a record of what this handler is responsible for.
+    owned_task: asyncio.Task | None = None
+
     try:
         await websocket.accept()
         logger.info(f"WebSocket connected for session: {session.session_id}")
@@ -50,6 +81,15 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
 
         # Process incoming messages - DO NOT await tasks here to allow cancellation
         async for message in websocket.iter_json():
+            # This handler captured its Session before its first await, so
+            # dropping the registry entry does not reach it. Without this check a
+            # deleted session would go on being served -- and go on accumulating
+            # history and image references -- through a connection that was
+            # already open when the delete arrived.
+            if session.closed:
+                logger.info(f"Session {session.session_id} was deleted; closing its connection")
+                break
+
             # Validate the untrusted payload in isolation: a malformed/unexpected
             # message must not crash the handler or drop the connection.
             try:
@@ -63,60 +103,98 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
 
             try:
                 if msg.type == ClientMessageType.CHAT:
-                    # Cancel any existing generation before starting new one
-                    if session.active_task and not session.active_task.done():
-                        logger.info(
-                            f"Cancelling previous generation for session {session.session_id}"
-                        )
-                        session.cancel_event.set()
-                        # Wait briefly for task to notice cancellation
-                        try:
-                            await asyncio.wait_for(session.active_task, timeout=1.0)
-                        except (TimeoutError, asyncio.CancelledError):
-                            session.active_task.cancel()
-                            with contextlib.suppress(asyncio.CancelledError):
-                                await session.active_task
-                        session.active_task = None
+                    # Replacing a generation is four steps with awaits between
+                    # them, and a session is not private to one socket:
+                    # `get_or_create_session` hands the same object to anyone who
+                    # asks for the ID. Unserialized, two handlers can both get
+                    # past the cancel and both create a generation, leaving two
+                    # streaming into one conversation with only the later one
+                    # referenced -- so the other cannot even be cancelled.
+                    still_stopping = False
+                    was_deleted = False
+                    async with session.generation_lock:
+                        # Cancel any existing generation before starting a new
+                        # one. Through the session's own method rather than
+                        # open-coded here: it holds the task it is stopping
+                        # rather than re-reading a field that a concurrent delete
+                        # can clear under it, bounds both of its waits so a
+                        # generation that swallows cancellation cannot hold this
+                        # loop, and does not mistake cancellation of this handler
+                        # for the generation stopping.
+                        if not await session.cancel_active_generation():
+                            # It would not stop. Starting another one beside it
+                            # would put two generations on one socket, both
+                            # streaming to the same reader, and let the loser of
+                            # that race write its turn into the history.
+                            still_stopping = True
+                        # Asked again, because the wait above suspends. A delete
+                        # arriving during it would find this handler about to
+                        # start a generation on a session already reported gone
+                        # -- and, since reconnecting under the same ID makes a
+                        # fresh session, that generation could go on to write its
+                        # turn into someone else's conversation.
+                        elif session.closed:
+                            was_deleted = True
+                        else:
+                            # Reset cancel event for new generation
+                            session.cancel_event.clear()
 
-                    # Reset cancel event for new generation
-                    session.cancel_event.clear()
+                            # Create task but DON'T await it - let it run in background
+                            task = asyncio.create_task(
+                                handle_chat(
+                                    websocket,
+                                    session,
+                                    msg.content or "",
+                                    msg.study_uid or "",
+                                    msg.series_uids or [],
+                                    msg.slice_selections or [],
+                                )
+                            )
+                            session.active_task = task
+                            owned_task = task
 
-                    # Create task but DON'T await it - let it run in background
-                    task = asyncio.create_task(
-                        handle_chat(
+                            task.add_done_callback(make_task_done_callback(session))
+                            # Don't await - continue processing messages immediately
+
+                    # Said outside the lock. A send waits on the socket, and this
+                    # socket's reader stalling must not hold up another one's
+                    # turn on the same session.
+                    if still_stopping:
+                        await send_message(
                             websocket,
-                            session,
-                            msg.content or "",
-                            msg.study_uid or "",
-                            msg.series_uids or [],
-                            msg.slice_selections or [],
+                            ServerMessageType.ERROR,
+                            content="The previous response is still stopping; please try again.",
                         )
-                    )
-                    session.active_task = task
-
-                    # Add callback to clean up when task completes
-                    def task_done_callback(t: asyncio.Task) -> None:
-                        if session.active_task == t:
-                            session.active_task = None
-                        if t.exception():
-                            logger.error(f"Chat task failed: {t.exception()}")
-
-                    task.add_done_callback(task_done_callback)
-                    # Don't await - continue processing messages immediately
+                        continue
+                    if was_deleted:
+                        logger.info(
+                            f"Session {session.session_id} was deleted; closing its connection"
+                        )
+                        break
 
                 elif msg.type == ClientMessageType.CANCEL:
                     logger.info(f"Cancellation requested for session {session.session_id}")
-                    if session.active_task and not session.active_task.done():
-                        session.cancel_event.set()
-                        # Wait briefly for graceful cancellation
-                        try:
-                            await asyncio.wait_for(session.active_task, timeout=1.0)
-                        except (TimeoutError, asyncio.CancelledError):
-                            session.active_task.cancel()
-                            with contextlib.suppress(asyncio.CancelledError):
-                                await session.active_task
-                        session.active_task = None
+                    had_generation = False
+                    stopped = False
+                    async with session.generation_lock:
+                        if session.active_task and not session.active_task.done():
+                            had_generation = True
+                            stopped = await session.cancel_active_generation()
+
+                    if had_generation and stopped:
                         await send_message(websocket, ServerMessageType.DONE, content="Cancelled")
+                    elif had_generation:
+                        # Not "Cancelled": that would be a claim about a
+                        # generation still streaming. Not an error frame either --
+                        # the panel has already shown the turn as cancelled, and a
+                        # late error on top of that says three contradictory
+                        # things about one message. The honest record is here; the
+                        # flag stays set and the task keeps its pointer, so
+                        # nothing will start beside it.
+                        logger.warning(
+                            f"Cancellation for session {session.session_id} "
+                            "did not take; the generation is still running"
+                        )
 
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
@@ -129,10 +207,14 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
     except Exception as e:
         logger.error(f"WebSocket error for session {session.session_id}: {e}")
     finally:
-        # Cancel any running task on disconnect
-        if session.active_task and not session.active_task.done():
-            session.cancel_event.set()
-            session.active_task.cancel()
+        # Cancel the generation THIS socket started, and only that one. The
+        # session is shared, so `active_task` can belong to another connection --
+        # ending someone else's answer because this socket went away would be a
+        # conversation cut off by a disconnection somewhere else entirely.
+        if owned_task is not None and not owned_task.done():
+            if session.active_task is owned_task:
+                session.cancel_event.set()
+            owned_task.cancel()
         logger.debug(f"WebSocket handler finished for session: {session.session_id}")
 
 
@@ -355,7 +437,13 @@ async def handle_chat(
             return
 
         # 4. Store in conversation history (only if not cancelled and has content)
-        if not session.cancel_event.is_set() and full_response:
+        #
+        # `closed` is checked as well as the cancel event, and it is checked on
+        # the session object rather than by ID: reconnecting under a deleted ID
+        # produces a *different* session under the same name, so a generation
+        # that outlived its deletion would otherwise append this turn -- images
+        # and all -- to a stranger's conversation.
+        if not session.closed and not session.cancel_event.is_set() and full_response:
             session_manager.append_message(session.session_id, "user", user_content_for_history)
             session_manager.append_message(session.session_id, "assistant", full_response)
 

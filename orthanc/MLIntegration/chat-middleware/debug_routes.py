@@ -259,7 +259,7 @@ async def delete_session(session_id: str) -> dict:
     """
     session_manager = get_session_manager()
 
-    if session_manager.remove_session(session_id):
+    if await session_manager.remove_session(session_id):
         logger.info(f"Deleted session via debug API: {session_id}")
         return {"message": f"Session {session_id} deleted"}
     raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -274,7 +274,7 @@ async def cleanup_sessions(max_age_minutes: int = 60) -> dict:
         max_age_minutes: Maximum session age in minutes (default: 60)
     """
     session_manager = get_session_manager()
-    removed = session_manager.cleanup_stale(max_age_minutes)
+    removed = await session_manager.cleanup_stale(max_age_minutes)
 
     logger.info(f"Cleaned up {removed} stale sessions (max age: {max_age_minutes} min)")
 

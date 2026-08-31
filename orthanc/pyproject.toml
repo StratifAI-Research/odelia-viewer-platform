@@ -23,6 +23,16 @@ ignore = [
   "E501",    # line length enforced by formatter
 ]
 
+[tool.ruff.lint.isort]
+# `orthanc` is the plugin API module the Orthanc server injects into the plugin
+# process at runtime, so it is third-party to this repo -- but there is no
+# `orthanc` package on disk to say so, and ruff infers first-party membership by
+# looking for the module under `src` (which is this directory). Any directory
+# named `orthanc` appearing here therefore reclassifies every `import orthanc` in
+# the repo and fires I001 on files nobody touched. Stray tool caches do exactly
+# that. State the classification instead of leaving it to the filesystem.
+known-third-party = ["orthanc"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "D"]
 "MLIntegration/*/app*.py" = ["ANN201"]

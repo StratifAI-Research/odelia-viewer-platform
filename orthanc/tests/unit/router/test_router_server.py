@@ -191,6 +191,15 @@ def test_create_code_sequence_loinc(srv):
 # create_measurement
 # ---------------------------------------------------------------------------
 
+def test_create_measurement_float32_confidence_fits_ds_vr(srv):
+    """A float32-derived softmax confidence must encode within DS's 16 bytes."""
+    raw = 61.39874458312988  # float(np.float32(0.61398745)) * 100 -- 17-char repr
+    m = srv.create_measurement(raw, "%", "%", "UCUM")
+    encoded = str(m["NumericValue"].value)
+    assert len(encoded) <= 16
+    assert float(encoded) == pytest.approx(raw)
+
+
 def test_create_measurement_numeric_value(srv):
     m = srv.create_measurement(85.5, "%", "%", "UCUM")
     assert hasattr(m, "NumericValue")
@@ -753,3 +762,171 @@ def test_create_text_overlay_sc_encodes_model_provenance(srv):
     from pydicom import dcmread
     parsed = dcmread(io.BytesIO(sc_bytes), force=True)
     _assert_sc_model_provenance(parsed, msg_prefix="text_overlay_sc: ")
+
+
+# ---------------------------------------------------------------------------
+# Study-level identity: a derived object joins the original study, so it must
+# not rename it.
+#
+# Every SR and SC here is filed under the original StudyInstanceUID. That makes
+# StudyDescription an attribute of the *patient's study*, shared with the source
+# series — not a label for the report. An archive keeps whichever value arrived
+# first and reports it as the study's, so a builder that writes "AI
+# Classification Report" is renaming the study, and which name wins is a race.
+# ---------------------------------------------------------------------------
+
+
+# (label, builder) — every object this module writes into an existing study.
+def _all_derived_builders(srv):
+    return [
+        (
+            "multiframe_attention_sc",
+            lambda ds: srv.create_multiframe_attention_sc(ds, _make_fake_attention_maps()),
+        ),
+        ("text_overlay_sc", lambda ds: srv.create_text_overlay_sc(ds, text="AI")),
+        ("bilateral_sr", lambda ds: srv.create_bilateral_sr(ds, _BILATERAL_RESULTS)[0]),
+        ("mst_sr", lambda ds: srv.create_mst_sr(ds, _MST_RESULTS)[0]),
+    ]
+
+
+def _needs_pixels(label):
+    return label == "text_overlay_sc"
+
+
+def _build_derived(srv, label, builder, original):
+    from pydicom import dcmread
+
+    return dcmread(io.BytesIO(builder(original)), force=True)
+
+
+def test_derived_objects_inherit_the_studys_description(srv):
+    """The source study's description survives onto every derived object."""
+    for label, builder in _all_derived_builders(srv):
+        ds = _minimal_dicom_with_pixels() if _needs_pixels(label) else _minimal_dicom()
+        ds.StudyDescription = "Breast MRI dynamic"
+        parsed = _build_derived(srv, label, builder, ds)
+        assert str(parsed.StudyDescription) == "Breast MRI dynamic", (
+            f"{label}: study renamed to {parsed.StudyDescription!r} — the archive would "
+            "report whichever instance it saw first as the study's description"
+        )
+
+
+def test_derived_objects_do_not_fabricate_a_study_description(srv):
+    """No builder invents a study description when the source has none.
+
+    Writing one would be worse than leaving it out: the original series carries
+    no (0008,1030), so the AI object's value is the only one in the study and
+    becomes the study's name outright.
+    """
+    for label, builder in _all_derived_builders(srv):
+        ds = _minimal_dicom_with_pixels() if _needs_pixels(label) else _minimal_dicom()
+        assert "StudyDescription" not in ds  # the anonymised UKA data looks like this
+        parsed = _build_derived(srv, label, builder, ds)
+        value = getattr(parsed, "StudyDescription", None)
+        assert value in (None, ""), f"{label}: fabricated StudyDescription {value!r}"
+
+
+def test_derived_objects_omit_a_blank_study_description(srv):
+    """A blank source description is copied as absent, not as an empty tag.
+
+    An empty (0008,1030) disagrees with a populated one exactly as loudly as a
+    wrong one, and would blank the study on any archive that took it.
+    """
+    for label, builder in _all_derived_builders(srv):
+        ds = _minimal_dicom_with_pixels() if _needs_pixels(label) else _minimal_dicom()
+        ds.StudyDescription = "   "
+        parsed = _build_derived(srv, label, builder, ds)
+        assert "StudyDescription" not in parsed, f"{label}: wrote a blank StudyDescription"
+
+
+def test_derived_objects_still_say_what_they_are(srv):
+    """Dropping the study-level label must not lose the provenance it carried.
+
+    SeriesDescription is where "this is an AI product" belongs — the derived
+    object gets its own series, so the description describes only itself.
+    """
+    expected = {
+        "multiframe_attention_sc": "Attention Heatmap",
+        "text_overlay_sc": "Heatmap",
+        "bilateral_sr": "Automated Diagnostic Findings",
+        "mst_sr": "MST Attention-Based Classification",
+    }
+    for label, builder in _all_derived_builders(srv):
+        ds = _minimal_dicom_with_pixels() if _needs_pixels(label) else _minimal_dicom()
+        parsed = _build_derived(srv, label, builder, ds)
+        assert expected[label] in str(parsed.SeriesDescription), (
+            f"{label}: SeriesDescription {parsed.SeriesDescription!r} no longer identifies "
+            "the AI product"
+        )
+
+
+def test_derived_objects_agree_with_the_study_on_date_and_time(srv):
+    """The SR builders used to copy only patient name/ID and the study UID, so
+    their reports landed in the study with no StudyDate at all — the tag a
+    viewer leads with when labelling a study."""
+    for label, builder in _all_derived_builders(srv):
+        ds = _minimal_dicom_with_pixels() if _needs_pixels(label) else _minimal_dicom()
+        parsed = _build_derived(srv, label, builder, ds)
+        assert str(parsed.StudyDate) == str(ds.StudyDate), f"{label}: StudyDate lost"
+        assert str(parsed.StudyTime) == str(ds.StudyTime), f"{label}: StudyTime lost"
+
+
+def test_copy_study_identity_leaves_required_tags_present_when_source_lacks_them(srv):
+    """Type 2 attributes stay present-but-empty rather than vanishing, which is
+    what the General Study module requires of an instance that does not know
+    them."""
+    from pydicom import Dataset
+
+    source = Dataset()
+    source.StudyInstanceUID = generate_uid()
+    target = Dataset()
+    srv.copy_study_identity(source, target)
+    for tag in ("PatientName", "PatientID", "StudyDate", "StudyTime", "StudyID"):
+        assert tag in target, f"{tag} dropped"
+    assert "StudyDescription" not in target
+
+
+# ODV-219: the odelia-classification payload the router must accept.
+_ODELIA_BILATERAL_RESULTS = {
+    "model_info": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+        "num_classes": 3,
+        "device": "cpu",
+        "weights": "init-only",
+    },
+    "views": [
+        {"label": "left", "probabilities": [0.1, 0.7, 0.2], "predicted_class": 1},
+        {"label": "right", "probabilities": [0.8, 0.1, 0.1], "predicted_class": 0},
+    ],
+    "left": {"prediction": "Benign", "confidence": 70.0},
+    "right": {"prediction": "No lesion", "confidence": 80.0},
+    "model_metadata": {
+        "model_name": "Pimed",
+        "architecture": "ResNet",
+        "version": "0.1.0",
+    },
+}
+
+
+def test_detect_response_format_accepts_odelia_payload(srv):
+    assert srv.detect_response_format(_ODELIA_BILATERAL_RESULTS) == "bilateral"
+
+
+def test_create_bilateral_sr_from_odelia_payload_uses_model_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    from pydicom import dcmread
+    parsed = dcmread(io.BytesIO(sr_bytes))
+
+    algorithm = parsed.ContentSequence[0].ContentSequence[-1]
+    assert algorithm.TextValue == "Pimed"
+    assert algorithm.AlgorithmName == "ResNet"
+    assert algorithm.AlgorithmVersion == "0.1.0"
+
+
+def test_create_bilateral_sr_from_odelia_payload_carries_no_weight_provenance(srv):
+    ds = _minimal_dicom()
+    sr_bytes, _, _, _ = srv.create_bilateral_sr(ds, _ODELIA_BILATERAL_RESULTS)
+    assert b"init-only" not in sr_bytes

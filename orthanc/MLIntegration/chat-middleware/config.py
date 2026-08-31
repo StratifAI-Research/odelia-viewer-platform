@@ -6,6 +6,21 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+# Ollama's hosted API. It behaves as a remote Ollama host, so the same
+# /v1/chat/completions and /api/tags endpoints apply — the only differences from a
+# local instance are the base URL and a Bearer token.
+DEFAULT_OLLAMA_CLOUD_URL = "https://ollama.com"
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse a boolean env var. Absent/unrecognized values fall back to `default`."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUTHY
+
 
 @dataclass
 class ChatMiddlewareConfig:
@@ -15,6 +30,18 @@ class ChatMiddlewareConfig:
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "MedAIBase/MedGemma1.5:4b"
     backend_type: str = "ollama"  # "ollama" or "llamacpp"
+
+    # Ollama Cloud (optional, opt-in).
+    #
+    # Selecting the cloud provider sends the preprocessed DICOM slices to a
+    # third party, so it is gated: `allow_cloud_backend` defaults to False and
+    # the middleware refuses to route to the cloud until an operator enables it.
+    # The API key is operator-supplied and stays server-side — it is never
+    # returned by any endpoint and never logged.
+    allow_cloud_backend: bool = False
+    ollama_cloud_url: str = DEFAULT_OLLAMA_CLOUD_URL
+    ollama_cloud_api_key: str = ""
+    ollama_cloud_model: str = ""  # Empty => the user picks one in the chat panel
 
     # WADO-RS
     wado_base_url: str = "http://orthanc-viewer:8042/dicom-web"
@@ -37,6 +64,10 @@ class ChatMiddlewareConfig:
             ollama_url=os.getenv("OLLAMA_URL", "http://host.docker.internal:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "MedAIBase/MedGemma1.5:4b"),
             backend_type=os.getenv("BACKEND_TYPE", "ollama").lower(),
+            allow_cloud_backend=_env_bool("ALLOW_CLOUD_BACKEND", False),
+            ollama_cloud_url=os.getenv("OLLAMA_CLOUD_URL", DEFAULT_OLLAMA_CLOUD_URL),
+            ollama_cloud_api_key=os.getenv("OLLAMA_API_KEY", ""),
+            ollama_cloud_model=os.getenv("OLLAMA_CLOUD_MODEL", ""),
             wado_base_url=os.getenv("WADO_BASE_URL", "http://orthanc-viewer:8042/dicom-web"),
             num_slices=int(os.getenv("NUM_SLICES", "5")),
             image_folder=Path(os.getenv("IMAGE_FOLDER", "/tmp/chat-middleware-images")),

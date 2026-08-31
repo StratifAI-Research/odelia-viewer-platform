@@ -7,7 +7,7 @@ without restarting the service. Default values are initialized from static confi
 
 from dataclasses import dataclass
 
-from models import SliceStrategy
+from models import Provider, SliceStrategy
 
 DEFAULT_SYSTEM_PROMPT = """You are a radiology assistant specialized in medical image analysis.
 You are viewing DICOM medical images from a study. Analyze the images carefully and
@@ -89,6 +89,17 @@ class RuntimeConfig:
         self.system_prompt: str = DEFAULT_SYSTEM_PROMPT
         self.model: str = config.ollama_model
 
+        # Which backend chat requests are routed to: LOCAL or CLOUD.
+        #
+        # Always starts at LOCAL regardless of whether cloud is enabled: routing
+        # to the cloud sends preprocessed DICOM slices off-site, so it is never
+        # the state a freshly started service lands in.
+        self.provider: Provider = Provider.LOCAL
+
+        # Cloud model tag, separate from `model` so switching provider back and
+        # forth does not overwrite the local model selection.
+        self.cloud_model: str = config.ollama_cloud_model
+
         # Initialize preprocessing from static config (env vars)
         self.preprocessing: PreprocessingParams = PreprocessingParams(
             num_slices=config.num_slices,  # From NUM_SLICES env var
@@ -96,27 +107,42 @@ class RuntimeConfig:
 
         self.ollama_options: OllamaOptions = OllamaOptions()
 
+    @property
+    def active_model(self) -> str:
+        """Model tag for the currently selected provider."""
+        return self.cloud_model if self.provider == Provider.CLOUD else self.model
+
     def update(
         self,
         system_prompt: str | None = None,
         model: str | None = None,
         preprocessing: dict | None = None,
         ollama_options: dict | None = None,
+        provider: str | None = None,
+        cloud_model: str | None = None,
     ) -> None:
         """
         Update configuration values.
 
         Args:
             system_prompt: New system prompt for the LLM
-            model: Model name override for the LLM
+            model: Model name override for the local LLM
             preprocessing: Dict with preprocessing params to update
             ollama_options: Dict with Ollama generation options to update
+            provider: "local" or "cloud" — which backend to route chat to
+            cloud_model: Model tag to use when provider is "cloud"
         """
         if system_prompt is not None:
             self.system_prompt = system_prompt
 
         if model is not None:
             self.model = model
+
+        if provider is not None:
+            self.provider = Provider(provider)
+
+        if cloud_model is not None:
+            self.cloud_model = cloud_model
 
         if preprocessing is not None:
             if "num_slices" in preprocessing and preprocessing["num_slices"] is not None:
@@ -143,6 +169,9 @@ class RuntimeConfig:
         return {
             "system_prompt": self.system_prompt,
             "model": self.model,
+            "provider": self.provider.value,
+            "cloud_model": self.cloud_model,
+            "active_model": self.active_model,
             "preprocessing": {
                 "num_slices": self.preprocessing.num_slices,
                 "slice_strategy": self.preprocessing.slice_strategy.value,

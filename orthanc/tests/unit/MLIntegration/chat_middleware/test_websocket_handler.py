@@ -1,5 +1,7 @@
 """Tests for chat-middleware/websocket_handler.py — handle_chat + handle_websocket dispatcher."""
 import asyncio
+import asyncio as _asyncio
+import contextlib
 from datetime import datetime
 
 import pytest
@@ -39,6 +41,73 @@ class _FakeWebSocket:
     async def iter_json(self):
         for msg in self._incoming:
             yield msg
+
+
+class _AwaitableOllama:
+    """Async ollama fake that yields chunks with optional asyncio.sleep gaps.
+
+    Allows tests to interleave a second CHAT request while the first is still streaming."""
+    def __init__(self, chunks, per_chunk_sleep_s=0.05):
+        self._chunks = chunks
+        self._sleep = per_chunk_sleep_s
+        self.model = "test"
+        self.calls = []
+
+    async def chat_stream(self, messages, cancel_event=None, runtime_options=None):
+        self.calls.append({"messages": messages})
+        for chunk in self._chunks:
+            if cancel_event is not None and cancel_event.is_set():
+                return
+            await _asyncio.sleep(self._sleep)
+            yield chunk
+
+    async def health_check(self):
+        return True
+
+    async def list_models(self):
+        return ["test"]
+
+
+class _DeafOllama(_AwaitableOllama):
+    """Never looks at cancel_event, so a wait for it to stop actually waits."""
+
+    async def chat_stream(self, messages, cancel_event=None, runtime_options=None):
+        self.calls.append({"messages": messages})
+        for chunk in self._chunks:
+            await _asyncio.sleep(self._sleep)
+            yield chunk
+
+
+class _CountingOllama(_AwaitableOllama):
+    """Records the high-water mark of generations running at the same time."""
+
+    def __init__(self, chunks, per_chunk_sleep_s=0.05):
+        super().__init__(chunks, per_chunk_sleep_s)
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def chat_stream(self, messages, cancel_event=None, runtime_options=None):
+        self.calls.append({"messages": messages})
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            for chunk in self._chunks:
+                await _asyncio.sleep(self._sleep)
+                yield chunk
+        finally:
+            self.in_flight -= 1
+
+
+class _UnstoppableOllama(_AwaitableOllama):
+    """Swallows its cancellation once, so stopping it cannot succeed in time."""
+
+    async def chat_stream(self, messages, cancel_event=None, runtime_options=None):
+        self.calls.append({"messages": messages})
+        try:
+            await _asyncio.sleep(3600)
+        except _asyncio.CancelledError:
+            await _asyncio.sleep(3600)
+        yield {"type": "content", "text": "never reached"}
 
 
 # ---------- send_message ----------
@@ -241,6 +310,80 @@ async def test_handle_chat_does_not_persist_history_when_cancelled_mid_stream(tm
     assert history == []
 
 
+# ---------- make_task_done_callback ----------
+
+async def test_task_done_callback_releases_the_session_hold(tmp_path, monkeypatch):
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import Session
+
+    session = Session(session_id="s")
+    task = asyncio.create_task(asyncio.sleep(0))
+    session.active_task = task
+    await task
+    wh.make_task_done_callback(session)(task)
+
+    assert session.active_task is None
+
+
+async def test_task_done_callback_does_not_raise_on_a_cancelled_task(
+    tmp_path, monkeypatch, caplog
+):
+    """`Task.exception()` re-raises on a cancelled task.
+
+    Cancellation has to be answered before asking, or the cleanup callback
+    itself raises inside the event loop, where nothing is waiting to handle it.
+    Reachable through the CANCEL message, and through deleting a session that
+    is still generating.
+    """
+    import logging
+
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import Session
+
+    session = Session(session_id="s")
+    task = asyncio.create_task(asyncio.sleep(3600))
+    session.active_task = task
+
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Called directly rather than through add_done_callback: asyncio hands a
+    # callback's exception to the loop's exception handler instead of raising it
+    # into the test, so a scheduled call would pass whether or not the guard is
+    # there.
+    with caplog.at_level(logging.INFO, logger="websocket_handler"):
+        wh.make_task_done_callback(session)(task)
+
+    assert session.active_task is None
+    assert "Chat task failed" not in caplog.text
+
+
+async def test_task_done_callback_reports_a_failure(tmp_path, monkeypatch, caplog):
+    import logging
+
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import Session
+
+    async def boom():
+        raise RuntimeError("kaboom")
+
+    session = Session(session_id="s")
+    task = asyncio.create_task(boom())
+    session.active_task = task
+
+    with pytest.raises(RuntimeError):
+        await task
+    with caplog.at_level(logging.ERROR, logger="websocket_handler"):
+        wh.make_task_done_callback(session)(task)
+
+    assert "Chat task failed: kaboom" in caplog.text
+
+
 # ---------- handle_websocket dispatcher ----------
 
 async def test_handle_websocket_sends_connected_with_session_id(tmp_path, monkeypatch):
@@ -277,6 +420,368 @@ async def test_handle_websocket_non_dict_payload_emits_error_and_continues(tmp_p
     assert [m["type"] for m in ws.sent].count("error") == 1
 
 
+async def test_handle_websocket_stops_serving_a_deleted_session(tmp_path, monkeypatch):
+    """A handler holds its Session from before its first await.
+
+    Popping the registry entry never reaches it, so a session deleted while a
+    connection was open would go on being served -- accumulating history, and
+    with it references to the base64 slices of every turn.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    # A malformed frame, because the dispatcher answers one synchronously: a
+    # handler that is still serving replies with an error, so silence here is
+    # evidence the loop stopped rather than evidence the fake never got that far.
+    ws = _FakeWebSocket([{"type": "nonsense"}])
+    session = get_session_manager().create_session("S-deleted")
+    # Closed as `remove_session` closes it, with the handler already holding the
+    # object -- which is the case the flag exists for. Popping alone would leave
+    # this handler serving a session the caller was told is gone.
+    session.closed = True
+
+    await wh.handle_websocket(ws, "S-deleted")
+
+    assert [m["type"] for m in ws.sent] == ["connected"]
+
+
+async def test_a_disconnecting_socket_does_not_cancel_another_ones_generation(
+    tmp_path, monkeypatch
+):
+    """`active_task` is not a record of what a handler is responsible for.
+
+    The same session object is handed to anyone who asks for the ID, so a
+    handler that cancels whatever is running when it goes away can end an answer
+    a different reader is watching arrive -- a conversation cut off by a
+    disconnection somewhere else entirely.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    fake = _CountingOllama(chunks=[{"type": "content", "text": "x"}] * 40, per_chunk_sleep_s=0.02)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    hold_open = asyncio.Event()
+
+    class _GeneratingWebSocket(_FakeWebSocket):
+        async def iter_json(self):
+            yield {"type": "chat", "content": "hi", "study_uid": "", "series_uids": []}
+            await hold_open.wait()
+
+    class _IdleWebSocket(_FakeWebSocket):
+        """Joins the same session, asks nothing, and leaves."""
+
+        async def iter_json(self):
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+    generating = asyncio.create_task(
+        wh.handle_websocket(_GeneratingWebSocket(), "S-shared-disconnect")
+    )
+
+    session = None
+    for _ in range(400):
+        await asyncio.sleep(0.005)
+        session = get_session_manager().get_session("S-shared-disconnect")
+        if session and session.active_task and fake.in_flight == 1:
+            break
+    assert session is not None and fake.in_flight == 1
+    generation = session.active_task
+
+    # The other socket joins and leaves without ever asking for anything.
+    await wh.handle_websocket(_IdleWebSocket(), "S-shared-disconnect")
+
+    try:
+        assert not generation.done()
+        assert not session.cancel_event.is_set()
+        assert session.active_task is generation
+    finally:
+        hold_open.set()
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(generating, timeout=5)
+
+
+async def test_two_sockets_on_one_session_do_not_generate_side_by_side(tmp_path, monkeypatch):
+    """A session is not private to one socket.
+
+    `get_or_create_session` hands the same object to anyone who asks for the ID,
+    and replacing a generation is four steps with awaits between them. Two
+    handlers waiting on the same previous generation both wake when it stops, and
+    unserialized both go on to create one: two answers streaming into one
+    conversation, with only the later referenced, so the other cannot even be
+    cancelled afterwards.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    fake = _CountingOllama(chunks=[{"type": "content", "text": "x"}] * 40, per_chunk_sleep_s=0.02)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    chat = {"type": "chat", "content": "hi", "study_uid": "", "series_uids": []}
+    race = asyncio.Event()
+    hold_open = asyncio.Event()
+
+    class _RacingWebSocket(_FakeWebSocket):
+        def __init__(self, first=False):
+            super().__init__()
+            self._first = first
+
+        async def iter_json(self):
+            if self._first:
+                yield chat
+            await race.wait()
+            yield chat
+            await hold_open.wait()
+
+    first_ws, second_ws = _RacingWebSocket(first=True), _RacingWebSocket()
+    handlers = [
+        asyncio.create_task(wh.handle_websocket(first_ws, "S-shared")),
+        asyncio.create_task(wh.handle_websocket(second_ws, "S-shared")),
+    ]
+
+    # One generation running, which both sockets will then try to replace.
+    # Real sleeps, not `sleep(0)`: the generation's own chunk gaps are wall-clock,
+    # so yielding without advancing time never lets it make progress.
+    session = None
+    for _ in range(400):
+        await asyncio.sleep(0.005)
+        session = get_session_manager().get_session("S-shared")
+        if session and session.active_task and fake.in_flight == 1:
+            break
+    assert session is not None and fake.in_flight == 1
+
+    race.set()
+    for _ in range(400):
+        await asyncio.sleep(0.005)
+        if len(fake.calls) >= 3:
+            break
+
+    try:
+        assert len(fake.calls) >= 2, "the second and third CHATs never raced"
+        # Whatever the interleaving, one generation at a time.
+        assert fake.max_in_flight == 1
+    finally:
+        hold_open.set()
+        for handler in handlers:
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(handler, timeout=5)
+
+
+async def test_handle_websocket_refuses_a_second_generation_while_the_first_will_not_stop(
+    tmp_path, monkeypatch
+):
+    """Two generations on one socket would both stream to the same reader.
+
+    And the loser of that race would still write its turn into the history. A
+    cancellation that did not take is not a cancellation, and the dispatcher has
+    to be told rather than assume.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    fake = _UnstoppableOllama(chunks=[], per_chunk_sleep_s=0)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    second_chat = asyncio.Event()
+
+    class _GatedWebSocket(_FakeWebSocket):
+        async def iter_json(self):
+            yield {"type": "chat", "content": "first", "study_uid": "", "series_uids": []}
+            await second_chat.wait()
+            yield {"type": "chat", "content": "second", "study_uid": "", "series_uids": []}
+
+    ws = _GatedWebSocket()
+    handler = asyncio.create_task(wh.handle_websocket(ws, "S-stuck"))
+
+    session = None
+    for _ in range(500):
+        await asyncio.sleep(0)
+        session = get_session_manager().get_session("S-stuck")
+        if session and session.active_task and len(fake.calls) == 1:
+            break
+    assert session is not None
+    first = session.active_task
+    assert first is not None
+
+    second_chat.set()
+    await asyncio.wait_for(handler, timeout=10)
+
+    try:
+        # The second CHAT never became a generation, and the reader was told why
+        # rather than left with two answers arriving at once.
+        assert len(fake.calls) == 1
+        assert "error" in [m["type"] for m in ws.sent]
+        # The stuck generation keeps its pointer: it is the only handle left on it.
+        assert session.active_task is first
+        assert session.cancel_event.is_set()
+    finally:
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first
+
+
+async def test_handle_websocket_does_not_claim_a_cancellation_that_did_not_take(
+    tmp_path, monkeypatch, caplog
+):
+    """Saying "Cancelled" over a generation still streaming is worse than not cancelling it.
+
+    And no error frame either: the panel marks the turn cancelled the moment it
+    asks, so a late error on top of that says three contradictory things about
+    one message. The record belongs in the log.
+    """
+    import logging
+
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    fake = _UnstoppableOllama(chunks=[], per_chunk_sleep_s=0)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    cancel_now = asyncio.Event()
+
+    class _GatedWebSocket(_FakeWebSocket):
+        async def iter_json(self):
+            yield {"type": "chat", "content": "first", "study_uid": "", "series_uids": []}
+            await cancel_now.wait()
+            yield {"type": "cancel"}
+
+    ws = _GatedWebSocket()
+    handler = asyncio.create_task(wh.handle_websocket(ws, "S-stuck-cancel"))
+
+    session = None
+    for _ in range(500):
+        await asyncio.sleep(0)
+        session = get_session_manager().get_session("S-stuck-cancel")
+        if session and session.active_task and len(fake.calls) == 1:
+            break
+    assert session is not None
+    first = session.active_task
+    assert first is not None
+
+    cancel_now.set()
+    with caplog.at_level(logging.WARNING, logger="websocket_handler"):
+        await asyncio.wait_for(handler, timeout=10)
+
+    try:
+        sent = [(m["type"], m.get("content")) for m in ws.sent]
+        assert ("done", "Cancelled") not in sent
+        assert "error" not in [t for t, _ in sent]
+        assert "did not take" in caplog.text
+    finally:
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first
+
+
+async def test_handle_websocket_does_not_start_a_generation_on_a_session_deleted_mid_wait(
+    tmp_path, monkeypatch
+):
+    """The `closed` check has to be asked again after every await before a task starts.
+
+    A second CHAT makes the dispatcher stop the first generation before starting
+    another. A delete arriving during that leaves the handler about to start a
+    generation on a session already reported gone -- and since reconnecting under
+    the same ID makes a *fresh* session, that generation could write its turn
+    into someone else's conversation.
+
+    Driven by events rather than by sleeping. `cancel_event` is set by the
+    dispatcher's second-CHAT branch and by nothing else before the delete, so
+    waiting on it puts the delete inside that branch every time, however loaded
+    the machine.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    # Deaf to the cancel event, so stopping it ends in a forced cancellation --
+    # the branch that clears `active_task` and could find it already cleared.
+    fake = _DeafOllama(chunks=[{"type": "content", "text": "x"}] * 20, per_chunk_sleep_s=1.5)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    second_chat = asyncio.Event()
+    hold_open = asyncio.Event()
+
+    class _GatedWebSocket(_FakeWebSocket):
+        async def iter_json(self):
+            yield {"type": "chat", "content": "first", "study_uid": "", "series_uids": []}
+            await second_chat.wait()
+            yield {"type": "chat", "content": "second", "study_uid": "", "series_uids": []}
+            # The connection stays open afterwards. The dispatcher does not await
+            # the generation it starts, and ending the iteration would cancel it
+            # in the `finally` before it ran -- so a handler that wrongly started
+            # one would look identical to one that correctly did not.
+            await hold_open.wait()
+
+    ws = _GatedWebSocket()
+    handler = asyncio.create_task(wh.handle_websocket(ws, "S-mid-wait"))
+
+    # Let the first generation get going, so the second CHAT has something to
+    # stop rather than sailing past.
+    session = None
+    for _ in range(500):
+        await asyncio.sleep(0)
+        session = get_session_manager().get_session("S-mid-wait")
+        if session and session.active_task and len(fake.calls) == 1:
+            break
+    assert session is not None
+    first = session.active_task
+    assert first is not None
+
+    second_chat.set()
+    # Set as the dispatcher enters the stop, and by nothing else until then.
+    await asyncio.wait_for(session.cancel_event.wait(), timeout=5)
+    assert session.active_task is first
+
+    assert await get_session_manager().remove_session("S-mid-wait") is True
+
+    # A wrongly started second generation gets its chance to run before the
+    # connection ends.
+    for _ in range(500):
+        await asyncio.sleep(0)
+        if len(fake.calls) > 1:
+            break
+    hold_open.set()
+    await asyncio.wait_for(handler, timeout=5)
+
+    # The second CHAT never became a generation.
+    assert len(fake.calls) == 1
+    # And the deletion was not reported to the client as a failure: re-reading
+    # `session.active_task` after the wait would find the None the removal left
+    # there.
+    assert "error" not in [m["type"] for m in ws.sent]
+
+
+async def test_handle_chat_does_not_append_to_a_session_that_was_deleted(tmp_path, monkeypatch):
+    """A generation that outlives its deletion must not write its turn anywhere.
+
+    Checked on the session object, not by ID: reconnecting under a deleted ID
+    produces a different session under the same name, and appending by ID would
+    put this turn -- images and all -- into a stranger's conversation.
+    """
+    _reset_singletons(tmp_path, monkeypatch)
+    import websocket_handler as wh
+    from session_manager import get_session_manager
+
+    fake = _AwaitableOllama(chunks=[{"type": "content", "text": "answer"}], per_chunk_sleep_s=0.0)
+    monkeypatch.setattr(wh, "get_client_for_provider", lambda *a, **kw: fake)
+
+    manager = get_session_manager()
+    doomed = manager.create_session("S-gone")
+    doomed.closed = True
+    # A fresh session under the same ID, as a reconnect would produce.
+    manager.sessions["S-gone"] = manager.create_session("S-gone")
+
+    await wh.handle_chat(_FakeWebSocket(), doomed, "hi", "", [], [])
+
+    assert doomed.conversation_history == []
+    assert manager.get_session("S-gone").conversation_history == []
+
+
 async def test_handle_websocket_cancel_without_active_task_is_silent(tmp_path, monkeypatch):
     """CANCEL with no active task: no error, no DONE."""
     _reset_singletons(tmp_path, monkeypatch)
@@ -292,8 +797,6 @@ async def test_handle_websocket_cancel_without_active_task_is_silent(tmp_path, m
 # H1+H2: real WS TestClient (covers active-task cancel + task_done_callback
 # + back-to-back CHAT concurrent-generation cancel) + WebSocketDisconnect path
 # ---------------------------------------------------------------------------
-
-import asyncio as _asyncio
 
 
 def _build_app_with_ws(tmp_path, monkeypatch, fake_ollama):
@@ -329,31 +832,6 @@ def _build_app_with_ws(tmp_path, monkeypatch, fake_ollama):
         await wh.handle_websocket(websocket, session_id)
 
     return app, TestClient(app)
-
-
-class _AwaitableOllama:
-    """Async ollama fake that yields chunks with optional asyncio.sleep gaps.
-
-    Allows tests to interleave a second CHAT request while the first is still streaming."""
-    def __init__(self, chunks, per_chunk_sleep_s=0.05):
-        self._chunks = chunks
-        self._sleep = per_chunk_sleep_s
-        self.model = "test"
-        self.calls = []
-
-    async def chat_stream(self, messages, cancel_event=None, runtime_options=None):
-        self.calls.append({"messages": messages})
-        for chunk in self._chunks:
-            if cancel_event is not None and cancel_event.is_set():
-                return
-            await _asyncio.sleep(self._sleep)
-            yield chunk
-
-    async def health_check(self):
-        return True
-
-    async def list_models(self):
-        return ["test"]
 
 
 def test_real_ws_dispatcher_chat_message_streams_tokens_to_completion(tmp_path, monkeypatch):

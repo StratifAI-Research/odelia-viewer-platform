@@ -1,5 +1,6 @@
 """Tests for chat-middleware/session_manager.py — in-memory chat sessions with asyncio primitives."""
 import asyncio
+import contextlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -93,18 +94,351 @@ def test_get_history_returns_empty_list_for_unknown_session():
     assert sm.get_history("nope") == []
 
 
-def test_remove_session_returns_true_when_existed():
+async def test_remove_session_returns_true_when_existed():
     from session_manager import SessionManager
     sm = SessionManager()
     sm.create_session("s")
-    assert sm.remove_session("s") is True
+    assert await sm.remove_session("s") is True
     assert sm.get_session("s") is None
 
 
-def test_remove_session_returns_false_when_not_existed():
+async def test_remove_session_cancels_an_active_generation():
+    """A removed session must not leave work running against it.
+
+    Its closing append_message would find no session and drop the turn, so the
+    generation would keep retrieving and preprocessing images to produce an
+    answer nothing records.
+    """
     from session_manager import SessionManager
     sm = SessionManager()
-    assert sm.remove_session("never") is False
+    session = sm.create_session("s")
+
+    observed_cancel = asyncio.Event()
+
+    async def generation():
+        await session.cancel_event.wait()
+        observed_cancel.set()
+
+    session.active_task = asyncio.create_task(generation())
+    await asyncio.sleep(0)
+
+    assert await sm.remove_session("s") is True
+    assert observed_cancel.is_set()
+    assert session.active_task is None
+
+
+async def test_remove_session_cancels_a_generation_that_ignores_the_event():
+    """The graceful wait is bounded, so a task that never checks is force-cancelled."""
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def deaf_generation():
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(deaf_generation())
+    session.active_task = task
+    await asyncio.sleep(0)
+
+    assert await sm.remove_session("s") is True
+    assert task.cancelled()
+
+
+async def test_remove_session_marks_the_session_closed():
+    """A WebSocket handler holds its Session, not its ID.
+
+    It captured the object before its first await and never looks the ID up
+    again, so popping the registry entry does not reach it. Without the flag it
+    would go on serving a session the caller was told is gone.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+    assert session.closed is False
+
+    assert await sm.remove_session("s") is True
+    assert session.closed is True
+
+
+async def test_remove_session_survives_a_generation_that_raises_on_its_way_out():
+    """The generation is stopped either way, which is all removal promises.
+
+    Re-raising would report a delete that has already happened as a failure of
+    the delete.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def failing_generation():
+        await session.cancel_event.wait()
+        raise RuntimeError("kaboom")
+
+    session.active_task = asyncio.create_task(failing_generation())
+    await asyncio.sleep(0)
+
+    assert await sm.remove_session("s") is True
+    assert sm.get_session("s") is None
+
+
+async def test_cancellation_does_not_touch_a_generation_started_while_it_waited():
+    """`active_task` is a mutable pointer and cancellation suspends.
+
+    A handler still attached can replace the task mid-wait, and force-cancelling
+    whatever the pointer holds at that moment would land on a generation that
+    had done nothing wrong.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def deaf_generation():
+        await asyncio.sleep(3600)
+
+    first = asyncio.create_task(deaf_generation())
+    session.active_task = first
+    await asyncio.sleep(0)
+
+    removal = asyncio.create_task(sm.remove_session("s"))
+    await asyncio.sleep(0)
+
+    # A handler that has not noticed the removal starts another generation.
+    second = asyncio.create_task(deaf_generation())
+    session.active_task = second
+
+    try:
+        # Bounded: a version that cancels the wrong task then awaits an
+        # uncancelled one hangs, and a hang is a worse signal than a failure.
+        assert await asyncio.wait_for(removal, timeout=5) is True
+        assert first.cancelled()
+        assert not second.done()
+        # The pointer is left alone too, since it no longer names the task that
+        # was cancelled.
+        assert session.active_task is second
+    finally:
+        second.cancel()
+
+
+async def test_a_generation_that_will_not_stop_is_reported_and_kept():
+    """False is not "stopped", and the caller must be able to tell.
+
+    The pointer is the only handle anything still has on such a task, and the
+    cancel flag is the only thing still asking it to stop. Dropping either would
+    let a second generation start beside it, on the same socket, with the loser
+    of that race writing its turn into the history.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def unstoppable():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(3600)
+
+    task = asyncio.create_task(unstoppable())
+    session.active_task = task
+    await asyncio.sleep(0)
+
+    try:
+        assert await asyncio.wait_for(session.cancel_active_generation(), timeout=5) is False
+        assert session.active_task is task
+        assert session.cancel_event.is_set()
+        assert not task.done()
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_cancelling_a_generation_that_has_already_finished_reports_success():
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+    session.cancel_event.set()
+
+    finished = asyncio.create_task(asyncio.sleep(0))
+    session.active_task = finished
+    await finished
+
+    assert await session.cancel_active_generation() is True
+    assert session.active_task is None
+    assert not session.cancel_event.is_set()
+
+
+async def test_remove_session_does_not_wait_forever_on_a_task_that_refuses_to_stop(caplog):
+    """Both waits are bounded.
+
+    The deletion has already taken effect by the time cancellation is attempted,
+    so a task that swallows cancellation must not be able to hold the caller. At
+    worst it outlives the session it was serving, unreachable.
+    """
+    import logging
+
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def unstoppable():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            # Swallows the cancellation and carries on, which is the case the
+            # bound exists for. Only once, so the test can still clean up.
+            await asyncio.sleep(3600)
+
+    task = asyncio.create_task(unstoppable())
+    session.active_task = task
+    await asyncio.sleep(0)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="session_manager"):
+            assert await asyncio.wait_for(sm.remove_session("s"), timeout=5) is True
+        assert "did not stop when cancelled" in caplog.text
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_cancelling_the_caller_does_not_look_like_the_generation_stopping():
+    """Only the task's own ending is swallowed.
+
+    Cancelling whoever asked for the removal must reach them, not be absorbed as
+    "the generation stopped". The generation is stopped on the way out too: the
+    session has already been dropped by then, so nothing else owns it, and
+    leaving it running would be a task nobody can reach and nobody will stop.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def deaf_generation():
+        await asyncio.sleep(3600)
+
+    generation = asyncio.create_task(deaf_generation())
+    session.active_task = generation
+    await asyncio.sleep(0)
+
+    removal = asyncio.create_task(sm.remove_session("s"))
+    await asyncio.sleep(0)
+    removal.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await removal
+    assert removal.cancelled()
+    # Bounded: a version that leaves the generation running hangs here, and a
+    # hang is a worse signal than a failure.
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+        await asyncio.wait_for(asyncio.shield(generation), timeout=2)
+    assert generation.cancelled()
+
+
+async def test_cancelling_the_caller_in_the_same_turn_as_the_generation_still_reaches_it():
+    """The two cancellations have to be told apart by who was asked, not by who finished.
+
+    Asking whether the generation is done is unsound here: cancelled in the same
+    turn as the caller, it is already done when the question is put, and the
+    caller's own cancellation would vanish.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def deaf_generation():
+        await asyncio.sleep(3600)
+
+    generation = asyncio.create_task(deaf_generation())
+    session.active_task = generation
+    await asyncio.sleep(0)
+
+    removal = asyncio.create_task(sm.remove_session("s"))
+    await asyncio.sleep(0)
+    # Same turn, generation first: it settles before the removal is asked about.
+    generation.cancel()
+    removal.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await removal
+    assert removal.cancelled()
+
+
+async def test_remove_session_is_unreachable_before_cancellation_finishes():
+    """The pop precedes the await.
+
+    Cancellation suspends, and anything that looked the session up while it was
+    suspended would obtain a session already promised to the caller as gone.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def deaf_generation():
+        await asyncio.sleep(3600)
+
+    session.active_task = asyncio.create_task(deaf_generation())
+    await asyncio.sleep(0)
+
+    removal = asyncio.create_task(sm.remove_session("s"))
+    await asyncio.sleep(0)  # far enough for the pop, not for the cancellation
+
+    assert not removal.done()
+    assert sm.get_session("s") is None
+    assert await removal is True
+
+
+async def test_a_closed_session_keeps_its_cancel_flag_set():
+    """Nothing will start another generation on it.
+
+    Clearing the flag would tell a task that swallowed its cancellation that it
+    is allowed to carry on -- and it is the one kind of task that would take the
+    permission.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    session = sm.create_session("s")
+
+    async def generation():
+        await session.cancel_event.wait()
+
+    session.active_task = asyncio.create_task(generation())
+    await asyncio.sleep(0)
+
+    assert await sm.remove_session("s") is True
+    assert session.cancel_event.is_set()
+
+
+async def test_cleanup_stale_leaves_a_session_that_is_still_generating():
+    """`last_activity` does not advance while a response streams.
+
+    A long generation therefore looks stale mid-flight, and a sweep for the
+    abandoned must not cancel a response someone is watching arrive.
+    """
+    from session_manager import SessionManager
+    sm = SessionManager()
+    busy = sm.create_session("busy")
+    busy.last_activity -= timedelta(minutes=120)
+
+    async def generation():
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(generation())
+    busy.active_task = task
+    await asyncio.sleep(0)
+
+    try:
+        assert await sm.cleanup_stale(max_age_minutes=60) == 0
+        assert sm.get_session("busy") is busy
+        assert not task.done()
+    finally:
+        task.cancel()
+
+
+async def test_remove_session_returns_false_when_not_existed():
+    from session_manager import SessionManager
+    sm = SessionManager()
+    assert await sm.remove_session("never") is False
 
 
 def test_list_sessions_returns_iso_timestamps_and_counts():
@@ -123,14 +457,14 @@ def test_list_sessions_returns_iso_timestamps_and_counts():
     datetime.fromisoformat(by_id["a"]["last_activity"])
 
 
-def test_cleanup_stale_removes_only_old_sessions():
+async def test_cleanup_stale_removes_only_old_sessions():
     """Sessions whose last_activity is older than max_age_minutes get removed."""
     from session_manager import SessionManager
     sm = SessionManager()
     fresh = sm.create_session("fresh")
     stale = sm.create_session("stale")
     stale.last_activity = datetime.now(timezone.utc) - timedelta(minutes=120)
-    removed = sm.cleanup_stale(max_age_minutes=60)
+    removed = await sm.cleanup_stale(max_age_minutes=60)
     assert removed == 1
     assert sm.get_session("fresh") is fresh
     assert sm.get_session("stale") is None
@@ -152,21 +486,21 @@ def test_append_message_sets_tz_aware_last_activity():
     assert sm.get_session("s").last_activity.tzinfo is not None
 
 
-def test_cleanup_stale_works_with_aware_last_activity():
+async def test_cleanup_stale_works_with_aware_last_activity():
     """Expiry comparison must not raise on aware datetimes (naive vs aware -> TypeError)."""
     from session_manager import SessionManager
     sm = SessionManager()
     stale = sm.create_session("stale")
     stale.last_activity = datetime.now(timezone.utc) - timedelta(minutes=120)
-    assert sm.cleanup_stale(max_age_minutes=60) == 1
+    assert await sm.cleanup_stale(max_age_minutes=60) == 1
 
 
-def test_cleanup_stale_returns_zero_when_none_old_enough():
+async def test_cleanup_stale_returns_zero_when_none_old_enough():
     from session_manager import SessionManager
     sm = SessionManager()
     sm.create_session("s1")
     sm.create_session("s2")
-    assert sm.cleanup_stale(max_age_minutes=60) == 0
+    assert await sm.cleanup_stale(max_age_minutes=60) == 0
 
 
 def test_get_session_manager_singleton():

@@ -5,7 +5,7 @@ services:
   # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
   # See docs/restrict-to-localhost.md.
   viewer:
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.1.0}
+    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.2.0}
     container_name: odelia-viewer
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf

@@ -395,10 +395,22 @@ jobs:
             echo "Release v${v} already records this commit; nothing to do."
             exit 0
           fi
-          # --generate-notes builds the changelog from the PR titles merged
-          # since the previous release, and --target creates the tag on the
-          # exact commit whose images were just promoted.
-          gh release create "v${v}" \
-            --target "$SHA" \
-            --title "v${v}" \
-            --generate-notes
+          # --target creates the tag on the exact commit whose images were
+          # just promoted. Notes come from a hand-written file when one exists
+          # -- useful when the generated list would be long or unhelpful, as it
+          # is for a first release with no previous tag to diff against --
+          # otherwise from the PR titles merged since the previous release,
+          # filtered by .github/release.yml.
+          notes_file=".github/release-notes/v${v}.md"
+          if [ -f "$notes_file" ]; then
+            echo "Using hand-written notes from ${notes_file}"
+            gh release create "v${v}" \
+              --target "$SHA" \
+              --title "v${v}" \
+              --notes-file "$notes_file"
+          else
+            gh release create "v${v}" \
+              --target "$SHA" \
+              --title "v${v}" \
+              --generate-notes
+          fi

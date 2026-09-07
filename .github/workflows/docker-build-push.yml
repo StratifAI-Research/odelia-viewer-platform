@@ -30,10 +30,15 @@ concurrency:
 
 jobs:
   build:
+    # Skipped for releases. A release promotes the manifests main already built
+    # and tested for this commit; rebuilding here would publish a different
+    # artefact than the one CI validated and defeat the per-commit SHA tag.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Docker Hub credentials are environment secrets on `release`, which is
-    # restricted to the main branch. Anyone may open a PR or press the release
-    # button; only reviewed main code is ever handed the token.
+    # restricted to the main branch. Pressing the release button needs write
+    # access; what the branch restriction buys is that no ref other than main
+    # can supply the code that runs with the token.
     #
     # Conditional because this job also runs on pull requests, where it only
     # builds (push: false). A PR ref is not main, so requesting the environment
@@ -208,7 +213,12 @@ jobs:
   # pushed and have no SHA manifest to promote.
   promote:
     needs: build
-    if: github.event_name != 'pull_request'
+    # `needs` alone would skip this whenever build is skipped, which is exactly
+    # the release case. Run unless build actually failed.
+    if: >-
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -232,6 +242,7 @@ jobs:
           # never pushed, and so have no SHA manifest to promote.
           images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
           tags=()
+          exact=""
           if [ "$EVENT" = "workflow_dispatch" ]; then
             v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
             # Anchored and fully numeric. A loose glob would accept "2.3.0.1",
@@ -241,6 +252,7 @@ jobs:
               echo "::error::version must be three numbers like 2.3.0 (got '${VERSION}')"
               exit 1
             fi
+            exact="$v"
             tags+=("$v" "${v%.*}")       # 2.3.0 and 2.3
           elif [ "$REF_NAME" = "main" ]; then
             tags+=("latest")
@@ -249,6 +261,50 @@ jobs:
             echo "No promotion tags for $EVENT on $REF_NAME; skipping."
             exit 0
           fi
+
+          # Preflight every source before touching any destination, so a failure
+          # part-way cannot leave the five repositories half-promoted. A missing
+          # manifest means main never published this commit: merge first, then
+          # release. Any inspect failure here is fatal by construction.
+          declare -A src_digest
+          for img in $images; do
+            src="stratifai/${img}:sha-${SHA}"
+            if ! d=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$src" 2>&1); then
+              echo "::error::cannot resolve ${src}: ${d}"
+              echo "::error::main must publish this commit before it can be released"
+              exit 1
+            fi
+            src_digest[$img]="$d"
+          done
+
+          # An exact version is immutable. Re-running the same release is a
+          # no-op; pointing an existing version at different content is refused
+          # rather than silently overwritten. `latest` and the X.Y alias float
+          # by design, so they are not checked.
+          if [ -n "$exact" ]; then
+            for img in $images; do
+              dst="stratifai/${img}:${exact}"
+              if out=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$dst" 2>&1); then
+                if [ "$out" != "${src_digest[$img]}" ]; then
+                  echo "::error::${dst} already exists and points at different content."
+                  echo "::error::  published: ${out}"
+                  echo "::error::  requested: ${src_digest[$img]}"
+                  echo "::error::Release a new version rather than moving this one."
+                  exit 1
+                fi
+                echo "${dst} already points at this commit; nothing to change."
+              else
+                # Only a genuine absence is safe to proceed from. An auth
+                # failure, rate limit or network error must not be read as
+                # "tag is free".
+                case "$out" in
+                  *"not found"*|*MANIFEST_UNKNOWN*|*"manifest unknown"*) ;;
+                  *) echo "::error::cannot determine whether ${dst} exists: ${out}"; exit 1 ;;
+                esac
+              fi
+            done
+          fi
+
           for img in $images; do
             src="stratifai/${img}:sha-${SHA}"
             args=()
@@ -256,3 +312,40 @@ jobs:
             echo "Promoting ${src} -> ${tags[*]}"
             docker buildx imagetools create "${args[@]}" "${src}"
           done
+
+  # Without this a published version exists only as a Docker Hub tag, with
+  # nothing in the repository tying it to a commit or saying what changed.
+  # Deliberately a separate job: it is the only one granted contents: write, it
+  # runs only after the images are actually published, and it is bound to the
+  # same main-only environment so a dispatch from elsewhere cannot reach it.
+  record:
+    needs: promote
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Tag the commit and publish release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          v="${VERSION#v}"
+          if gh release view "v${v}" >/dev/null 2>&1; then
+            echo "Release v${v} already exists; leaving it untouched."
+            exit 0
+          fi
+          # --generate-notes builds the changelog from the PR titles merged
+          # since the previous release, and --target creates the tag on the
+          # exact commit whose images were just promoted.
+          gh release create "v${v}" \
+            --target "$SHA" \
+            --title "v${v}" \
+            --generate-notes

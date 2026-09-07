@@ -21,7 +21,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: docker-${{ github.ref }}
+  # A release dispatch on main shares github.ref with a push to main. GitHub
+  # keeps only one *pending* run per group, so a push arriving behind a queued
+  # release would discard it regardless of cancel-in-progress. Give each
+  # dispatch its own group so a release request is never silently dropped.
+  group: docker-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -110,6 +114,10 @@ jobs:
   # breakage, but never pushed and never gates promote -- a broken preview model
   # must not block latest/semver from advancing for the five publishing images.
   build-preview:
+    # Skipped for releases: these images are never pushed and never gate
+    # promote, so rebuilding them would only slow a release down and could
+    # redden a run whose semver tags were already published.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -226,10 +234,13 @@ jobs:
           tags=()
           if [ "$EVENT" = "workflow_dispatch" ]; then
             v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
-            case "$v" in
-              [0-9]*.[0-9]*.[0-9]*) ;;
-              *) echo "::error::version must look like 2.3.0 (got '${VERSION}')"; exit 1 ;;
-            esac
+            # Anchored and fully numeric. A loose glob would accept "2.3.0.1",
+            # whose ${v%.*} is "2.3.0" -- a typo would then silently overwrite
+            # a good release across all five repositories.
+            if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version must be three numbers like 2.3.0 (got '${VERSION}')"
+              exit 1
+            fi
             tags+=("$v" "${v%.*}")       # 2.3.0 and 2.3
           elif [ "$REF_NAME" = "main" ]; then
             tags+=("latest")

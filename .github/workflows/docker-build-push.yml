@@ -268,7 +268,11 @@ jobs:
               exit 1
             fi
             exact="$v"
-            tags+=("$v" "${v%.*}")       # 2.3.0 and 2.3
+            # Only the exact version. A floating X.Y alias would be the one tag
+            # able to move backwards -- rerunning 2.3.0 after 2.3.1 shipped
+            # would silently downgrade anyone tracking 2.3 -- and nothing
+            # consumes it, since compose pins exact versions.
+            tags+=("$v")
           elif [ "$REF_NAME" = "main" ]; then
             tags+=("latest")
           fi
@@ -380,6 +384,14 @@ jobs:
             exit 1
           fi
           if gh release view "v${v}" >/dev/null 2>&1; then
+            if [ -z "$tag_sha" ]; then
+              # Release record with no git tag behind it. The images are already
+              # promoted, so exiting clean here would leave nothing in the
+              # repository pointing at the commit they were built from.
+              echo "::error::release v${v} exists but its git tag is missing."
+              echo "::error::Restore or delete that release before releasing again."
+              exit 1
+            fi
             echo "Release v${v} already records this commit; nothing to do."
             exit 0
           fi

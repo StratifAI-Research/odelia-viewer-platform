@@ -1,0 +1,5 @@
+# Changes to CI must be approved by a release manager, because these files run
+# with the Docker Hub publishing credentials. Everything else in the repository
+# follows the normal single-approval review rule.
+/.github/workflows/   @SAI-Firas @SAI-Omar @mueller-franzes
+/.github/CODEOWNERS   @SAI-Firas @SAI-Omar @mueller-franzes

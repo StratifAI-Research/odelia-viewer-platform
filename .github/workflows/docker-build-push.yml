@@ -3,10 +3,19 @@ name: Docker Build and Push
 on:
   push:
     branches: [main]
-    tags:
-      - "v*.*.*"
   pull_request:
     branches: [main]
+  # Versioned releases come from this button, not from a pushed git tag. A tag
+  # can point at any commit, including unreviewed work, and a tag-triggered run
+  # executes the workflow file from that same commit -- so an in-workflow guard
+  # could simply be deleted by whoever cut the tag. The `release` environment
+  # below admits only refs on main, which closes that path in GitHub itself.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish, e.g. 2.3.0"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +27,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Docker Hub credentials are environment secrets on `release`, which is
+    # restricted to the main branch. Anyone may open a PR or press the release
+    # button; only reviewed main code is ever handed the token.
+    #
+    # Conditional because this job also runs on pull requests, where it only
+    # builds (push: false). A PR ref is not main, so requesting the environment
+    # there would be denied and fail the job; an empty name means "no
+    # environment", which is what a PR build wants.
+    environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,8 +74,8 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub (push events only)
-        if: github.event_name == 'push'
+      - name: Log in to DockerHub (publishing events only)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
@@ -73,12 +91,12 @@ jobs:
           tags: |
             type=sha,format=long
 
-      - name: Build (and push SHA tag on push events)
+      - name: Build (and push SHA tag when publishing)
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
@@ -151,13 +169,6 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub (push events only)
-        if: github.event_name == 'push'
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -189,8 +200,9 @@ jobs:
   # pushed and have no SHA manifest to promote.
   promote:
     needs: build
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - uses: docker/setup-buildx-action@v4
 
@@ -203,23 +215,27 @@ jobs:
       - name: Promote SHA-tagged images to latest / semver
         env:
           SHA: ${{ github.sha }}
-          REF_TYPE: ${{ github.ref_type }}
+          EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           # odelia-classification-* omitted: they build in build-preview, are
           # never pushed, and so have no SHA manifest to promote.
           images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
           tags=()
-          if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
+            case "$v" in
+              [0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "::error::version must look like 2.3.0 (got '${VERSION}')"; exit 1 ;;
+            esac
+            tags+=("$v" "${v%.*}")       # 2.3.0 and 2.3
+          elif [ "$REF_NAME" = "main" ]; then
             tags+=("latest")
           fi
-          if [ "$REF_TYPE" = "tag" ]; then
-            v="${REF_NAME#v}"            # v2.1.0 -> 2.1.0
-            tags+=("$v" "${v%.*}")       # 2.1.0 and 2.1
-          fi
           if [ ${#tags[@]} -eq 0 ]; then
-            echo "No promotion tags for ref $REF_NAME ($REF_TYPE); skipping."
+            echo "No promotion tags for $EVENT on $REF_NAME; skipping."
             exit 0
           fi
           for img in $images; do

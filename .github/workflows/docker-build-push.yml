@@ -243,6 +243,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # The `release` environment is what actually keeps non-main refs away
@@ -308,6 +309,13 @@ jobs:
                 echo "::error::Release a new version rather than reusing this one."
                 exit 1
               fi
+            elif gh release view "v${exact}" >/dev/null 2>&1; then
+              # A release whose tag has been deleted. `record` would refuse this
+              # anyway, but only after the images were published, leaving them
+              # with nothing in the repository recording their commit.
+              echo "::error::a GitHub Release v${exact} exists but its git tag is gone."
+              echo "::error::Restore or delete that release before releasing again."
+              exit 1
             fi
           fi
 

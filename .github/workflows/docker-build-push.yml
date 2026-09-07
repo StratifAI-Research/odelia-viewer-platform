@@ -223,6 +223,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
+      # Needed to see whether the version's git tag already exists; the check
+      # has to happen here, before any image is promoted.
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
@@ -286,6 +292,21 @@ jobs:
             src_digest[$img]="$d"
           done
 
+          # A version is a git tag and a GitHub Release as well as image tags.
+          # `record` runs after this job, so a tag conflict discovered there
+          # would be discovered only once the images were already published --
+          # check it here, before anything is written.
+          if [ -n "$exact" ]; then
+            git fetch --tags --force --quiet
+            if tag_sha=$(git rev-parse -q --verify "refs/tags/v${exact}^{commit}"); then
+              if [ "$tag_sha" != "$SHA" ]; then
+                echo "::error::git tag v${exact} already exists on ${tag_sha}, not ${SHA}."
+                echo "::error::Release a new version rather than reusing this one."
+                exit 1
+              fi
+            fi
+          fi
+
           # An exact version is immutable. Re-running the same release is a
           # no-op; pointing an existing version at different content is refused
           # rather than silently overwritten. `latest` and the X.Y alias float
@@ -348,18 +369,19 @@ jobs:
           set -euo pipefail
           v="${VERSION#v}"
           git fetch --tags --force --quiet
-          if gh release view "v${v}" >/dev/null 2>&1; then
-            # Only a release already recording this same commit is a no-op.
-            # One pointing elsewhere means the repository would disagree with
-            # the images just promoted, so say so rather than exiting clean.
-            tag_sha=$(git rev-parse -q --verify "refs/tags/v${v}^{commit}" || true)
-            if [ "$tag_sha" = "$SHA" ]; then
-              echo "Release v${v} already records this commit; nothing to do."
-              exit 0
-            fi
-            echo "::error::v${v} already exists and points at ${tag_sha:-<unknown>}, not ${SHA}."
-            echo "::error::Images for ${SHA} were promoted, but this version is already taken."
+          # Check the tag itself, not just the release. A tag can exist with no
+          # release attached, and `gh release create --target` only chooses a
+          # commit when it creates the tag -- against an existing tag the target
+          # is ignored, which would attach these notes to different code.
+          tag_sha=$(git rev-parse -q --verify "refs/tags/v${v}^{commit}" || true)
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$SHA" ]; then
+            echo "::error::git tag v${v} points at ${tag_sha}, not ${SHA}."
+            echo "::error::Refusing to attach release notes to different code."
             exit 1
+          fi
+          if gh release view "v${v}" >/dev/null 2>&1; then
+            echo "Release v${v} already records this commit; nothing to do."
+            exit 0
           fi
           # --generate-notes builds the changelog from the PR titles merged
           # since the previous release, and --target creates the tag on the

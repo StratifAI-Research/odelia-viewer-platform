@@ -40,7 +40,7 @@ class Provider(str, Enum):
     """Which LLM backend chat requests are routed to."""
 
     LOCAL = "local"  # The self-hosted Ollama / llama.cpp instance (default)
-    CLOUD = "cloud"  # Ollama Cloud — sends slices off-site, operator-gated
+    CLOUD = "cloud"  # The configured hosted provider — sends slices off-site, gated
 
 
 class SliceStrategy(str, Enum):
@@ -284,6 +284,15 @@ class DebugConfigResponse(BaseModel):
     cloud_enabled: bool  # Operator gate: ALLOW_CLOUD_BACKEND
     cloud_configured: bool  # Whether an API key is set (never the key itself)
     cloud_url: str  # Cloud host, for display
+
+    # Which hosted service the cloud slot points at. The panel heads its section
+    # "Cloud" whichever it is — the counterpart of "Local" — so this is here for
+    # an operator reading /debug/config, while `cloud_key_env` is what the panel
+    # needs: the middleware is the only side that knows which env var configures
+    # this deployment, and naming the wrong one sends an operator to the wrong
+    # dashboard.
+    cloud_provider: str  # "ollama" | "openrouter"
+    cloud_key_env: str  # Env var an operator sets to supply the key
 
 
 class CloudModelInfo(BaseModel):

@@ -1,7 +1,7 @@
-"""Tests for the optional Ollama Cloud backend.
+"""Tests for the optional hosted cloud backend (Ollama Cloud or OpenRouter).
 
-Covers the operator gate, the Bearer auth header, capability detection, and the
-guarantee that the API key never leaves the service.
+Covers the operator gate, the Bearer auth header, capability detection, the
+per-provider wiring, and the guarantee that the API key never leaves the service.
 """
 import asyncio
 import json
@@ -91,9 +91,15 @@ def _reset_config(monkeypatch, **env):
     """Reset the config singleton and apply env vars."""
     for k in (
         "ALLOW_CLOUD_BACKEND",
+        "CLOUD_PROVIDER",
+        "CLOUD_MODEL_FILTER",
         "OLLAMA_API_KEY",
         "OLLAMA_CLOUD_URL",
         "OLLAMA_CLOUD_MODEL",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_URL",
+        "OPENROUTER_MODEL",
+        "OPENROUTER_ALLOW_DATA_COLLECTION",
     ):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -111,8 +117,9 @@ def test_cloud_disabled_by_default(monkeypatch):
     """Cloud must be off unless an operator opts in — it sends slices off-site."""
     cfg = _reset_config(monkeypatch)
     assert cfg.allow_cloud_backend is False
-    assert cfg.ollama_cloud_api_key == ""
-    assert cfg.ollama_cloud_url == "https://ollama.com"
+    assert cfg.cloud_api_key == ""
+    assert cfg.cloud_url == "https://ollama.com"
+    assert cfg.cloud_provider == "ollama"  # unchanged for deployments that predate the choice
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on", " True "])
@@ -835,3 +842,304 @@ def test_local_model_listing_distinguishes_empty_from_broken(tmp_path, monkeypat
     assert r.status_code == 200
     assert r.json()["models"] == []
 
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter as the alternative cloud provider.
+#
+# Chat is the same OpenAI-compatible POST, so these cover only what actually
+# differs: which env vars are read, the catalogue dialect, the routing policy
+# sent with every request, and the reasoning field name.
+# ---------------------------------------------------------------------------
+
+# One entry that reads images and one that does not, in OpenRouter's shape.
+_OPENROUTER_CATALOGUE = {
+    "data": [
+        {
+            "id": "google/gemini-2.5-pro",
+            "architecture": {"input_modalities": ["text", "image", "file"]},
+        },
+        {
+            "id": "deepseek/deepseek-r1",
+            "architecture": {"input_modalities": ["text"]},
+        },
+    ]
+}
+
+
+def test_openrouter_provider_reads_its_own_url_key_and_model(monkeypatch):
+    cfg = _reset_config(
+        monkeypatch,
+        CLOUD_PROVIDER="openrouter",
+        ALLOW_CLOUD_BACKEND="1",
+        OPENROUTER_API_KEY="sk-or-1",
+        OPENROUTER_MODEL="google/gemini-2.5-pro",
+    )
+    assert cfg.cloud_provider == "openrouter"
+    assert cfg.cloud_url == "https://openrouter.ai/api"
+    assert cfg.cloud_api_key == "sk-or-1"
+    assert cfg.cloud_model == "google/gemini-2.5-pro"
+    assert cfg.cloud_label == "OpenRouter"
+    assert cfg.cloud_key_env == "OPENROUTER_API_KEY"
+
+
+def test_openrouter_does_not_pick_up_the_ollama_key(monkeypatch):
+    """Keys must not cross providers: an Ollama key sent to OpenRouter is a leak
+    of one service's credential to another, and would read as 'configured'."""
+    cfg = _reset_config(
+        monkeypatch, CLOUD_PROVIDER="openrouter", ALLOW_CLOUD_BACKEND="1", OLLAMA_API_KEY="sk-ollama"
+    )
+    assert cfg.cloud_api_key == ""
+
+
+def test_unknown_cloud_provider_falls_back_to_ollama(monkeypatch):
+    """A typo must not take the service down — the slot is gated anyway."""
+    cfg = _reset_config(monkeypatch, CLOUD_PROVIDER="openrouterr")
+    assert cfg.cloud_provider == "ollama"
+
+
+def test_openrouter_client_denies_data_collection_by_default(monkeypatch):
+    """OpenRouter brokers to third-party hosts, so the policy travels per request
+    rather than resting on whatever the account dashboard happens to say."""
+    _reset_config(
+        monkeypatch,
+        CLOUD_PROVIDER="openrouter",
+        ALLOW_CLOUD_BACKEND="1",
+        OPENROUTER_API_KEY="sk-or-1",
+    )
+    from ollama_client import build_cloud_client
+
+    c = build_cloud_client(model="google/gemini-2.5-pro")
+    assert c.base_url == "https://openrouter.ai/api"
+    assert c.backend_type == "openrouter"
+    assert c.extra_payload == {"provider": {"data_collection": "deny"}}
+
+
+def test_openrouter_data_collection_can_be_relaxed(monkeypatch):
+    """Denying excludes some providers, so an operator can opt back out of it."""
+    _reset_config(
+        monkeypatch,
+        CLOUD_PROVIDER="openrouter",
+        ALLOW_CLOUD_BACKEND="1",
+        OPENROUTER_API_KEY="sk-or-1",
+        OPENROUTER_ALLOW_DATA_COLLECTION="1",
+    )
+    from ollama_client import build_cloud_client
+
+    c = build_cloud_client(model="m")
+    assert c.extra_payload == {"provider": {"data_collection": "allow"}}
+
+
+def test_ollama_cloud_client_sends_no_routing_block(monkeypatch):
+    """`provider` is an OpenRouter key; Ollama must not receive it."""
+    _reset_config(monkeypatch, ALLOW_CLOUD_BACKEND="1", OLLAMA_API_KEY="sk-1")
+    from ollama_client import build_cloud_client
+
+    assert build_cloud_client(model="qwen3.5").extra_payload == {}
+
+
+def test_openrouter_chat_sends_the_policy_and_the_bearer(patch_session):
+    from ollama_client import OllamaClient
+
+    session = patch_session(
+        {("POST", "/v1/chat/completions"): _StreamResponse(_sse("hi"))}
+    )
+    client = OllamaClient(
+        "https://openrouter.ai/api",
+        "google/gemini-2.5-pro",
+        backend_type="openrouter",
+        api_key="sk-or-1",
+        extra_payload={"provider": {"data_collection": "deny"}},
+    )
+
+    chunks = asyncio.run(_drain(client))
+    assert [c["text"] for c in chunks] == ["hi"]
+
+    post = next(x for x in session.calls if x["method"] == "POST")
+    assert post["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert post["headers"]["Authorization"] == "Bearer sk-or-1"
+    assert post["json"]["provider"] == {"data_collection": "deny"}
+    assert post["json"]["model"] == "google/gemini-2.5-pro"
+    assert post["json"]["stream"] is True
+
+
+def test_openrouter_listing_reads_vision_from_input_modalities(patch_session):
+    """One GET carries the whole catalogue: OpenRouter has no /api/show to ask."""
+    from ollama_client import OllamaClient
+
+    session = patch_session(
+        {("GET", "/v1/models"): _FakeResponse(json_payload=_OPENROUTER_CATALOGUE)}
+    )
+    client = OllamaClient(
+        "https://openrouter.ai/api", "m", backend_type="openrouter", api_key="sk-or-1"
+    )
+    models = asyncio.run(client.list_models_detailed())
+
+    by_name = {m["name"]: m for m in models}
+    assert by_name["google/gemini-2.5-pro"]["supports_vision"] is True
+    assert by_name["deepseek/deepseek-r1"]["supports_vision"] is False
+    # Capabilities are reported for every entry, so the panel never has to fall
+    # back to "vision unknown" here.
+    assert by_name["google/gemini-2.5-pro"]["capabilities"] == ["text", "image", "file"]
+
+    assert [x["url"] for x in session.calls] == ["https://openrouter.ai/api/v1/models"]
+    assert session.calls[0]["headers"]["Authorization"] == "Bearer sk-or-1"
+
+
+def test_openrouter_listing_raises_on_http_error(patch_session):
+    """A rejected key must surface as an error, not as 'no models'."""
+    from ollama_client import ModelListError, OllamaClient
+
+    patch_session({("GET", "/v1/models"): _FakeResponse(status=401, body=b"unauthorized")})
+    client = OllamaClient(
+        "https://openrouter.ai/api", "m", backend_type="openrouter", api_key="bad"
+    )
+    with pytest.raises(ModelListError, match="401"):
+        asyncio.run(client.list_models_detailed())
+
+
+def test_model_filter_prunes_the_openrouter_catalogue(patch_session):
+    """Several hundred models is not a menu; an operator can narrow it."""
+    from ollama_client import OllamaClient
+
+    patch_session({("GET", "/v1/models"): _FakeResponse(json_payload=_OPENROUTER_CATALOGUE)})
+    client = OllamaClient(
+        "https://openrouter.ai/api",
+        "m",
+        backend_type="openrouter",
+        model_filter=("GEMINI",),  # matched case-insensitively
+    )
+    models = asyncio.run(client.list_models_detailed())
+    assert [m["name"] for m in models] == ["google/gemini-2.5-pro"]
+
+
+def test_model_filter_skips_the_api_show_fan_out(patch_session):
+    """Filtering before the fan-out, so a pruned model costs no request."""
+    from ollama_client import OllamaClient
+
+    session = patch_session({
+        ("GET", "/api/tags"): _FakeResponse(json_payload={
+            "models": [{"name": "keep:1b"}, {"name": "drop:1b"}]
+        }),
+        ("POST", "/api/show"): _FakeResponse(json_payload={"capabilities": ["vision"]}),
+    })
+    client = OllamaClient("https://ollama.com", "m", model_filter=("keep",))
+    models = asyncio.run(client.list_models_detailed())
+
+    assert [m["name"] for m in models] == ["keep:1b"]
+    shows = [x for x in session.calls if x["method"] == "POST"]
+    assert [x["json"]["model"] for x in shows] == ["keep:1b"]
+
+
+def test_reasoning_is_read_in_every_backend_dialect():
+    """Ollama says reasoning_content, OpenRouter says reasoning (or a details
+    array). Reading only the first left OpenRouter's thinking pane empty."""
+    from ollama_client import _reasoning_text
+
+    assert _reasoning_text({"reasoning_content": "ollama"}) == "ollama"
+    assert _reasoning_text({"reasoning": "openrouter"}) == "openrouter"
+    assert (
+        _reasoning_text(
+            {"reasoning_details": [
+                {"type": "reasoning.text", "text": "step "},
+                {"type": "reasoning.text", "text": "two"},
+            ]}
+        )
+        == "step two"
+    )
+    # No reasoning at all, and a shape that carries no text, both read as absent.
+    assert _reasoning_text({"content": "answer"}) == ""
+    assert _reasoning_text({"reasoning_details": [{"type": "reasoning.encrypted"}]}) == ""
+
+
+def test_openrouter_reasoning_streams_as_thinking_tokens(patch_session):
+    from ollama_client import OllamaClient
+
+    patch_session({
+        ("POST", "/v1/chat/completions"): _StreamResponse([
+            b'data: {"choices":[{"delta":{"reasoning":"weighing it"}}]}',
+            b'data: {"choices":[{"delta":{"content":"answer"}}]}',
+            b"data: [DONE]",
+        ])
+    })
+    client = OllamaClient(
+        "https://openrouter.ai/api", "m", backend_type="openrouter", api_key="sk-or-1"
+    )
+    chunks = asyncio.run(_drain(client))
+    assert chunks == [
+        {"type": "thinking", "text": "weighing it"},
+        {"type": "content", "text": "answer"},
+    ]
+
+
+def test_openrouter_health_check_uses_the_catalogue(patch_session):
+    """There is no /api/tags and no health route; /v1/models answering is proof."""
+    from ollama_client import OllamaClient
+
+    session = patch_session({("GET", "/v1/models"): _FakeResponse(json_payload={"data": []})})
+    client = OllamaClient("https://openrouter.ai/api", "m", backend_type="openrouter")
+    assert asyncio.run(client.health_check()) is True
+    assert session.calls[0]["url"] == "https://openrouter.ai/api/v1/models"
+
+
+# ---------------------------------------------------------------------------
+# HTTP surface with OpenRouter configured
+# ---------------------------------------------------------------------------
+
+def test_config_names_the_configured_provider(tmp_path, monkeypatch):
+    """The panel names the env var from this, and an operator reading the
+    endpoint learns which service the cloud slot points at."""
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        CLOUD_PROVIDER="openrouter",
+        ALLOW_CLOUD_BACKEND="1",
+        OPENROUTER_API_KEY="sk-or-secret",
+    )
+    data = client.get("/debug/config").json()
+
+    assert data["cloud_provider"] == "openrouter"
+    assert data["cloud_key_env"] == "OPENROUTER_API_KEY"
+    assert data["cloud_url"] == "https://openrouter.ai/api"
+    assert data["cloud_configured"] is True
+    assert "sk-or-secret" not in json.dumps(data)
+
+
+def test_refusal_names_the_env_var_the_operator_must_set(tmp_path, monkeypatch):
+    """Telling an OpenRouter deployment to set OLLAMA_API_KEY sends the operator
+    to the wrong dashboard."""
+    client = _client(
+        tmp_path, monkeypatch, CLOUD_PROVIDER="openrouter", ALLOW_CLOUD_BACKEND="1"
+    )
+    r = client.put("/debug/config", json={"provider": "cloud", "cloud_model": "m"})
+    assert r.status_code == 400
+    assert "OPENROUTER_API_KEY" in r.json()["detail"]
+    assert "OpenRouter" in r.json()["detail"]
+
+
+def test_disabled_gate_message_names_the_provider(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch, CLOUD_PROVIDER="openrouter")
+    r = client.get("/debug/cloud/models")
+    assert r.status_code == 403
+    assert "OpenRouter" in r.json()["detail"]
+    assert "disabled" in r.json()["detail"]
+
+
+def test_cloud_model_listing_works_against_openrouter(tmp_path, monkeypatch, patch_session):
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        CLOUD_PROVIDER="openrouter",
+        ALLOW_CLOUD_BACKEND="1",
+        OPENROUTER_API_KEY="sk-or-1",
+    )
+    patch_session({("GET", "/v1/models"): _FakeResponse(json_payload=_OPENROUTER_CATALOGUE)})
+
+    r = client.get("/debug/cloud/models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["capabilities_reported"] is True
+    by_name = {m["name"]: m for m in data["models"]}
+    assert by_name["google/gemini-2.5-pro"]["supports_vision"] is True
+    assert by_name["deepseek/deepseek-r1"]["supports_vision"] is False
+    assert "sk-or-1" not in json.dumps(data)

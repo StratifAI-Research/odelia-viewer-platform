@@ -9,6 +9,7 @@ from config import get_config
 from fastapi import APIRouter, HTTPException
 from image_cache import get_image_cache
 from models import (
+    MAX_SLICES_PER_SERIES,
     CacheClearResponse,
     CloudModelListResponse,
     DebugConfigResponse,
@@ -58,6 +59,7 @@ def _build_config_response() -> DebugConfigResponse:
         cloud_url=config.cloud_url,
         cloud_provider=config.cloud_provider,
         cloud_key_env=config.cloud_key_env,
+        max_slices_per_series=MAX_SLICES_PER_SERIES,
     )
 
 

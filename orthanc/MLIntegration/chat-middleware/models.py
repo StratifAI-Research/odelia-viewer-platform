@@ -62,9 +62,17 @@ class SliceStrategy(str, Enum):
 MAX_UID_LEN = 128
 
 # A message names the slices it wants explicitly, so the list needs an upper
-# bound: it decides how many images are encoded into one LLM call. 64 sits well
-# above the panel's own ceiling (50 slices per series).
-MAX_SLICES_PER_SERIES = 64
+# bound: it decides how many images are encoded into one LLM call.
+#
+# This is a transport and preprocessing guard, not a statement about any model.
+# What a model can actually be shown is a property of the model — a 131072-token
+# context at 256 tokens per image is roughly 500 images — and the panel derives
+# that per model from the context length and per-image cost reported alongside
+# each listing. This bound is the separate question of what this pipeline will
+# ship in one message: every slice is a WADO retrieval, a decode, and a base64
+# PNG in the request body, so a few hundred would mean tens of megabytes and
+# minutes of preprocessing before the model sees anything.
+MAX_SLICES_PER_SERIES = 128
 
 # Attaching more than a handful of series already exceeds any vision model's
 # image budget. The bound exists so one message cannot trigger an unbounded
@@ -294,6 +302,11 @@ class DebugConfigResponse(BaseModel):
     cloud_provider: str  # "ollama" | "openrouter"
     cloud_key_env: str  # Env var an operator sets to supply the key
 
+    # The transport guard, so the panel does not mirror the number. What a model
+    # can be shown is derived per model from the budget in its listing; this is
+    # the separate ceiling on what one message will ship.
+    max_slices_per_series: int
+
 
 class CloudModelInfo(BaseModel):
     """A model offered by a backend, cloud or local."""
@@ -301,6 +314,14 @@ class CloudModelInfo(BaseModel):
     name: str
     capabilities: list[str] = Field(default_factory=list)
     supports_vision: bool = False
+
+    # What bounds how many slices this model can be shown, as the backend reports
+    # it. Ollama gives both: `<arch>.context_length` and `<arch>.mm.tokens_per_image`
+    # from /api/show. OpenRouter gives only the context length — it publishes no
+    # per-image cost — and llama.cpp gives neither. None means "not reported", so
+    # the panel can say what it assumed rather than present a guess as fact.
+    context_length: int | None = None
+    tokens_per_image: int | None = None
 
 
 class CloudModelListResponse(BaseModel):

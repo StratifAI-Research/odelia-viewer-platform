@@ -137,6 +137,38 @@ def _reasoning_text(delta: dict) -> str:
     return ""
 
 
+def _image_budget(model_info: dict) -> tuple[int | None, int | None]:
+    """(context_length, tokens_per_image) from an Ollama /api/show `model_info`.
+
+    Both are namespaced by architecture — `gemma3.context_length`,
+    `gemma3.mm.tokens_per_image` — so they are found by suffix rather than by a
+    list of architectures nobody can keep current. For context length the
+    shallowest match wins: `gemma3.context_length` is the model's, while
+    `gemma3.vision.*` describes the encoder.
+
+    Together these are what actually bounds how many slices a model can be shown:
+    a 131072-token context at 256 tokens per image is ~500 images, not the
+    round number a UI would otherwise invent. Either may be None — vision models
+    predating the field report no per-image cost — and the caller then has no
+    model-derived bound to offer.
+    """
+    context: int | None = None
+    context_depth = None
+    per_image: int | None = None
+
+    for key, value in (model_info or {}).items():
+        if not isinstance(value, int):
+            continue
+        if key.endswith(".mm.tokens_per_image"):
+            per_image = value
+        elif key.endswith(".context_length"):
+            depth = key.count(".")
+            if context is None or depth < context_depth:
+                context, context_depth = value, depth
+
+    return context, per_image
+
+
 def _describe(exc: Exception) -> str:
     """Human-readable one-liner for an exception, safe to show a client.
 
@@ -435,7 +467,13 @@ class OllamaClient:
         if self.backend_type == "llamacpp":
             # llama.cpp serves a single preloaded model and exposes no capability data.
             return [
-                {"name": m, "capabilities": [], "supports_vision": False}
+                {
+                    "name": m,
+                    "capabilities": [],
+                    "supports_vision": False,
+                    "context_length": None,
+                    "tokens_per_image": None,
+                }
                 for m in await self.list_models()
             ]
 
@@ -509,11 +547,19 @@ class OllamaClient:
                 continue
             architecture = entry.get("architecture") or {}
             modalities = architecture.get("input_modalities") or []
+            context = entry.get("context_length")
             models.append(
                 {
                     "name": name,
                     "capabilities": list(modalities),
                     "supports_vision": "image" in modalities,
+                    "context_length": context if isinstance(context, int) else None,
+                    # OpenRouter publishes no per-image token cost — `per_request_limits`
+                    # is null for every model in the catalogue — and the real cost
+                    # varies by model and by which provider the request is brokered
+                    # to. Left unset rather than guessed here; the panel says what
+                    # it assumed instead of the middleware inventing a figure.
+                    "tokens_per_image": None,
                 }
             )
         return models
@@ -534,7 +580,7 @@ class OllamaClient:
         # each needs its own /api/show.
         semaphore = asyncio.Semaphore(8)
 
-        async def capabilities_for(name: str) -> list[str]:
+        async def describe(name: str) -> tuple[list[str], int | None, int | None]:
             async with semaphore:
                 try:
                     async with session.post(
@@ -544,22 +590,25 @@ class OllamaClient:
                     ) as show_response:
                         if show_response.status != 200:
                             logger.debug(f"/api/show for {name}: HTTP {show_response.status}")
-                            return []
+                            return [], None, None
                         show_data = await show_response.json()
-                        return show_data.get("capabilities") or []
+                        context, per_image = _image_budget(show_data.get("model_info") or {})
+                        return show_data.get("capabilities") or [], context, per_image
                 except Exception as e:
                     logger.debug(f"/api/show for {name} failed: {e}")
-                    return []
+                    return [], None, None
 
-        all_caps = await asyncio.gather(*(capabilities_for(n) for n in names))
+        described = await asyncio.gather(*(describe(n) for n in names))
 
         return [
             {
                 "name": name,
                 "capabilities": caps,
                 "supports_vision": "vision" in caps,
+                "context_length": context,
+                "tokens_per_image": per_image,
             }
-            for name, caps in zip(names, all_caps, strict=True)
+            for name, (caps, context, per_image) in zip(names, described, strict=True)
         ]
 
 

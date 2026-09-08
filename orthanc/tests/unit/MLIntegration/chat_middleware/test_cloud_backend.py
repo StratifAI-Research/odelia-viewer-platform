@@ -302,7 +302,15 @@ def test_list_models_detailed_keeps_model_when_show_fails(patch_session):
         ("POST", "/api/show"): _FakeResponse(status=500, body=b"boom"),
     })
     models = asyncio.run(OllamaClient("https://ollama.com", "m").list_models_detailed())
-    assert models == [{"name": "m:1b", "capabilities": [], "supports_vision": False}]
+    assert models == [
+        {
+            "name": "m:1b",
+            "capabilities": [],
+            "supports_vision": False,
+            "context_length": None,
+            "tokens_per_image": None,
+        }
+    ]
 
 
 def test_list_models_detailed_raises_on_tags_failure(patch_session):
@@ -619,7 +627,15 @@ def test_catalogue_request_is_retried_after_a_stalled_connection(monkeypatch):
 
     models = asyncio.run(OllamaClient("https://ollama.com", "m").list_models_detailed())
     assert attempts["n"] == 2  # retried once
-    assert models == [{"name": "m:1b", "capabilities": ["completion", "vision"], "supports_vision": True}]
+    assert models == [
+        {
+            "name": "m:1b",
+            "capabilities": ["completion", "vision"],
+            "supports_vision": True,
+            "context_length": None,
+            "tokens_per_image": None,
+        }
+    ]
 
 
 def test_http_error_is_not_retried(monkeypatch):
@@ -1143,3 +1159,84 @@ def test_cloud_model_listing_works_against_openrouter(tmp_path, monkeypatch, pat
     assert by_name["google/gemini-2.5-pro"]["supports_vision"] is True
     assert by_name["deepseek/deepseek-r1"]["supports_vision"] is False
     assert "sk-or-1" not in json.dumps(data)
+
+
+# ---------------------------------------------------------------------------
+# What bounds how many slices a model can be shown.
+#
+# The panel used to cap this at a hard-coded 50. The real bound is a property of
+# the model, and Ollama reports the two numbers it is made of.
+# ---------------------------------------------------------------------------
+
+def test_image_budget_is_read_from_the_model_not_assumed():
+    """Verified against a live /api/show for medgemma 1.5 4B (gemma3)."""
+    from ollama_client import _image_budget
+
+    context, per_image = _image_budget({
+        "gemma3.context_length": 131072,
+        "gemma3.mm.tokens_per_image": 256,
+        "gemma3.vision.image_size": 896,
+        "gemma3.vision.patch_size": 14,
+    })
+    assert (context, per_image) == (131072, 256)
+    # ~500 images, which is the point: the honest bound is nothing like 50.
+    assert context // per_image > 400
+
+
+def test_image_budget_prefers_the_model_context_over_the_encoder_one():
+    """`gemma3.vision.*` describes the image encoder, not the model's context."""
+    from ollama_client import _image_budget
+
+    context, _ = _image_budget({
+        "gemma3.vision.context_length": 4096,
+        "gemma3.context_length": 131072,
+    })
+    assert context == 131072
+
+
+def test_image_budget_reports_nothing_when_the_model_says_nothing():
+    """None is not zero: it means 'unreported', and the panel says so."""
+    from ollama_client import _image_budget
+
+    assert _image_budget({}) == (None, None)
+    assert _image_budget({"llama.context_length": 8192}) == (8192, None)
+    # A non-numeric value is not a budget.
+    assert _image_budget({"x.context_length": "many"}) == (None, None)
+
+
+def test_ollama_listing_carries_the_budget(patch_session):
+    from ollama_client import OllamaClient
+
+    patch_session({
+        ("GET", "/api/tags"): _FakeResponse(json_payload={"models": [{"name": "medgemma:4b"}]}),
+        ("POST", "/api/show"): _FakeResponse(json_payload={
+            "capabilities": ["completion", "vision"],
+            "model_info": {"gemma3.context_length": 131072, "gemma3.mm.tokens_per_image": 256},
+        }),
+    })
+    models = asyncio.run(OllamaClient("https://ollama.com", "m").list_models_detailed())
+    assert models[0]["context_length"] == 131072
+    assert models[0]["tokens_per_image"] == 256
+
+
+def test_openrouter_listing_carries_context_but_no_per_image_cost(patch_session):
+    """OpenRouter publishes context_length and nothing about images: per_request_limits
+    is null for all 430 models, and the real per-image cost varies by which provider
+    the request is brokered to. Guessing here would present an estimate as fact."""
+    from ollama_client import OllamaClient
+
+    patch_session({
+        ("GET", "/v1/models"): _FakeResponse(json_payload={
+            "data": [
+                {
+                    "id": "google/gemini-3.8-flash",
+                    "context_length": 1048576,
+                    "architecture": {"input_modalities": ["text", "image"]},
+                }
+            ]
+        })
+    })
+    client = OllamaClient("https://openrouter.ai/api", "m", backend_type="openrouter")
+    models = asyncio.run(client.list_models_detailed())
+    assert models[0]["context_length"] == 1048576
+    assert models[0]["tokens_per_image"] is None

@@ -9,6 +9,7 @@ from config import get_config
 from fastapi import APIRouter, HTTPException
 from image_cache import get_image_cache
 from models import (
+    MAX_SLICES_PER_SERIES,
     CacheClearResponse,
     CloudModelListResponse,
     DebugConfigResponse,
@@ -21,6 +22,8 @@ from ollama_client import (
     CloudBackendUnavailableError,
     ModelListError,
     build_cloud_client,
+    cloud_disabled_message,
+    cloud_key_missing_message,
     get_ollama_client,
 )
 from runtime_config import get_runtime_config
@@ -52,8 +55,11 @@ def _build_config_response() -> DebugConfigResponse:
         cloud_model=runtime_config.cloud_model,
         active_model=runtime_config.active_model,
         cloud_enabled=config.allow_cloud_backend,
-        cloud_configured=bool(config.ollama_cloud_api_key),
-        cloud_url=config.ollama_cloud_url,
+        cloud_configured=bool(config.cloud_api_key),
+        cloud_url=config.cloud_url,
+        cloud_provider=config.cloud_provider,
+        cloud_key_env=config.cloud_key_env,
+        max_slices_per_series=MAX_SLICES_PER_SERIES,
     )
 
 
@@ -80,21 +86,9 @@ async def update_debug_config(update: DebugConfigUpdate) -> DebugConfigResponse:
     # otherwise a caller could leave the service on a cloud provider it cannot use.
     if update.provider == Provider.CLOUD:
         if not config.allow_cloud_backend:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "The Ollama Cloud backend is disabled. An operator must set "
-                    "ALLOW_CLOUD_BACKEND=1 on the chat-middleware service."
-                ),
-            )
-        if not config.ollama_cloud_api_key:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "No Ollama Cloud API key is configured. Set OLLAMA_API_KEY on "
-                    "the chat-middleware service."
-                ),
-            )
+            raise HTTPException(status_code=403, detail=cloud_disabled_message())
+        if not config.cloud_api_key:
+            raise HTTPException(status_code=400, detail=cloud_key_missing_message())
         # A cloud provider with no model would fail on the next chat instead of here.
         if not (update.cloud_model or runtime_config.cloud_model):
             raise HTTPException(
@@ -151,9 +145,10 @@ async def list_cloud_models() -> CloudModelListResponse:
     The API key stays server-side: the browser asks this endpoint, which queries
     the cloud host itself. The key is never included in the response.
 
-    Roughly half of Ollama's cloud models are text-only, and this chat sends
-    DICOM slices as images, so `supports_vision` is the flag the panel needs to
-    stop a user picking a model that cannot see the study at all.
+    A large part of either catalogue is text-only — roughly half of Ollama Cloud's
+    models, and about four in ten of OpenRouter's several hundred — while this
+    chat sends DICOM slices as images. `supports_vision` is the flag the panel
+    needs to stop a user picking a model that cannot see the study at all.
     """
     try:
         # No model needed just to list; pass a placeholder so the "no model

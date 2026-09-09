@@ -98,7 +98,7 @@ class RuntimeConfig:
 
         # Cloud model tag, separate from `model` so switching provider back and
         # forth does not overwrite the local model selection.
-        self.cloud_model: str = config.ollama_cloud_model
+        self.cloud_model: str = config.cloud_model
 
         # Initialize preprocessing from static config (env vars)
         self.preprocessing: PreprocessingParams = PreprocessingParams(

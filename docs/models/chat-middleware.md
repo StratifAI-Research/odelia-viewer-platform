@@ -91,8 +91,10 @@ environment variables — see [`setup_chat.md`](../setup/setup_chat.md).
 
 Both backends above run **on your own hardware**: no image data leaves the deployment.
 
-An optional **Ollama Cloud** backend (`ALLOW_CLOUD_BACKEND=1`) instead routes chat to Ollama's
-hosted models, which means **the preprocessed DICOM slices are uploaded to a third party**. It is
-disabled by default, the service always starts on the local backend, and the panel warns whenever
-it is active. Note also that many cloud models are text-only and cannot accept the slices at all —
-see [`setup_chat.md`](../setup/setup_chat.md#option-c--ollama-cloud-optional-sends-images-off-site).
+An optional **hosted cloud** backend (`ALLOW_CLOUD_BACKEND=1`) instead routes chat to a hosted
+model — Ollama Cloud or OpenRouter, selected with `CLOUD_PROVIDER` — which means **the preprocessed
+DICOM slices are uploaded to a third party**. With OpenRouter that third party is a broker that
+forwards the request to one of several inference providers. It is disabled by default, the service
+always starts on the local backend, and the panel warns whenever it is active. Note also that much
+of either catalogue is text-only and cannot accept the slices at all — see
+[`setup_chat.md`](../setup/setup_chat.md#option-c--hosted-cloud-model-optional-sends-images-off-site).

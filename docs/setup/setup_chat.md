@@ -7,9 +7,9 @@ used as the example throughout this guide. The model needs a local LLM backend �
 - **Ollama** (default) — runs on the host. Simplest; works without a GPU.
 - **llama.cpp** (optional) — runs in Docker on an NVIDIA GPU. Typically faster.
 
-There is also an optional [**Ollama Cloud** backend](#option-c--ollama-cloud-optional-sends-images-off-site),
-disabled by default. It runs no model locally, but **sends the study's images to a third party** —
-see the warning in that section before enabling it.
+There is also an optional [**hosted cloud backend**](#option-c--hosted-cloud-model-optional-sends-images-off-site)
+— Ollama Cloud or OpenRouter — disabled by default. It runs no model locally, but **sends the
+study's images to a third party** — see the warning in that section before enabling it.
 
 > [!NOTE]
 > **No Hugging Face token is needed for the chat.** Ollama and llama.cpp load models from the
@@ -119,20 +119,34 @@ To use a smaller quantization (e.g. `Q8_0`, `Q4_K_M`) download it from
 
 ---
 
-## Option C — Ollama Cloud (optional, sends images off-site)
+## Option C — Hosted cloud model (optional, sends images off-site)
 
 > [!WARNING]
 > **This sends patient imaging outside your network.** The chat uploads the preprocessed DICOM
-> slices of the open study to Ollama's hosted service for analysis. Everything else in this stack
+> slices of the open study to a hosted service for analysis. Everything else in this stack
 > runs locally by design. Do not enable this on a deployment holding patient data unless your
 > institution explicitly permits it, and prefer it only for non-patient or already-public data.
 
 The cloud backend runs no model on your hardware, so it needs no GPU and no multi-GB download. It
 is **disabled by default** and an operator has to opt in.
 
+Pick **one** hosted provider per deployment with `CLOUD_PROVIDER`:
+
+| | `CLOUD_PROVIDER=ollama` (default) | `CLOUD_PROVIDER=openrouter` |
+| --- | --- | --- |
+| Service | [Ollama Cloud](https://ollama.com) | [OpenRouter](https://openrouter.ai) |
+| Catalogue | A couple of dozen models, roughly half vision-capable | ~430 models from many vendors (Gemini, GPT, Claude, Qwen-VL, …), ~260 of them vision-capable |
+| Who runs the model | Ollama | One of several third-party inference providers OpenRouter routes to |
+| Billing | Ollama plan/subscription | Per-token, prepaid credits |
+
+Both are OpenAI-compatible, so the chat itself is identical; they differ in the catalogue and in
+where the slices ultimately land. The panel offers a single **Cloud** section either way — the
+counterpart of **Local** — with the configured host shown under it.
+
 ### 1. Create an API key
 
-Create one at <https://ollama.com/settings/keys>.
+- **Ollama Cloud** — <https://ollama.com/settings/keys>
+- **OpenRouter** — <https://openrouter.ai/settings/keys>
 
 The key is held only by the `chat-middleware` service. It is never sent to the browser, never
 returned by any endpoint, and never written to the logs — so chat users select a model but never
@@ -140,12 +154,29 @@ see or enter the key.
 
 ### 2. Enable it in `.env`
 
+Ollama Cloud:
+
 ```bash
 ALLOW_CLOUD_BACKEND=1
+CLOUD_PROVIDER=ollama
 OLLAMA_API_KEY=<your key>
 # Optional: preselect a model. Otherwise users pick one in the chat panel.
 OLLAMA_CLOUD_MODEL=qwen3.5
 ```
+
+OpenRouter:
+
+```bash
+ALLOW_CLOUD_BACKEND=1
+CLOUD_PROVIDER=openrouter
+OPENROUTER_API_KEY=<your key>
+# Optional: preselect a model. Otherwise users pick one in the chat panel.
+OPENROUTER_MODEL=google/gemini-2.5-pro
+# Strongly recommended with OpenRouter: its catalogue is several hundred models.
+CLOUD_MODEL_FILTER=gemini,qwen,medgemma
+```
+
+Only the selected provider's variables are read, so both sets can sit in `.env` side by side.
 
 ```bash
 docker compose up -d chat-middleware
@@ -153,23 +184,44 @@ docker compose up -d chat-middleware
 
 ### 3. Select it in the viewer
 
-Open the **Chat AI** panel → settings (gear) → **Backend** → *Provider* → **Ollama Cloud**, then
-pick a **Cloud Model**. The list is fetched live from your account.
+Open the **Chat AI** panel and pick a model from the **Cloud** section of the model menu in the
+header. The list is fetched live from the provider; settings (gear) → **Models available in chat**
+prunes which of them the menu offers.
 
 > [!IMPORTANT]
-> **Pick a model marked “vision”.** The chat sends slices as images, and many Ollama Cloud models
-> are text-only — at the time of writing roughly half. A text-only model cannot see the study at
-> all. The panel marks vision-capable models and warns if you select one that is not.
+> **Pick a model marked “vision”.** The chat sends slices as images, and a large part of either
+> catalogue is text-only — roughly half of Ollama Cloud's, and about four in ten of OpenRouter's. A
+> text-only model cannot see the study at all. The panel marks vision-capable models and warns if
+> you select one that is not.
 
-Capabilities are read from Ollama's `/api/show`, not the `capabilities` array in `/api/tags`; the
-two disagree, and `/api/tags` under-reports vision.
+Where the vision flag comes from differs by provider. Ollama's is read from `/api/show`, not the
+`capabilities` array in `/api/tags`; the two disagree, and `/api/tags` under-reports vision.
+OpenRouter reports `architecture.input_modalities` for every model in one catalogue request, so its
+flags are always known.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ALLOW_CLOUD_BACKEND` | `0` | Operator gate. While `0`, the UI hides the option and the middleware refuses cloud requests. |
+| `CLOUD_PROVIDER` | `ollama` | Which hosted service the cloud slot points at: `ollama` or `openrouter`. An unrecognized value falls back to `ollama`. |
+| `CLOUD_MODEL_FILTER` | *(empty)* | Comma-separated substrings; only models whose id contains one of them are offered. Empty offers the whole catalogue. |
 | `OLLAMA_API_KEY` | *(empty)* | Ollama Cloud API key. Stays server-side. |
 | `OLLAMA_CLOUD_URL` | `https://ollama.com` | Cloud host. Ollama Cloud behaves as a remote Ollama host. |
 | `OLLAMA_CLOUD_MODEL` | *(empty)* | Optional preselected cloud model. |
+| `OPENROUTER_API_KEY` | *(empty)* | OpenRouter API key. Stays server-side. |
+| `OPENROUTER_URL` | `https://openrouter.ai/api` | OpenRouter host. |
+| `OPENROUTER_MODEL` | *(empty)* | Optional preselected cloud model, e.g. `google/gemini-2.5-pro`. |
+| `OPENROUTER_ALLOW_DATA_COLLECTION` | `0` | While `0`, every request carries `provider.data_collection=deny`, restricting routing to providers that do not retain or train on prompts. Setting it to `1` lifts that and widens model availability. |
+
+> [!NOTE]
+> **OpenRouter is a broker, not the model host.** It forwards each request to one of several
+> third-party inference providers, so "off-site" is a wider set of companies than with a
+> single-hop service. The deny-by-default above is sent with every request rather than relying on
+> the account dashboard, but it is a contractual guarantee from those providers, not a technical
+> one. Review OpenRouter's privacy settings before enabling this on anything sensitive.
+>
+> A model with no compliant provider answers `No endpoints found matching your data policy`, which
+> the chat panel shows verbatim. Pick another model, or set
+> `OPENROUTER_ALLOW_DATA_COLLECTION=1` if the deployment's data permits it.
 
 ### Scope and caveats
 
@@ -183,6 +235,8 @@ two disagree, and `/api/tags` under-reports vision.
 - The service always starts on the **local** backend, even with cloud enabled, so a restart never
   silently resumes sending data off-site.
 - Billing and rate limits are attached to the single operator key.
+- Switching `CLOUD_PROVIDER` invalidates any preselected cloud model: the tag formats differ
+  (`qwen3.5` vs `google/gemini-2.5-pro`), so pick a model again after the switch.
 
 ---
 

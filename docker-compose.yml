@@ -502,16 +502,31 @@ services:
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"
       BACKEND_TYPE: "${BACKEND_TYPE:-ollama}"
       OLLAMA_NUM_CTX: "128000"  # 128k context window
-      # Optional Ollama Cloud backend, off unless an operator opts in.
+      # Optional hosted cloud backend, off unless an operator opts in.
       #
-      # Enabling it lets chat users route a study to Ollama's hosted models,
-      # which means the preprocessed DICOM slices leave this network and are sent
-      # to a third party. Keep it disabled for any deployment holding patient
-      # data. See docs/setup/setup_chat.md.
+      # Enabling it lets chat users route a study to a hosted model, which means
+      # the preprocessed DICOM slices leave this network and are sent to a third
+      # party. Keep it disabled for any deployment holding patient data.
+      # See docs/setup/setup_chat.md.
+      #
+      # CLOUD_PROVIDER picks which service the cloud slot points at — "ollama"
+      # (Ollama Cloud) or "openrouter". Only that provider's own variables are
+      # read, so the two sets can sit side by side in .env.
       ALLOW_CLOUD_BACKEND: "${ALLOW_CLOUD_BACKEND:-0}"
+      CLOUD_PROVIDER: "${CLOUD_PROVIDER:-ollama}"
       OLLAMA_CLOUD_URL: "${OLLAMA_CLOUD_URL:-https://ollama.com}"
       OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
       OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-}"
+      OPENROUTER_URL: "${OPENROUTER_URL:-https://openrouter.ai/api}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-}"
+      # OpenRouter brokers each request to one of several inference providers.
+      # Left unset, routing is restricted to providers that do not retain or train
+      # on prompts; setting it to 1 lifts that restriction.
+      OPENROUTER_ALLOW_DATA_COLLECTION: "${OPENROUTER_ALLOW_DATA_COLLECTION:-0}"
+      # Optional comma-separated substrings narrowing the cloud model menu.
+      # OpenRouter lists several hundred models; most deployments want a handful.
+      CLOUD_MODEL_FILTER: "${CLOUD_MODEL_FILTER:-}"
       WADO_BASE_URL: "http://orthanc-viewer:8042/dicom-web"
       NUM_SLICES: "5"
       MAX_CACHE_ENTRIES: "100"

@@ -1,6 +1,6 @@
 """
 Async streaming client for OpenAI-compatible /v1/chat/completions endpoint.
-Supports both Ollama and llama.cpp backends.
+Supports Ollama, llama.cpp and OpenRouter backends.
 """
 
 import asyncio
@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 # Model listing budget. The requests themselves are fast (~0.2s each against
 # ollama.com), so this bounds a stalled connection rather than slow work.
 MODEL_LIST_TIMEOUT_SECONDS = 30
-# Attempts for the /api/tags catalogue request; see the retry comment in
-# list_models_detailed for why a remote host needs more than one.
+# Attempts for the catalogue request; see the retry comment in _fetch_catalogue
+# for why a remote host needs more than one.
 MODEL_LIST_ATTEMPTS = 2
 
 # Whole-turn budget for a chat. Generous: a large model on CPU can take minutes.
@@ -29,6 +29,18 @@ CONNECT_TIMEOUT_SECONDS = 15
 CHAT_CONNECT_ATTEMPTS = 2
 CHAT_RETRY_BASE_DELAY_SECONDS = 0.5
 CHAT_RETRY_JITTER_SECONDS = 0.5
+
+# Backends whose catalogue is the OpenAI-shaped GET /v1/models: llama.cpp serves
+# its one preloaded model there, OpenRouter its whole brokered catalogue.
+_OPENAI_CATALOGUE_BACKENDS = frozenset({"llamacpp", "openrouter"})
+
+# Cheapest endpoint that proves each backend is reachable. OpenRouter has no
+# /api/tags and no dedicated health route, so its catalogue doubles as one.
+_HEALTH_ENDPOINTS = {
+    "llamacpp": "/health",
+    "openrouter": "/v1/models",
+    "ollama": "/api/tags",
+}
 
 # Failures that mean "no connection was established", so the request provably
 # never reached the model and can safely be sent again. ClientConnectorError
@@ -98,6 +110,65 @@ def _upstream_message(body: str) -> str:
     return text[:400]
 
 
+def _reasoning_text(delta: dict) -> str:
+    """Pull streamed reasoning text out of a delta, whichever dialect it speaks.
+
+    Ollama — local and cloud — sends `reasoning_content`. OpenRouter sends
+    `reasoning` as a plain string, plus `reasoning_details` (an array of typed
+    parts) for models whose reasoning is structured. Reading only
+    `reasoning_content` dropped OpenRouter's thinking tokens silently: the answer
+    streamed normally and the thinking pane simply stayed empty.
+
+    Returns "" when the delta carries no reasoning, which the caller treats the
+    same as an absent field.
+    """
+    for key in ("reasoning_content", "reasoning"):
+        value = delta.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    details = delta.get("reasoning_details")
+    if isinstance(details, list):
+        return "".join(
+            part["text"]
+            for part in details
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    return ""
+
+
+def _image_budget(model_info: dict) -> tuple[int | None, int | None]:
+    """(context_length, tokens_per_image) from an Ollama /api/show `model_info`.
+
+    Both are namespaced by architecture — `gemma3.context_length`,
+    `gemma3.mm.tokens_per_image` — so they are found by suffix rather than by a
+    list of architectures nobody can keep current. For context length the
+    shallowest match wins: `gemma3.context_length` is the model's, while
+    `gemma3.vision.*` describes the encoder.
+
+    Together these are what actually bounds how many slices a model can be shown:
+    a 131072-token context at 256 tokens per image is ~500 images, not the
+    round number a UI would otherwise invent. Either may be None — vision models
+    predating the field report no per-image cost — and the caller then has no
+    model-derived bound to offer.
+    """
+    context: int | None = None
+    context_depth = None
+    per_image: int | None = None
+
+    for key, value in (model_info or {}).items():
+        if not isinstance(value, int):
+            continue
+        if key.endswith(".mm.tokens_per_image"):
+            per_image = value
+        elif key.endswith(".context_length"):
+            depth = key.count(".")
+            if context is None or depth < context_depth:
+                context, context_depth = value, depth
+
+    return context, per_image
+
+
 def _describe(exc: Exception) -> str:
     """Human-readable one-liner for an exception, safe to show a client.
 
@@ -116,7 +187,11 @@ def _describe(exc: Exception) -> str:
 class OllamaClient:
     """
     Async streaming client for /v1/chat/completions endpoint.
-    Supports both Ollama and llama.cpp backends via backend_type.
+    Supports Ollama, llama.cpp and OpenRouter backends via backend_type.
+
+    Chat is identical across all three — one OpenAI-compatible POST. The backends
+    differ only in how they answer "which models do you have", and OpenRouter
+    additionally accepts routing options the others do not (see `extra_payload`).
     """
 
     def __init__(
@@ -125,18 +200,35 @@ class OllamaClient:
         model: str,
         backend_type: str = "ollama",
         api_key: str | None = None,
+        extra_payload: dict | None = None,
+        model_filter: tuple[str, ...] = (),
     ) -> None:
         """
         Args:
             base_url: Base URL for the LLM server (e.g., "http://localhost:11434")
             model: Model name to use (e.g., "medgemma-128k")
-            backend_type: "ollama" or "llamacpp"
-            api_key: Bearer token, required by Ollama Cloud and unused locally
+            backend_type: "ollama", "llamacpp" or "openrouter"
+            api_key: Bearer token, required by the hosted backends and unused locally
+            extra_payload: Backend-specific keys merged into every chat request.
+                Kept out of this class's own logic so provider policy — OpenRouter's
+                data-collection setting, say — is decided by whoever builds the
+                client, not buried in the transport.
+            model_filter: Case-insensitive substrings; when non-empty, only models
+                whose id contains one of them are listed.
         """
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.backend_type = backend_type
         self.api_key = api_key or None
+        self.extra_payload = dict(extra_payload or {})
+        self.model_filter = tuple(model_filter)
+
+    def _keep_model(self, name: str) -> bool:
+        """Whether a model id survives `model_filter`."""
+        if not self.model_filter:
+            return True
+        lowered = name.lower()
+        return any(needle.lower() in lowered for needle in self.model_filter)
 
     def _auth_headers(self) -> dict[str, str]:
         """Authorization header when an API key is configured, else nothing.
@@ -171,6 +263,7 @@ class OllamaClient:
             "model": self.model,
             "messages": messages,
             "stream": True,
+            **self.extra_payload,
         }
 
         # Only add supported OpenAI-compatible parameters
@@ -254,7 +347,7 @@ class OllamaClient:
                                 choices = chunk.get("choices", [])
                                 if choices:
                                     delta = choices[0].get("delta", {})
-                                    reasoning = delta.get("reasoning_content")
+                                    reasoning = _reasoning_text(delta)
                                     if reasoning:
                                         yielded_any = True
                                         yield {"type": "thinking", "text": reasoning}
@@ -304,9 +397,9 @@ class OllamaClient:
     async def health_check(self) -> bool:
         """
         Check if the LLM backend is reachable.
-        Ollama: GET /api/tags  |  llama.cpp: GET /health
+        Ollama: GET /api/tags | llama.cpp: GET /health | OpenRouter: GET /v1/models
         """
-        endpoint = "/health" if self.backend_type == "llamacpp" else "/api/tags"
+        endpoint = _HEALTH_ENDPOINTS.get(self.backend_type, "/api/tags")
         try:
             timeout = aiohttp.ClientTimeout(total=5)
             async with (
@@ -321,20 +414,20 @@ class OllamaClient:
     async def list_models(self) -> list[str]:
         """
         List available models.
-        Ollama: GET /api/tags  |  llama.cpp: GET /v1/models
+        Ollama: GET /api/tags | llama.cpp and OpenRouter: GET /v1/models
         """
         try:
             timeout = aiohttp.ClientTimeout(total=10)
             headers = self._auth_headers()
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                if self.backend_type == "llamacpp":
+                if self.backend_type in _OPENAI_CATALOGUE_BACKENDS:
                     async with session.get(
                         f"{self.base_url}/v1/models", headers=headers
                     ) as response:
                         if response.status != 200:
                             return []
                         data = await response.json()
-                        return [m["id"] for m in data.get("data", [])]
+                        return [m["id"] for m in data.get("data", []) if self._keep_model(m["id"])]
                 else:
                     async with session.get(
                         f"{self.base_url}/api/tags", headers=headers
@@ -351,14 +444,18 @@ class OllamaClient:
         """
         List available models with their capabilities.
 
-        Capabilities come from /api/show, one request per model, not from the
-        `capabilities` array that /api/tags also returns. The two disagree:
-        verified against Ollama 0.32.11, /api/tags reported ["completion"] for
-        thiagomoraes/medgemma-1.5-4b-it:Q4_K_M while /api/show reported
-        ["completion", "vision"] — and that model demonstrably reads images. Trusting
-        /api/tags would mislabel vision models as text-only, which is precisely the
-        judgement the chat panel needs to get right. /v1/models carries no
-        capability data at all.
+        Ollama takes two round trips per model. Capabilities come from /api/show,
+        one request per model, not from the `capabilities` array that /api/tags
+        also returns. The two disagree: verified against Ollama 0.32.11, /api/tags
+        reported ["completion"] for thiagomoraes/medgemma-1.5-4b-it:Q4_K_M while
+        /api/show reported ["completion", "vision"] — and that model demonstrably
+        reads images. Trusting /api/tags would mislabel vision models as text-only,
+        which is precisely the judgement the chat panel needs to get right.
+        /v1/models carries no capability data at all.
+
+        OpenRouter takes one: GET /v1/models returns the whole catalogue with
+        `architecture.input_modalities` per entry, so there is nothing to fan out
+        to and capabilities are always reported.
 
         A per-model /api/show failure yields an empty capability list for that
         model rather than dropping it or failing the whole listing.
@@ -370,7 +467,13 @@ class OllamaClient:
         if self.backend_type == "llamacpp":
             # llama.cpp serves a single preloaded model and exposes no capability data.
             return [
-                {"name": m, "capabilities": [], "supports_vision": False}
+                {
+                    "name": m,
+                    "capabilities": [],
+                    "supports_vision": False,
+                    "context_length": None,
+                    "tokens_per_image": None,
+                }
                 for m in await self.list_models()
             ]
 
@@ -379,89 +482,12 @@ class OllamaClient:
 
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                # Retry the catalogue request: connecting to a remote cloud host
-                # intermittently stalls in the TLS handshake (observed against
-                # ollama.com from inside Docker — a request that timed out
-                # succeeded in 0.2s immediately afterwards). One retry on a fresh
-                # connection turns that blip into a slow success rather than an
-                # error the user has to notice and manually refresh past.
-                # Only the catalogue is retried; a per-model /api/show failure
-                # already degrades to "capabilities unknown" on its own.
-                data = None
-                last_exc: Exception | None = None
-                for attempt in range(1, MODEL_LIST_ATTEMPTS + 1):
-                    try:
-                        async with session.get(
-                            f"{self.base_url}/api/tags", headers=headers
-                        ) as response:
-                            if response.status != 200:
-                                body = await response.text()
-                                logger.warning(
-                                    f"Failed to list models: HTTP {response.status} - {body[:200]}"
-                                )
-                                # An HTTP error is a definitive answer (bad key,
-                                # wrong host); retrying it would just stall the UI.
-                                raise ModelListError(
-                                    f"Model listing failed: HTTP {response.status}"
-                                )
-                            data = await response.json()
-                            break
-                    except ModelListError:
-                        raise
-                    except Exception as e:
-                        last_exc = e
-                        if attempt < MODEL_LIST_ATTEMPTS:
-                            logger.info(
-                                f"Model catalogue attempt {attempt} failed "
-                                f"({_describe(e)}); retrying"
-                            )
-                        else:
-                            raise
+                if self.backend_type == "openrouter":
+                    catalogue = await self._fetch_catalogue(session, "/v1/models", headers)
+                    models = self._openrouter_models(catalogue)
+                else:
+                    models = await self._ollama_models(session, headers)
 
-                if data is None:  # pragma: no cover - defensive
-                    raise ModelListError(
-                        f"Model listing failed: {_describe(last_exc) if last_exc else 'no response'}"
-                    )
-
-                names = []
-                for m in data.get("models", []):
-                    name = m.get("name") or m.get("model")
-                    if name:
-                        names.append(name)
-
-                # Bounded concurrency: a cloud account can list dozens of models and
-                # each needs its own /api/show.
-                semaphore = asyncio.Semaphore(8)
-
-                async def capabilities_for(name: str) -> list[str]:
-                    async with semaphore:
-                        try:
-                            async with session.post(
-                                f"{self.base_url}/api/show",
-                                json={"model": name},
-                                headers=headers,
-                            ) as show_response:
-                                if show_response.status != 200:
-                                    logger.debug(
-                                        f"/api/show for {name}: HTTP {show_response.status}"
-                                    )
-                                    return []
-                                show_data = await show_response.json()
-                                return show_data.get("capabilities") or []
-                        except Exception as e:
-                            logger.debug(f"/api/show for {name} failed: {e}")
-                            return []
-
-                all_caps = await asyncio.gather(*(capabilities_for(n) for n in names))
-
-            models = [
-                {
-                    "name": name,
-                    "capabilities": caps,
-                    "supports_vision": "vision" in caps,
-                }
-                for name, caps in zip(names, all_caps, strict=True)
-            ]
             models.sort(key=lambda m: m["name"])
             return models
         except ModelListError:
@@ -469,6 +495,121 @@ class OllamaClient:
         except Exception as e:
             logger.warning(f"Failed to list models with capabilities: {_describe(e)}")
             raise ModelListError(f"Model listing failed: {_describe(e)}") from e
+
+    async def _fetch_catalogue(
+        self, session: aiohttp.ClientSession, path: str, headers: dict[str, str]
+    ) -> dict:
+        """GET a catalogue endpoint, retrying a connection that never opened.
+
+        Connecting to a remote cloud host intermittently stalls in the TLS
+        handshake (observed against ollama.com from inside Docker — a request that
+        timed out succeeded in 0.2s immediately afterwards). One retry on a fresh
+        connection turns that blip into a slow success rather than an error the
+        user has to notice and manually refresh past.
+
+        Only the catalogue is retried; a per-model /api/show failure already
+        degrades to "capabilities unknown" on its own.
+        """
+        for attempt in range(1, MODEL_LIST_ATTEMPTS + 1):
+            try:
+                async with session.get(f"{self.base_url}{path}", headers=headers) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.warning(
+                            f"Failed to list models: HTTP {response.status} - {body[:200]}"
+                        )
+                        # An HTTP error is a definitive answer (bad key, wrong
+                        # host); retrying it would just stall the UI.
+                        raise ModelListError(f"Model listing failed: HTTP {response.status}")
+                    return await response.json()
+            except ModelListError:
+                raise
+            except Exception as e:
+                if attempt >= MODEL_LIST_ATTEMPTS:
+                    raise
+                logger.info(f"Model catalogue attempt {attempt} failed ({_describe(e)}); retrying")
+
+        raise ModelListError("Model listing failed: no response")  # pragma: no cover - defensive
+
+    def _openrouter_models(self, catalogue: dict) -> list[dict]:
+        """Shape OpenRouter's /v1/models payload into the common listing form.
+
+        Vision comes from `architecture.input_modalities` — what the model
+        accepts, e.g. ["text", "image", "file"]. Every entry carries it, so unlike
+        Ollama there is no "capabilities unknown" case. The modalities are passed
+        through as the capability list because they are what this backend
+        genuinely knows about a model.
+        """
+        models = []
+        for entry in catalogue.get("data", []):
+            name = entry.get("id")
+            if not name or not self._keep_model(name):
+                continue
+            architecture = entry.get("architecture") or {}
+            modalities = architecture.get("input_modalities") or []
+            context = entry.get("context_length")
+            models.append(
+                {
+                    "name": name,
+                    "capabilities": list(modalities),
+                    "supports_vision": "image" in modalities,
+                    "context_length": context if isinstance(context, int) else None,
+                    # OpenRouter publishes no per-image token cost — `per_request_limits`
+                    # is null for every model in the catalogue — and the real cost
+                    # varies by model and by which provider the request is brokered
+                    # to. Left unset rather than guessed here; the panel says what
+                    # it assumed instead of the middleware inventing a figure.
+                    "tokens_per_image": None,
+                }
+            )
+        return models
+
+    async def _ollama_models(
+        self, session: aiohttp.ClientSession, headers: dict[str, str]
+    ) -> list[dict]:
+        """Catalogue plus a per-model /api/show fan-out, the Ollama way."""
+        catalogue = await self._fetch_catalogue(session, "/api/tags", headers)
+
+        names = []
+        for m in catalogue.get("models", []):
+            name = m.get("name") or m.get("model")
+            if name and self._keep_model(name):
+                names.append(name)
+
+        # Bounded concurrency: a cloud account can list dozens of models and
+        # each needs its own /api/show.
+        semaphore = asyncio.Semaphore(8)
+
+        async def describe(name: str) -> tuple[list[str], int | None, int | None]:
+            async with semaphore:
+                try:
+                    async with session.post(
+                        f"{self.base_url}/api/show",
+                        json={"model": name},
+                        headers=headers,
+                    ) as show_response:
+                        if show_response.status != 200:
+                            logger.debug(f"/api/show for {name}: HTTP {show_response.status}")
+                            return [], None, None
+                        show_data = await show_response.json()
+                        context, per_image = _image_budget(show_data.get("model_info") or {})
+                        return show_data.get("capabilities") or [], context, per_image
+                except Exception as e:
+                    logger.debug(f"/api/show for {name} failed: {e}")
+                    return [], None, None
+
+        described = await asyncio.gather(*(describe(n) for n in names))
+
+        return [
+            {
+                "name": name,
+                "capabilities": caps,
+                "supports_vision": "vision" in caps,
+                "context_length": context,
+                "tokens_per_image": per_image,
+            }
+            for name, (caps, context, per_image) in zip(names, described, strict=True)
+        ]
 
 
 # Global client instance
@@ -518,9 +659,34 @@ def reset_ollama_client() -> None:
     _ollama_client = None
 
 
+def cloud_disabled_message() -> str:
+    """Why the cloud slot is closed, naming the service the operator configured."""
+    from config import get_config
+
+    return (
+        f"The {get_config().cloud_label} backend is disabled. An operator must set "
+        "ALLOW_CLOUD_BACKEND=1 on the chat-middleware service."
+    )
+
+
+def cloud_key_missing_message() -> str:
+    """Which env var to set, named for the service the key comes from."""
+    from config import get_config
+
+    config = get_config()
+    return (
+        f"No {config.cloud_label} API key is configured. Set {config.cloud_key_env} "
+        "on the chat-middleware service."
+    )
+
+
 def build_cloud_client(model: str | None = None) -> OllamaClient:
     """
-    Build a client pointed at Ollama Cloud.
+    Build a client pointed at the configured cloud provider.
+
+    Which provider that is — Ollama Cloud or OpenRouter — is an operator choice
+    (CLOUD_PROVIDER); both are OpenAI-compatible, so only the base URL, the
+    catalogue dialect and OpenRouter's routing options differ.
 
     Deliberately not a singleton: the cloud client carries an API key and a
     user-selected model, and the local singleton above is shared process-wide and
@@ -528,39 +694,44 @@ def build_cloud_client(model: str | None = None) -> OllamaClient:
     state and keeps the local client's configuration untouched.
 
     Args:
-        model: Cloud model tag. Falls back to OLLAMA_CLOUD_MODEL.
+        model: Cloud model tag. Falls back to the configured default.
 
     Raises:
         CloudBackendUnavailableError: cloud disabled by the operator, no API key set,
             or no model resolved.
     """
-    from config import get_config
+    from config import CLOUD_PROVIDER_OPENROUTER, get_config
 
     config = get_config()
 
     if not config.allow_cloud_backend:
-        raise CloudBackendUnavailableError(
-            "The Ollama Cloud backend is disabled. An operator must set "
-            "ALLOW_CLOUD_BACKEND=1 on the chat-middleware service to enable it."
-        )
-    if not config.ollama_cloud_api_key:
-        raise CloudBackendUnavailableError(
-            "No Ollama Cloud API key is configured. Set OLLAMA_API_KEY on the "
-            "chat-middleware service."
-        )
+        raise CloudBackendUnavailableError(cloud_disabled_message())
+    if not config.cloud_api_key:
+        raise CloudBackendUnavailableError(cloud_key_missing_message())
 
-    effective_model = model or config.ollama_cloud_model
+    effective_model = model or config.cloud_model
     if not effective_model:
         raise CloudBackendUnavailableError(
-            "No cloud model selected. Pick one in the chat panel settings or set "
-            "OLLAMA_CLOUD_MODEL."
+            f"No cloud model selected. Pick one in the chat panel settings or set "
+            f"{config.cloud_model_env}."
         )
 
+    extra_payload = {}
+    if config.cloud_provider == CLOUD_PROVIDER_OPENROUTER:
+        # OpenRouter brokers the request to one of several inference providers, so
+        # this is where the deployment's data policy has to be stated: "deny"
+        # restricts routing to providers that do not retain or train on prompts.
+        # Sent on every chat rather than relying on the account's dashboard
+        # setting, so the guarantee travels with the request.
+        extra_payload["provider"] = {"data_collection": config.openrouter_data_collection}
+
     return OllamaClient(
-        base_url=config.ollama_cloud_url,
+        base_url=config.cloud_url,
         model=effective_model,
-        backend_type="ollama",
-        api_key=config.ollama_cloud_api_key,
+        backend_type=config.cloud_provider,
+        api_key=config.cloud_api_key,
+        extra_payload=extra_payload,
+        model_filter=config.cloud_model_filter,
     )
 
 

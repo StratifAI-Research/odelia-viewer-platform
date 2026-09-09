@@ -207,6 +207,37 @@ def test_build_cloud_client_refuses_without_model(monkeypatch):
         build_cloud_client()
 
 
+@pytest.mark.parametrize(
+    ("env", "expected", "forbidden"),
+    [
+        ({"OLLAMA_API_KEY": "k"}, "OLLAMA_CLOUD_MODEL", "OLLAMA_MODEL"),
+        (
+            {"CLOUD_PROVIDER": "openrouter", "OPENROUTER_API_KEY": "k"},
+            "OPENROUTER_MODEL",
+            "OPENROUTER_CLOUD_MODEL",
+        ),
+    ],
+)
+def test_refusal_names_the_model_env_var_that_exists(monkeypatch, env, expected, forbidden):
+    """The message has to name a variable the operator can actually set.
+
+    It used to be built as f"{provider.upper()}_MODEL", which on Ollama produced
+    OLLAMA_MODEL — the *local* model, so following the advice would have changed
+    which model the self-hosted backend runs and left the cloud error in place.
+    No formula fixes both: OpenRouter has no local counterpart and so no CLOUD in
+    its name, and Ollama itself only uses CLOUD in some of its variables.
+    """
+    _reset_config(monkeypatch, ALLOW_CLOUD_BACKEND="1", **env)
+    from ollama_client import CloudBackendUnavailableError, build_cloud_client
+
+    with pytest.raises(CloudBackendUnavailableError) as excinfo:
+        build_cloud_client()
+
+    message = str(excinfo.value)
+    assert expected in message
+    assert forbidden not in message
+
+
 def test_build_cloud_client_uses_cloud_url_and_key(monkeypatch):
     _reset_config(monkeypatch, ALLOW_CLOUD_BACKEND="1", OLLAMA_API_KEY="sk-1", OLLAMA_CLOUD_MODEL="qwen3.5")
     from ollama_client import build_cloud_client

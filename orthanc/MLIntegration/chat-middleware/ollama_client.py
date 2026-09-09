@@ -713,7 +713,7 @@ def build_cloud_client(model: str | None = None) -> OllamaClient:
     if not effective_model:
         raise CloudBackendUnavailableError(
             f"No cloud model selected. Pick one in the chat panel settings or set "
-            f"{config.cloud_provider.upper()}_MODEL."
+            f"{config.cloud_model_env}."
         )
 
     extra_payload = {}

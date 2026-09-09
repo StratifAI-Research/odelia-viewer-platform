@@ -121,6 +121,17 @@ class ChatMiddlewareConfig:
         """Env var an operator sets to supply this provider's API key."""
         return _CLOUD_PROVIDERS[self.cloud_provider]["key_env"]
 
+    @property
+    def cloud_model_env(self) -> str:
+        """Env var an operator sets to preselect this provider's model.
+
+        Looked up rather than built from the provider name: the names do not
+        follow one rule. Ollama needs CLOUD in OLLAMA_CLOUD_MODEL to tell it from
+        the local OLLAMA_MODEL, but not in OLLAMA_API_KEY; OpenRouter has no local
+        counterpart and so no CLOUD anywhere. Any formula gets one of them wrong.
+        """
+        return _CLOUD_PROVIDERS[self.cloud_provider]["model_env"]
+
     @classmethod
     def from_env(cls) -> "ChatMiddlewareConfig":
         """Load configuration from environment variables"""

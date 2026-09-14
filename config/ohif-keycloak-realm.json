@@ -705,6 +705,7 @@
       "frontchannelLogout": true,
       "protocol": "openid-connect",
       "attributes": {
+        "pkce.code.challenge.method": "S256",
         "oidc.ciba.grant.enabled": "false",
         "client.secret.creation.time": "1718045868",
         "backchannel.logout.session.required": "true",

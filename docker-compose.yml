@@ -49,6 +49,7 @@ services:
       - '${BIND_HOST:-}8000:8042' # HTTP port
       - '${BIND_HOST:-}2000:4242' # DICOM port
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-viewer
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -77,6 +78,7 @@ services:
       - '${BIND_HOST:-}4243:4242' # DICOM port (avoid conflict)
       - '${BIND_HOST:-}8043:8042' # HTTP port (avoid conflict)
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-mst
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -94,6 +96,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-mst:${TAG:-0.1.0}
     container_name: odelia-model-mst
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-mst:8042"
       IMAGE_FOLDER: "/app/mst-service/images"
       MODEL_PATH: "/app/mst-service/mst_model"
@@ -121,6 +124,7 @@ services:
       - '${BIND_HOST:-}4244:4242' # DICOM port (avoid conflict)
       - '${BIND_HOST:-}8044:8042' # HTTP port (avoid conflict)
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-medgemma
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -139,6 +143,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-medgemma:${TAG:-0.1.0}
     container_name: odelia-model-medgemma
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-medgemma:8042"
       IMAGE_FOLDER: "/app/medgemma-service/images"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -184,6 +189,7 @@ services:
       - '${BIND_HOST:-}4245:4242' # DICOM
       - '${BIND_HOST:-}8045:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-agaldran
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -205,6 +211,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-agaldran:${TAG:-0.1.0}
     container_name: odelia-classification-agaldran
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-agaldran:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -238,6 +245,7 @@ services:
       - '${BIND_HOST:-}4246:4242' # DICOM
       - '${BIND_HOST:-}8046:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-bcn-aim
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -259,6 +267,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-bcn-aim:${TAG:-0.1.0}
     container_name: odelia-classification-bcn-aim
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-bcn-aim:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -292,6 +301,7 @@ services:
       - '${BIND_HOST:-}4247:4242' # DICOM
       - '${BIND_HOST:-}8047:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-divide-and-conquer
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -313,6 +323,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-divide-and-conquer:${TAG:-0.1.0}
     container_name: odelia-classification-divide-and-conquer
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-divide-and-conquer:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -346,6 +357,7 @@ services:
       - '${BIND_HOST:-}4248:4242' # DICOM
       - '${BIND_HOST:-}8048:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-lme-abmil
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -367,6 +379,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-lme-abmil:${TAG:-0.1.0}
     container_name: odelia-classification-lme-abmil
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-lme-abmil:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -400,6 +413,7 @@ services:
       - '${BIND_HOST:-}4249:4242' # DICOM
       - '${BIND_HOST:-}8049:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-mst
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -421,6 +435,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-mst:${TAG:-0.1.0}
     container_name: odelia-classification-mst
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-mst:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -454,6 +469,7 @@ services:
       - '${BIND_HOST:-}4250:4242' # DICOM
       - '${BIND_HOST:-}8050:8042' # HTTP
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-pimed
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -475,6 +491,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-pimed:${TAG:-0.1.0}
     container_name: odelia-classification-pimed
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-pimed:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
@@ -498,6 +515,8 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat:${TAG:-0.1.0}
     container_name: odelia-chat
     environment:
+      CHAT_ALLOWED_ORIGINS: "${CHAT_ALLOWED_ORIGINS:-}"
+      CHAT_WEBSOCKET_ORIGIN_CHECK: "${CHAT_WEBSOCKET_ORIGIN_CHECK:-0}"
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"
       BACKEND_TYPE: "${BACKEND_TYPE:-ollama}"
@@ -586,7 +605,7 @@ services:
     environment:
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=odelia
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-odelia}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./volumes/feedback-db/:/var/lib/odelia-feedback/
@@ -609,14 +628,14 @@ services:
       KC_DB_URL: 'jdbc:postgresql://postgres:5432/keycloak'
       KC_DB_SCHEMA: public
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: password
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
       KC_HOSTNAME_ADMIN_URL: http://localhost:8081/keycloak/
       KC_HOSTNAME_URL: http://localhost:8081/keycloak/
       KC_HOSTNAME_STRICT_BACKCHANNEL: "true"
       KC_HOSTNAME_STRICT_HTTPS: "false"
       KC_HTTP_ENABLED: "true"
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
       KC_PROXY: edge
@@ -649,7 +668,7 @@ services:
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
     restart: unless-stopped
     networks:
       - odelia-network

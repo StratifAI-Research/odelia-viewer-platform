@@ -1,0 +1,10 @@
+{
+  "repo_id": "ODELIA-AI/MST",
+  "revision": "fb680403cf5e15958ddf6182f0b7bfff8b71a0f4",
+  "sha256": {
+    "models.py": "5b0a58c6eb396a8a61d15170fae3b7be74fecdd3371712488c60fd2e1bd78ed0",
+    "predict_attention.py": "d739c443ba73494b268a4f48ea96d47c20de756daba4ea822975ef69013073b0",
+    "model_config.json": "9be6b83fcbdfeef1a1047f7b7a4d51c0b9aef42306ccfea588a7e49490ef6ca7",
+    "state_dict.pt": "c25602fec82d90912ed6f2623639937a2fb44931cfcfb382aecd16d5647c8327"
+  }
+}

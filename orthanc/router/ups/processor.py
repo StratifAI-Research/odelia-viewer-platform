@@ -16,7 +16,9 @@ from ups.workitem import UPSWorkitem
 # unset preserves current research behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
-except Exception:
+except ImportError:
+    if os.getenv("ROUTER_HOST_ALLOWLIST", "").strip():
+        raise
 
     def host_is_allowed(_url: str) -> bool:
         return True
@@ -46,6 +48,7 @@ def notify_subscriber(workitem: UPSWorkitem, subscriber_url: str) -> None:
     try:
         response = requests.post(
             f"{subscriber_url}/ups-rs/workitems/{workitem.workitem_uid}",
+            allow_redirects=not bool(os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()),
             data=workitem.to_json(),
             headers={"Content-Type": "application/dicom+json"},
             timeout=5,
@@ -153,6 +156,7 @@ def process_workitem(workitem: UPSWorkitem) -> None:
             step_start = time.time()
             model_response = requests.post(
                 f"{MODEL_BACKEND_URL}/analyze/mri",
+                allow_redirects=not bool(os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()),
                 json=model_request_body,
                 timeout=1000,
             )
@@ -321,6 +325,7 @@ def process_workitem(workitem: UPSWorkitem) -> None:
                 upload_item_start = time.time()
                 response = requests.post(
                     "http://orthanc-viewer:8042/instances",
+                    allow_redirects=not bool(os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()),
                     data=dicom_bytes,
                     headers={"Content-Type": "application/dicom"},
                     timeout=10,

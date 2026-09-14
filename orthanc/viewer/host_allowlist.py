@@ -27,18 +27,23 @@ def _extract_host(url: str) -> str:
         on ':' / '/' (urlparse treats the first token as the scheme here)
     Returns "" if no host can be identified.
     """
-    if not url:
+    if not url or any(c.isspace() for c in url) or "\\" in url:
         return ""
     try:
-        host = urlparse(url).hostname or ""
-    except Exception:
-        host = ""
-    if host:
-        return host.lower()
-    token = url.split("://", 1)[-1]
-    token = token.split("/", 1)[0]
-    token = token.split(":", 1)[0]
-    return token.lower()
+        if "://" in url:
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"}:
+                return ""
+        else:
+            # DICOM modality syntax: host:port/AET, never a schemed HTTP URL.
+            parsed = urlparse("//" + url)
+        if parsed.username is not None or parsed.password is not None or parsed.fragment:
+            return ""
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            return ""
+        return (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def host_is_allowed(url: str) -> bool:

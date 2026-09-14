@@ -20,7 +20,9 @@ from ups.workitem import UPSWorkitem
 # behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
-except Exception:
+except ImportError:
+    if os.getenv("ROUTER_HOST_ALLOWLIST", "").strip():
+        raise
 
     def host_is_allowed(_url: str) -> bool:
         return True

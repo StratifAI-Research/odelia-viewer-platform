@@ -1,166 +1,45 @@
-# Production hardening checklist
+# Security configuration and deployment hardening
 
-> **The default configuration of this repository is intended for local
-> research and demos.** It is optimized for `docker compose up` ease of
-> setup, not for production. If you intend to expose any part of this
-> stack beyond a trusted local network, work through this checklist
-> first — every default below is *insecure-by-design* for the sake of
-> the research UX.
+The default stack supports local research and LAN collaboration. The viewer login does
+not enforce backend authorization: Orthanc authentication is disabled, nginx proxies are
+not OIDC resource servers, and chat REST/WebSocket sessions are not owned by authenticated
+subjects. Neither a UI login nor a 300-second token lifetime closes these paths.
 
-The threat model the defaults assume is:
+## Implemented controls
 
-> "Keep easy local setup; prevent surprise production exposure. LAN
-> sharing with colleagues is a feature, not a bug."
+- The imported public `ohif_viewer` client requires Authorization Code with PKCE S256;
+  implicit flow, direct grants and service accounts remain disabled.
+- Conditional OTP is already bound into browser/forms login. Enrolled users are challenged;
+  enrollment is optional. No new password policy or brute-force lockout is enabled.
+- Active MST code/configuration/weights have an exact revision and expected SHA-256 checksums,
+  checked before loading, including local configuration/weight loading.
+- The viewer image checks the publisher's oauth2-proxy executable digest before installation.
+  This is not a deployment image-signature verification gate.
+- nginx access logs omit query strings and referrers. Auth callback and chat/feedback responses
+  use `no-store`. Referrer policy and MIME-sniffing protection are present. Other application
+  logs and URL path identifiers are not promised to be free of sensitive information.
+- Credential overrides, loopback binding, outbound routing allowlists and browser WebSocket
+  origin checks are available without changing default deployment behavior.
 
-If your deployment violates that assumption (multi-tenant network, VPS,
-cloud VM, anything reachable from the public internet), do everything
-in the **Must-do** section. The **Should-do** section is recommended
-for any long-lived hosted deployment.
+See the README **Updating** section and [update guide](../setup/updating.md) for exact
+activation and rollback steps. Existing Keycloak realms are not updated by startup import.
 
----
+## Controls requiring deployment configuration
 
-## Must-do before any non-local exposure
+| Area | Current default and required operational work |
+| --- | --- |
+| Authentication/privileges | Define and implement an end-to-end resource-server boundary, machine callers and chat session ownership before claiming enforced viewer/admin roles. `viewer` and `pacsadmin` are seeded usernames; `pacsadmin` is also a group. |
+| Ports | Services, including AI backends, publish host ports by default. Use `BIND_HOST`, selected ingress and firewall/egress policy appropriate to LAN/PACS access. |
+| Routing | Set `ROUTER_HOST_ALLOWLIST` on viewer/router/model services. Allowed hosts can be private Docker/PACS names. Redirects are refused on protected requests when enabled. DNS rebinding and other protocol paths require network controls. |
+| Chat/debug | Keep the debug API: model/configuration/cache/session endpoints serve the existing UI. Optional WebSocket Origin checks and CORS limit browsers, not authenticated access. Never treat them as session ownership or authorization. |
+| TLS | The committed stack uses HTTP, internal HTTP/JDBC and unprotected DICOM. Configure TLS at your ingress with TLS 1.2 minimum and TLS 1.3 support, approved suites and certificate lifecycle. DICOM peers need coordinated TLS/VPN configuration. |
+| Passwords/MFA | No password policy; brute-force protection is off despite dormant threshold/wait values. Apply an organization-approved policy deliberately. Optional OTP works; mandatory enrollment changes login UX. |
+| Keys | Keycloak's generated providers persist keys in PostgreSQL. The committed provider configuration does not contain signing private keys. Establish backup and rotation procedures. |
+| Secrets | Demo passwords are public defaults. Environment overrides are supported; they do not rotate initialized accounts. Use a managed secret mechanism where required and coordinate database rotation. |
+| Data/backup encryption | No stack-managed encryption or backup schedule is configured. Host encryption, encrypted backups, retention and restore verification need deployment evidence. |
+| Images/models | Checksum checks establish expected bytes, not publisher signatures. Establish trusted image identities and signature enforcement; validate upgrades against inference and browser regressions. Preview roster checksum recording is not trained-model runtime verification. |
+| Reviews/lifecycle | Specify owners and policy for access review, inactive accounts, certificates, signing keys and dependency refresh. Source defaults cannot define an organization's approved intervals. |
 
-### 1. Restrict published ports
-
-Default: every published port binds to `0.0.0.0`. Set `BIND_HOST=127.0.0.1:`
-(trailing colon required) in `.env` to flip the whole stack to loopback
-binding — see [`restrict-to-localhost.md`](restrict-to-localhost.md) for
-details. A managed firewall / security group is fine in addition, not as
-a replacement.
-
-### 2. Enable Orthanc authentication
-
-The Orthanc instances run with permissive auth defaults to make the
-demo painless. Before production:
-
-* Set `RegisteredUsers` in `orthanc/viewer/orthanc.json` (and the
-  router instances) with strong credentials.
-* Set `AuthenticationEnabled` to `true`.
-* Configure HTTPS in front of Orthanc (nginx, Traefik, Caddy).
-
-### 3. Rotate every default credential
-
-The repo ships with these *known-public* credentials so the stack
-starts out-of-the-box. **All of them must be changed.**
-
-| Service   | Default user | Default password | Source                                        |
-| --------- | ------------ | ---------------- | --------------------------------------------- |
-| Keycloak admin | `admin` | `admin`     | [`docker-compose.yml`](../../docker-compose.yml) `KEYCLOAK_ADMIN_PASSWORD` |
-| Keycloak DB    | `keycloak` | `password` | [`docker-compose.yml`](../../docker-compose.yml) `KC_DB_PASSWORD` |
-| Postgres       | `keycloak` | `password` | [`docker-compose.yml`](../../docker-compose.yml) `POSTGRES_PASSWORD`      |
-| Grafana admin  | `admin` | `odelia`    | [`docker-compose.yml`](../../docker-compose.yml) `GF_SECURITY_ADMIN_PASSWORD` |
-| Viewer login   | `viewer` | `viewer`   | Keycloak realm import [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json) |
-| Viewer login (PACS admin) | `pacsadmin` | `pacsadmin` | Keycloak realm import [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json) |
-
-The preferred approach is to switch the compose file from hardcoded
-values to `${VAR:-default}` form and supply real secrets via a `.env`
-file that is **not** committed:
-
-```yaml
-# docker-compose.yml
-environment:
-  KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-  KC_DB_PASSWORD:          ${KC_DB_PASSWORD:-password}
-  POSTGRES_PASSWORD:       ${POSTGRES_PASSWORD:-password}
-  GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-odelia}
-```
-
-```bash
-# .env (gitignored)
-KEYCLOAK_ADMIN_PASSWORD=<long random>
-KC_DB_PASSWORD=<long random>
-POSTGRES_PASSWORD=<long random>
-GF_SECURITY_ADMIN_PASSWORD=<long random>
-```
-
-Also create new realm users in Keycloak and remove the default
-`viewer/viewer` test user.
-
-### 4. Switch Keycloak out of dev mode
-
-`docker-compose.yml` runs Keycloak with `command: 'start-dev --import-realm'`,
-which disables HTTPS enforcement and brute-force protection. For
-production, switch to `start` and configure:
-
-* HTTPS termination (either Keycloak-native via `KC_HTTPS_*` env vars,
-  or a TLS-terminating reverse proxy in front).
-* `KC_HOSTNAME_STRICT_HTTPS=true`.
-* Brute-force detection in the realm settings.
-* Remove `KC_HOSTNAME_DEBUG=true` from environment.
-* Re-issue realm signing keys (the import file ships a key the world
-  can read).
-
-### 5. Validate routing target URLs
-
-Set `ROUTER_HOST_ALLOWLIST` (comma-separated hostnames) in the
-environment of `orthanc-viewer` and the `orthanc-router-*` services.
-When non-empty, the router REST handlers will reject any `target_url`,
-`wado_rs_base`, or `subscriber_url` whose hostname is not in the
-allowlist — preventing SSRF against `keycloak`, `grafana`, or cloud
-metadata endpoints. Empty / unset preserves the current research
-behaviour.
-
-Example:
-
-```yaml
-environment:
-  ROUTER_HOST_ALLOWLIST: "orthanc-viewer,orthanc-router-mst,orthanc-router-medgemma"
-```
-
-### 6. Disable debug API on chat-middleware
-
-The chat-middleware ships a debug router at `/debug` that exposes
-runtime configuration and cache inspection. It is currently registered
-**unconditionally** (`app.include_router(debug_router)` in
-[`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py)) —
-there is no environment toggle yet. For any non-local profile, gate the
-registration behind an env var (e.g. only `include_router` when
-`DEBUG_API_ENABLED` is truthy) or remove the line, then rebuild the
-image.
-
-### 7. Tighten CORS
-
-The chat-middleware already restricts CORS to the OHIF viewer origin(s)
-by default (`_cors_settings()` in
-[`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py)).
-Make sure it matches your deployment:
-
-* Set `CHAT_ALLOWED_ORIGINS` (comma-separated) to your real viewer
-  origin(s).
-* **Never** set `CHAT_CORS_DEV_ALLOW_ALL=1` outside local dev — it is a
-  development escape hatch that allows `*` (with credentials disabled).
-
-The Flask AI services (MST-classification, medgemma-mri) use
-`flask_cors.CORS(app)` with no whitelist; lock these down if they will
-be reachable from a browser.
-
----
-
-## Should-do for any hosted deployment
-
-### 8. Replace verbose error messages with correlation IDs
-
-Several Flask handlers return `str(e)` in JSON error responses. The
-exposure is low (exception messages, not stack traces) but a hosted
-deployment should swap to a generic error message and log the real
-exception against a correlation ID returned to the client.
-
-### 9. Bump container images on a schedule
-
-Some images are pinned to older versions for reproducible demos
-(notably `grafana/grafana:11.1.0` and
-`quay.io/keycloak/keycloak:24.0.5`). Long-lived hosted deployments
-should track upstream releases and rebuild periodically to pick up
-security fixes. Keep the pinned tag in the repo, but document the
-expected refresh cadence for your deployment.
-
----
-
-## Where to look in the code
-
-* Compose file: [`docker-compose.yml`](../../docker-compose.yml)
-* Orthanc viewer config: [`orthanc/viewer/orthanc.json`](../../orthanc/viewer/orthanc.json)
-* Keycloak realm: [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json)
-* Router REST handlers: [`orthanc/viewer/router.py`](../../orthanc/viewer/router.py), [`orthanc/router/ups/routes.py`](../../orthanc/router/ups/routes.py), [`orthanc/router/ups/processor.py`](../../orthanc/router/ups/processor.py)
-* Chat-middleware CORS / debug: [`orthanc/MLIntegration/chat-middleware/app.py`](../../orthanc/MLIntegration/chat-middleware/app.py), [`orthanc/MLIntegration/chat-middleware/debug_routes.py`](../../orthanc/MLIntegration/chat-middleware/debug_routes.py)
+The realm runs in Keycloak 24.0.5 `start-dev` mode. Production startup/TLS configuration
+and brute-force protection are separate controls; changing the startup command does not
+itself establish a realm lockout policy. Keep any version/startup-mode migration explicit.

@@ -54,7 +54,15 @@ Then open **<http://localhost:8081>** and sign in with the default credentials *
 
 To use the **chat** feature:
 [`docs/setup/setup_chat.md`](docs/setup/setup_chat.md).
-To update an existing deployment: [`docs/setup/updating.md`](docs/setup/updating.md).
+### Updating
+
+Follow [Updating an existing deployment](docs/setup/updating.md), including the security
+rollout steps. Preserve your selected services/profiles and image/model pins; rebuild only
+affected services. Existing Keycloak realms need an explicit client S256 update: importing
+the changed JSON on startup does not update an existing realm. New environment overrides
+do not rotate initialized passwords. Keep debug available for the viewer's chat controls.
+The guide covers backups, compatibility checks, optional controls and rollback.
+
 
 
 

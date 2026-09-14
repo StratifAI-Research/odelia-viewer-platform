@@ -1,0 +1,25 @@
+# Controls the notes GitHub generates for a release (see the `record` job in
+# docker-build-push.yml). A hand-written .github/release-notes/vX.Y.Z.md takes
+# precedence over anything configured here.
+changelog:
+  exclude:
+    # Dependency bumps dominate the list and mean nothing to a user of the
+    # platform. This works on the author alone, with no labelling needed.
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: Features
+      labels:
+        - enhancement
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    # Everything unlabelled lands here, so the list is never lossy. Label a PR
+    # and it moves into one of the sections above instead.
+    - title: Other Changes
+      labels:
+        - "*"

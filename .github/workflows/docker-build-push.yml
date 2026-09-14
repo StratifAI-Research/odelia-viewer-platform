@@ -3,21 +3,49 @@ name: Docker Build and Push
 on:
   push:
     branches: [main]
-    tags:
-      - "v*.*.*"
   pull_request:
     branches: [main]
+  # Versioned releases come from this button, not from a pushed git tag. A tag
+  # can point at any commit, including unreviewed work, and a tag-triggered run
+  # executes the workflow file from that same commit -- so an in-workflow guard
+  # could simply be deleted by whoever cut the tag. The `release` environment
+  # below admits only refs on main, which closes that path in GitHub itself.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish, e.g. 2.3.0"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: docker-${{ github.ref }}
+  # Releases share one group so two of them cannot interleave: overlapping
+  # dispatches could otherwise both pass the immutable-tag preflight and race
+  # to write the same X.Y.Z, or fight over the shared X.Y alias. That group is
+  # separate from github.ref so an ordinary push to main can never discard a
+  # queued release -- GitHub keeps only one pending run per group.
+  group: docker-${{ github.event_name == 'workflow_dispatch' && 'release' || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    # Skipped for releases. A release promotes the manifests main already built
+    # and tested for this commit; rebuilding here would publish a different
+    # artefact than the one CI validated and defeat the per-commit SHA tag.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Docker Hub credentials are environment secrets on `release`, which is
+    # restricted to the main branch. Pressing the release button needs write
+    # access; what the branch restriction buys is that no ref other than main
+    # can supply the code that runs with the token.
+    #
+    # Conditional because this job also runs on pull requests, where it only
+    # builds (push: false). A PR ref is not main, so requesting the environment
+    # there would be denied and fail the job; an empty name means "no
+    # environment", which is what a PR build wants.
+    environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,8 +84,8 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub (push events only)
-        if: github.event_name == 'push'
+      - name: Log in to DockerHub (publishing events only)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
@@ -73,12 +101,12 @@ jobs:
           tags: |
             type=sha,format=long
 
-      - name: Build (and push SHA tag on push events)
+      - name: Build (and push SHA tag when publishing)
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
@@ -92,6 +120,10 @@ jobs:
   # breakage, but never pushed and never gates promote -- a broken preview model
   # must not block latest/semver from advancing for the five publishing images.
   build-preview:
+    # Skipped for releases: these images are never pushed and never gate
+    # promote, so rebuilding them would only slow a release down and could
+    # redden a run whose semver tags were already published.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -151,13 +183,6 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub (push events only)
-        if: github.event_name == 'push'
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -189,9 +214,21 @@ jobs:
   # pushed and have no SHA manifest to promote.
   promote:
     needs: build
-    if: github.event_name == 'push'
+    # `needs` alone would skip this whenever build is skipped, which is exactly
+    # the release case. Run unless build actually failed.
+    if: >-
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
+    environment: release
     steps:
+      # Needed to see whether the version's git tag already exists; the check
+      # has to happen here, before any image is promoted.
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
@@ -203,25 +240,113 @@ jobs:
       - name: Promote SHA-tagged images to latest / semver
         env:
           SHA: ${{ github.sha }}
-          REF_TYPE: ${{ github.ref_type }}
+          EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The `release` environment is what actually keeps non-main refs away
+          # from the credentials; its policy is a branch-typed rule, so a tag
+          # cannot match it. This check costs nothing and catches the case where
+          # that policy is later widened by mistake.
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::refusing to publish from ${GITHUB_REF}; releases come from main only"
+            exit 1
+          fi
           # odelia-classification-* omitted: they build in build-preview, are
           # never pushed, and so have no SHA manifest to promote.
           images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
           tags=()
-          if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
+          exact=""
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
+            # Anchored and fully numeric. A loose glob would accept "2.3.0.1",
+            # whose ${v%.*} is "2.3.0" -- a typo would then silently overwrite
+            # a good release across all five repositories.
+            if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version must be three numbers like 2.3.0 (got '${VERSION}')"
+              exit 1
+            fi
+            exact="$v"
+            # Only the exact version. A floating X.Y alias would be the one tag
+            # able to move backwards -- rerunning 2.3.0 after 2.3.1 shipped
+            # would silently downgrade anyone tracking 2.3 -- and nothing
+            # consumes it, since compose pins exact versions.
+            tags+=("$v")
+          elif [ "$REF_NAME" = "main" ]; then
             tags+=("latest")
           fi
-          if [ "$REF_TYPE" = "tag" ]; then
-            v="${REF_NAME#v}"            # v2.1.0 -> 2.1.0
-            tags+=("$v" "${v%.*}")       # 2.1.0 and 2.1
-          fi
           if [ ${#tags[@]} -eq 0 ]; then
-            echo "No promotion tags for ref $REF_NAME ($REF_TYPE); skipping."
+            echo "No promotion tags for $EVENT on $REF_NAME; skipping."
             exit 0
           fi
+
+          # Preflight every source before touching any destination, so a failure
+          # part-way cannot leave the five repositories half-promoted. A missing
+          # manifest means main never published this commit: merge first, then
+          # release. Any inspect failure here is fatal by construction.
+          declare -A src_digest
+          for img in $images; do
+            src="stratifai/${img}:sha-${SHA}"
+            if ! d=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$src" 2>&1); then
+              echo "::error::cannot resolve ${src}: ${d}"
+              echo "::error::main must publish this commit before it can be released"
+              exit 1
+            fi
+            src_digest[$img]="$d"
+          done
+
+          # A version is a git tag and a GitHub Release as well as image tags.
+          # `record` runs after this job, so a tag conflict discovered there
+          # would be discovered only once the images were already published --
+          # check it here, before anything is written.
+          if [ -n "$exact" ]; then
+            git fetch --tags --force --quiet
+            if tag_sha=$(git rev-parse -q --verify "refs/tags/v${exact}^{commit}"); then
+              if [ "$tag_sha" != "$SHA" ]; then
+                echo "::error::git tag v${exact} already exists on ${tag_sha}, not ${SHA}."
+                echo "::error::Release a new version rather than reusing this one."
+                exit 1
+              fi
+            elif gh release view "v${exact}" >/dev/null 2>&1; then
+              # A release whose tag has been deleted. `record` would refuse this
+              # anyway, but only after the images were published, leaving them
+              # with nothing in the repository recording their commit.
+              echo "::error::a GitHub Release v${exact} exists but its git tag is gone."
+              echo "::error::Restore or delete that release before releasing again."
+              exit 1
+            fi
+          fi
+
+          # An exact version is immutable. Re-running the same release is a
+          # no-op; pointing an existing version at different content is refused
+          # rather than silently overwritten. `latest` and the X.Y alias float
+          # by design, so they are not checked.
+          if [ -n "$exact" ]; then
+            for img in $images; do
+              dst="stratifai/${img}:${exact}"
+              if out=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$dst" 2>&1); then
+                if [ "$out" != "${src_digest[$img]}" ]; then
+                  echo "::error::${dst} already exists and points at different content."
+                  echo "::error::  published: ${out}"
+                  echo "::error::  requested: ${src_digest[$img]}"
+                  echo "::error::Release a new version rather than moving this one."
+                  exit 1
+                fi
+                echo "${dst} already points at this commit; nothing to change."
+              else
+                # Only a genuine absence is safe to proceed from. An auth
+                # failure, rate limit or network error must not be read as
+                # "tag is free".
+                case "$out" in
+                  *"not found"*|*MANIFEST_UNKNOWN*|*"manifest unknown"*) ;;
+                  *) echo "::error::cannot determine whether ${dst} exists: ${out}"; exit 1 ;;
+                esac
+              fi
+            done
+          fi
+
           for img in $images; do
             src="stratifai/${img}:sha-${SHA}"
             args=()
@@ -229,3 +354,71 @@ jobs:
             echo "Promoting ${src} -> ${tags[*]}"
             docker buildx imagetools create "${args[@]}" "${src}"
           done
+
+  # Without this a published version exists only as a Docker Hub tag, with
+  # nothing in the repository tying it to a commit or saying what changed.
+  # Deliberately a separate job: it is the only one granted contents: write, it
+  # runs only after the images are actually published, and it is bound to the
+  # same main-only environment so a dispatch from elsewhere cannot reach it.
+  record:
+    needs: promote
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Tag the commit and publish release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          v="${VERSION#v}"
+          git fetch --tags --force --quiet
+          # Check the tag itself, not just the release. A tag can exist with no
+          # release attached, and `gh release create --target` only chooses a
+          # commit when it creates the tag -- against an existing tag the target
+          # is ignored, which would attach these notes to different code.
+          tag_sha=$(git rev-parse -q --verify "refs/tags/v${v}^{commit}" || true)
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$SHA" ]; then
+            echo "::error::git tag v${v} points at ${tag_sha}, not ${SHA}."
+            echo "::error::Refusing to attach release notes to different code."
+            exit 1
+          fi
+          if gh release view "v${v}" >/dev/null 2>&1; then
+            if [ -z "$tag_sha" ]; then
+              # Release record with no git tag behind it. The images are already
+              # promoted, so exiting clean here would leave nothing in the
+              # repository pointing at the commit they were built from.
+              echo "::error::release v${v} exists but its git tag is missing."
+              echo "::error::Restore or delete that release before releasing again."
+              exit 1
+            fi
+            echo "Release v${v} already records this commit; nothing to do."
+            exit 0
+          fi
+          # --target creates the tag on the exact commit whose images were
+          # just promoted. Notes come from a hand-written file when one exists
+          # -- useful when the generated list would be long or unhelpful, as it
+          # is for a first release with no previous tag to diff against --
+          # otherwise from the PR titles merged since the previous release,
+          # filtered by .github/release.yml.
+          notes_file=".github/release-notes/v${v}.md"
+          if [ -f "$notes_file" ]; then
+            echo "Using hand-written notes from ${notes_file}"
+            gh release create "v${v}" \
+              --target "$SHA" \
+              --title "v${v}" \
+              --notes-file "$notes_file"
+          else
+            gh release create "v${v}" \
+              --target "$SHA" \
+              --title "v${v}" \
+              --generate-notes
+          fi

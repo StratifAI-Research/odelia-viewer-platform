@@ -14,7 +14,7 @@ import pytest
 import requests
 from pydicom import dcmread
 
-from ._roster import ROSTER, ROSTER_IDS
+from batch.roster import ROSTER, ROSTER_IDS
 
 _HOST = os.environ.get("ROSTER_HOST", "http://localhost")
 _SR_CODE_MEANINGS = {"Malignant", "Benign", "Clinical finding absent"}

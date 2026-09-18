@@ -51,8 +51,12 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}<dicom-port>:4242' # DICOM
-      - '${BIND_HOST:-}<http-port>:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "<dicom-port>"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "<http-port>"
+        host_ip: "${BIND_HOST:-}"
     environment:
       - ORTHANC__NAME=<router>
       - VERBOSE_ENABLED=true
@@ -79,7 +83,9 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}<backend-port>:5556'
+      - target: 5556
+        published: "<backend-port>"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s

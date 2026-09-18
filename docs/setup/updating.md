@@ -86,10 +86,13 @@ operator supplies overrides. Environment variables do not constitute a secret va
 | `KEYCLOAK_DB_PASSWORD` | Shared Keycloak/PostgreSQL password input; default `password`. |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak bootstrap admin password; default `admin`. |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin initialization password; default `odelia`. |
-| `BIND_HOST=127.0.0.1:` | Restrict published ports to loopback; breaks direct LAN access unless another ingress is provided. |
+| `BIND_HOST=127.0.0.1` | Restrict published ports to loopback; breaks direct LAN access unless another ingress is provided. |
 | `ROUTER_HOST_ALLOWLIST` | Comma-separated allowed destination hostnames for routing/WADO retrieval. Empty preserves existing routing. When set, HTTP redirects are refused on protected paths; include every intended PACS/router/subscriber host. |
 | `CHAT_WEBSOCKET_ORIGIN_CHECK=1` | Check browser origins before chat session allocation. Default `0` preserves existing clients. |
 | `CHAT_ALLOWED_ORIGINS` | Comma-separated viewer origins for HTTP CORS and the optional WebSocket check; use exact scheme/host/port. |
+
+When upgrading from the old `BIND_HOST` prefix syntax, remove the trailing colon
+from existing `.env` and shell values (for example, `127.0.0.1:` becomes `127.0.0.1`).
 
 Changing database password environment variables does **not** change the password of an
 existing PostgreSQL role. Coordinate actual rotation first or Keycloak loses database access.

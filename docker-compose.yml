@@ -1,9 +1,8 @@
 services:
   # OHIF Viewer service (main viewer)
-  # ${BIND_HOST:-} prefix lets operators restrict every published port to
-  # localhost by setting BIND_HOST=127.0.0.1: (note trailing colon) in .env
-  # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
-  # See docs/restrict-to-localhost.md.
+  # BIND_HOST accepts a plain IP (e.g. 127.0.0.1 or ::1) in .env or the shell.
+  # Unset/empty preserves the container runtime's default published-port binding.
+  # See docs/security/restrict-to-localhost.md.
   viewer:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.2.0}
     container_name: odelia-viewer
@@ -12,7 +11,9 @@ services:
       - ./config/app-config.js:/usr/share/nginx/html/app-config.js
  #     - ./logs/nginx:/var/log/nginx
     ports:
-      - '${BIND_HOST:-}8081:8081'
+      - target: 8081
+        published: "8081"
+        host_ip: "${BIND_HOST:-}"
     depends_on:
       - orthanc-viewer
       - keycloak
@@ -46,9 +47,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}8000:8042' # HTTP port
-      - '${BIND_HOST:-}2000:4242' # DICOM port
+      - target: 8042 # HTTP port
+        published: "8000"
+        host_ip: "${BIND_HOST:-}"
+      - target: 4242 # DICOM port
+        published: "2000"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-viewer
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -74,9 +80,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4243:4242' # DICOM port (avoid conflict)
-      - '${BIND_HOST:-}8043:8042' # HTTP port (avoid conflict)
+      - target: 4242 # DICOM port (avoid conflict)
+        published: "4243"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP port (avoid conflict)
+        published: "8043"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-mst
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -94,13 +105,16 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-mst:${TAG:-0.1.0}
     container_name: odelia-model-mst
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-mst:8042"
       IMAGE_FOLDER: "/app/mst-service/images"
       MODEL_PATH: "/app/mst-service/mst_model"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5556:5556'
+      - target: 5556
+        published: "5556"
+        host_ip: "${BIND_HOST:-}"
 
   # Orthanc Router service for MedGemma AI model
   orthanc-router-medgemma:
@@ -118,9 +132,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4244:4242' # DICOM port (avoid conflict)
-      - '${BIND_HOST:-}8044:8042' # HTTP port (avoid conflict)
+      - target: 4242 # DICOM port (avoid conflict)
+        published: "4244"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP port (avoid conflict)
+        published: "8044"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-medgemma
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -139,6 +158,7 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-medgemma:${TAG:-0.1.0}
     container_name: odelia-model-medgemma
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-medgemma:8042"
       IMAGE_FOLDER: "/app/medgemma-service/images"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -148,7 +168,9 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5557:5557'
+      - target: 5557
+        published: "5557"
+        host_ip: "${BIND_HOST:-}"
 #    deploy:
 #      resources:
 #        reservations:
@@ -181,9 +203,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4245:4242' # DICOM
-      - '${BIND_HOST:-}8045:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4245"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8045"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-agaldran
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -205,12 +232,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-agaldran:${TAG:-0.1.0}
     container_name: odelia-classification-agaldran
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-agaldran:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5558:5556'
+      - target: 5556
+        published: "5558"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -235,9 +265,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4246:4242' # DICOM
-      - '${BIND_HOST:-}8046:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4246"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8046"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-bcn-aim
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -259,12 +294,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-bcn-aim:${TAG:-0.1.0}
     container_name: odelia-classification-bcn-aim
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-bcn-aim:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5559:5556'
+      - target: 5556
+        published: "5559"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -289,9 +327,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4247:4242' # DICOM
-      - '${BIND_HOST:-}8047:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4247"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8047"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-divide-and-conquer
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -313,12 +356,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-divide-and-conquer:${TAG:-0.1.0}
     container_name: odelia-classification-divide-and-conquer
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-divide-and-conquer:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5561:5556'
+      - target: 5556
+        published: "5561"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -343,9 +389,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4248:4242' # DICOM
-      - '${BIND_HOST:-}8048:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4248"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8048"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-lme-abmil
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -367,12 +418,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-lme-abmil:${TAG:-0.1.0}
     container_name: odelia-classification-lme-abmil
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-lme-abmil:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5562:5556'
+      - target: 5556
+        published: "5562"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -397,9 +451,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4249:4242' # DICOM
-      - '${BIND_HOST:-}8049:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4249"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8049"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-mst
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -421,12 +480,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-mst:${TAG:-0.1.0}
     container_name: odelia-classification-mst
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-mst:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5563:5556'
+      - target: 5556
+        published: "5563"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -451,9 +513,14 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}4250:4242' # DICOM
-      - '${BIND_HOST:-}8050:8042' # HTTP
+      - target: 4242 # DICOM
+        published: "4250"
+        host_ip: "${BIND_HOST:-}"
+      - target: 8042 # HTTP
+        published: "8050"
+        host_ip: "${BIND_HOST:-}"
     environment:
+      - ROUTER_HOST_ALLOWLIST=${ROUTER_HOST_ALLOWLIST:-}
       - ORTHANC__NAME=orthanc-router-odelia-pimed
       - VERBOSE_ENABLED=true
       - VERBOSE_STARTUP=true
@@ -475,12 +542,15 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-pimed:${TAG:-0.1.0}
     container_name: odelia-classification-pimed
     environment:
+      ROUTER_HOST_ALLOWLIST: "${ROUTER_HOST_ALLOWLIST:-}"
       ORTHANC_URL: "http://orthanc-router-odelia-pimed:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5564:5556'
+      - target: 5556
+        published: "5564"
+        host_ip: "${BIND_HOST:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -498,6 +568,8 @@ services:
     image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat:${TAG:-0.1.0}
     container_name: odelia-chat
     environment:
+      CHAT_ALLOWED_ORIGINS: "${CHAT_ALLOWED_ORIGINS:-}"
+      CHAT_WEBSOCKET_ORIGIN_CHECK: "${CHAT_WEBSOCKET_ORIGIN_CHECK:-0}"
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-thiagomoraes/medgemma-1.5-4b-it:F16}"
       BACKEND_TYPE: "${BACKEND_TYPE:-ollama}"
@@ -533,7 +605,9 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5560:5560'
+      - target: 5560
+        published: "5560"
+        host_ip: "${BIND_HOST:-}"
     depends_on:
       - orthanc-viewer
     # Enable host.docker.internal on Linux
@@ -551,7 +625,9 @@ services:
     volumes:
       - ./volumes/models:/models:ro
     ports:
-      - '${BIND_HOST:-}8090:8090'
+      - target: 8090
+        published: "8090"
+        host_ip: "${BIND_HOST:-}"
     networks:
       - odelia-network
     restart: unless-stopped
@@ -581,12 +657,14 @@ services:
     image: grafana/grafana:11.1.0
     container_name: odelia-grafana
     ports:
-      - '${BIND_HOST:-}3000:3000'
+      - target: 3000
+        published: "3000"
+        host_ip: "${BIND_HOST:-}"
     user: "0:0"                          # run as root
     environment:
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=odelia
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-odelia}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./volumes/feedback-db/:/var/lib/odelia-feedback/
@@ -609,14 +687,14 @@ services:
       KC_DB_URL: 'jdbc:postgresql://postgres:5432/keycloak'
       KC_DB_SCHEMA: public
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: password
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
       KC_HOSTNAME_ADMIN_URL: http://localhost:8081/keycloak/
       KC_HOSTNAME_URL: http://localhost:8081/keycloak/
       KC_HOSTNAME_STRICT_BACKCHANNEL: "true"
       KC_HOSTNAME_STRICT_HTTPS: "false"
       KC_HTTP_ENABLED: "true"
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
       KC_PROXY: edge
@@ -627,7 +705,9 @@ services:
       # added later
       PROXY_ADDRESS_FORWARDING: "true"
     ports:
-      - '${BIND_HOST:-}8080:8080'
+      - target: 8080
+        published: "8080"
+        host_ip: "${BIND_HOST:-}"
     depends_on:
       - postgres
     restart: unless-stopped
@@ -649,7 +729,7 @@ services:
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
     restart: unless-stopped
     networks:
       - odelia-network

@@ -2,6 +2,7 @@
 HuggingFace model download and loading logic for MST model
 """
 
+import json
 import logging
 import os
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from huggingface_hub import hf_hub_download, login
+from model_integrity import read_integrity, verify_files
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,13 @@ def get_proxy_config() -> dict[str, str] | None:
     return proxies if proxies else None
 
 
+def _clear_proxy_settings() -> None:
+    # Keep download-only proxies out of subsequent internal PACS requests.
+    for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
+        os.environ.pop(name, None)
+    logger.info("Proxy settings cleared after download")
+
+
 def download_model_files() -> dict[str, str]:
     """
     Download required model files from HuggingFace
@@ -37,6 +46,13 @@ def download_model_files() -> dict[str, str]:
     Returns:
         dict: Paths to downloaded files
     """
+
+    integrity = read_integrity(Path(__file__).with_name("model-integrity.json"))
+    if all((Path(MODEL_PATH) / name).is_file() for name in integrity["sha256"]):
+        try:
+            return verify_files(Path(MODEL_PATH), integrity)
+        finally:
+            _clear_proxy_settings()
 
     logger.info(f"Downloading MST model files from {MODEL_REPO}")
 
@@ -85,7 +101,11 @@ def download_model_files() -> dict[str, str]:
             try:
                 logger.info(f"Downloading {filename}...")
                 file_path = hf_hub_download(
-                    repo_id=MODEL_REPO, filename=filename, local_dir=MODEL_PATH, token=HF_TOKEN
+                    repo_id=MODEL_REPO,
+                    filename=filename,
+                    local_dir=MODEL_PATH,
+                    token=HF_TOKEN,
+                    revision=integrity["revision"],
                 )
                 downloaded_files[filename] = file_path
                 logger.info(f"✓ Downloaded {filename} to {file_path}")
@@ -93,15 +113,10 @@ def download_model_files() -> dict[str, str]:
                 logger.error(f"✗ Failed to download {filename}: {e}")
                 raise
     finally:
-        # Remove ALL proxy settings after download completes
-        os.environ.pop("HTTP_PROXY", None)
-        os.environ.pop("http_proxy", None)
-        os.environ.pop("HTTPS_PROXY", None)
-        os.environ.pop("https_proxy", None)
-        logger.info("Proxy settings cleared after download")
+        _clear_proxy_settings()
 
     logger.info("All model files downloaded successfully")
-    return downloaded_files
+    return verify_files(Path(MODEL_PATH), integrity)
 
 
 def load_model() -> tuple[Any, Any, dict[str, str]]:
@@ -112,17 +127,22 @@ def load_model() -> tuple[Any, Any, dict[str, str]]:
         tuple: (model, predict_function, model_info)
     """
     try:
+        integrity = read_integrity(Path(__file__).with_name("model-integrity.json"))
+        files = verify_files(Path(MODEL_PATH), integrity)
+
         # Add model path to Python path to import downloaded modules
         sys.path.insert(0, MODEL_PATH)
 
-        # Import the downloaded modules
-        from predict_attention import load_model as load_mst_model
+        # Use ordinary imports after verifying the downloaded bundle.
+        import torch
+        from models import MSTRegression
         from predict_attention import run_prediction
 
-        logger.info("Loading MST model...")
-
-        # Load model using the provided function
-        model = load_mst_model(repo_id="ODELIA-AI/MST")
+        logger.info("Loading MST model from verified local files...")
+        config = json.loads(Path(files["model_config.json"]).read_text())
+        model = MSTRegression(weights=False, **config.get("hparams", {}))
+        state_dict = torch.load(files["state_dict.pt"], map_location="cpu", weights_only=True)
+        model.load_state_dict(state_dict, strict=True)
         model.eval()
 
         logger.info("✓ MST model loaded successfully")
@@ -131,6 +151,7 @@ def load_model() -> tuple[Any, Any, dict[str, str]]:
             "model_name": "ODELIA-AI",
             "architecture": "Vision Transformer",
             "version": "1.0",
+            "revision": integrity["revision"],
         }
 
         return model, run_prediction, model_info

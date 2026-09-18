@@ -4,7 +4,10 @@ Single Responsibility: Retrieve DICOM instances via DICOMweb WADO-RS protocol
 """
 
 import logging
+import os
+from urllib.parse import urlsplit
 
+import requests
 from dicomweb_client.api import DICOMwebClient
 from pydicom.dataset import Dataset
 
@@ -46,7 +49,28 @@ def retrieve_via_wado_rs(wado_rs_retrieval: list[dict[str, str]]) -> list[Datase
 
         try:
             # Create DICOMweb client
-            client = DICOMwebClient(url=base_url)
+            raw_allowlist = os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()
+            if raw_allowlist:
+                parsed = urlsplit(base_url)
+                allowed = {
+                    host.strip().lower() for host in raw_allowlist.split(",") if host.strip()
+                }
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or parsed.hostname not in allowed
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.fragment
+                    or any(c.isspace() for c in base_url)
+                    or "\\" in base_url
+                    or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+                ):
+                    raise ValueError("WADO URL not allowed by ROUTER_HOST_ALLOWLIST")
+                session = requests.Session()
+                session.max_redirects = 0
+                client = DICOMwebClient(url=base_url, session=session)
+            else:
+                client = DICOMwebClient(url=base_url)
 
             # Retrieve all instances in the series
             # Returns List[pydicom.Dataset]

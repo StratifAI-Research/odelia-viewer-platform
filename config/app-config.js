@@ -65,7 +65,7 @@ window.config = {
     },
   ],
   httpErrorHandler: error => {
-    console.warn(`HTTP Error Handler (status: ${error.status})`, error);
+    console.warn('HTTP request failed', { status: error.status });
   },
   oidc: [
     {
@@ -75,6 +75,7 @@ window.config = {
       scope: 'openid profile email',
       post_logout_redirect_uri: '/viewer/',
       response_type: 'code',
+      disablePKCE: false,
       // Disable features that cause Firefox rate limiting
       automaticSilentRenew: false,
       monitorSession: false,

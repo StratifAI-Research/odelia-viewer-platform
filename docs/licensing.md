@@ -23,6 +23,7 @@ several are copyleft or non-commercial, the assembled platform is **research use
 | [OHIF Viewer](https://github.com/OHIF/Viewers) | Viewer base (via the [ODELIA Viewer](https://github.com/StratifAI-Research/odelia-viewer) image) | MIT |
 | [Orthanc](https://www.orthanc-server.com/) | DICOM server / PACS | GPLv3+ |
 | [Keycloak](https://www.keycloak.org/) | Authentication | Apache-2.0 |
+| [Inter](https://rsms.me/inter/) | Bundled login-theme font | [SIL Open Font License 1.1](../themes/odelia/login/resources/fonts/OFL.txt) |
 | [Grafana](https://grafana.com/) | Dashboards | AGPLv3 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) / [Ollama](https://ollama.com/) | Chat LLM backend | MIT |
 | [MST weights](https://huggingface.co/ODELIA-AI/MST) | MST classification model | CC-BY-NC-4.0 (non-commercial) |

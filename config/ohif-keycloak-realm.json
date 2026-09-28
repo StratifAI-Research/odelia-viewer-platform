@@ -1,6 +1,7 @@
 {
   "id": "37c16268-9c83-41c3-b452-3fbc86e6966d",
   "realm": "ohif",
+  "loginTheme": "odelia",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
   "revokeRefreshToken": false,

@@ -602,6 +602,7 @@ services:
     container_name: keycloak
     volumes:
       - ./config/ohif-keycloak-realm.json:/opt/keycloak/data/import/ohif-keycloak-realm.json
+      - ./themes/odelia:/opt/keycloak/themes/odelia:ro
     environment:
       # Database
       KC_DB_URL_HOST: postgres

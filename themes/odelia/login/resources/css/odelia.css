@@ -1,0 +1,178 @@
+@font-face {
+  font-family: Inter;
+  src: url('../fonts/inter-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --odelia-background: #050615;
+  --odelia-card: hsl(234 64% 10%);
+  --odelia-primary: hsl(214 98% 60%);
+  --odelia-highlight: hsl(191 74% 63%);
+  --odelia-text: #fafafa;
+  --odelia-muted: hsl(200 46% 65%);
+  --odelia-border: #273356;
+}
+
+html.login-pf, .login-pf body {
+  min-height: 100%;
+  background: var(--odelia-background);
+}
+.login-pf body {
+  margin: 0;
+  color: var(--odelia-text);
+  font: 400 14px/1.6 Inter, system-ui, sans-serif;
+  background-image: radial-gradient(ellipse at 50% 0, #112348 0, transparent 60%);
+  background-attachment: fixed;
+}
+.login-pf-page {
+  padding: clamp(36px, 9vh, 100px) 20px 40px;
+  margin: 0 auto;
+  max-width: 540px;
+}
+#kc-header { margin: 0 0 32px; color: var(--odelia-text); }
+.login-pf-page #kc-header-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  height: 96px;
+  margin: 0 auto;
+  padding: 0;
+  border-radius: 12px;
+  background: #fff url('../img/odelia-logo-horizontal.jpg') center / calc(100% - 48px) auto no-repeat;
+}
+.odelia-brand-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.login-pf-page .card-pf {
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 36px;
+  background: var(--odelia-card);
+  border: 1px solid var(--odelia-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 72px #0005;
+}
+.login-pf-page .login-pf-header { margin: 0 0 28px; }
+#kc-page-title {
+  margin: 0;
+  font: 500 25px/1.3 Inter, system-ui, sans-serif;
+  letter-spacing: -.035em;
+  text-align: left;
+}
+#kc-content, #kc-content-wrapper { margin: 0; }
+.login-pf-page .form-group { margin-bottom: 22px; }
+.login-pf-page label,
+.login-pf-page .pf-c-form__label-text {
+  color: #cedbef;
+  font-size: 13px;
+  font-weight: 500;
+}
+.login-pf-page input.pf-c-form-control,
+.login-pf-page select.pf-c-form-control,
+.login-pf-page textarea.pf-c-form-control {
+  min-height: 46px;
+  margin-top: 7px;
+  padding: 10px 13px;
+  background: #080e25;
+  color: var(--odelia-text);
+  border: 1px solid #34436a;
+  border-radius: 7px;
+  box-shadow: none;
+  font: inherit;
+}
+.login-pf-page input[aria-invalid=true] { border-color: #f18b96; }
+.login-pf-page .pf-c-input-group {
+  display: flex;
+  align-items: stretch;
+  background: transparent;
+}
+.login-pf-page .pf-c-input-group input {
+  min-width: 0;
+  border-radius: 7px 0 0 7px;
+}
+.login-pf-page .pf-c-input-group button {
+  margin-top: 7px;
+  min-width: 46px;
+  background: #121a35;
+  color: var(--odelia-muted);
+  border: 1px solid #34436a;
+  border-left: 0;
+  border-radius: 0 7px 7px 0;
+}
+.login-pf-page .pf-c-button::after { border: 0; }
+.login-pf-page a { color: var(--odelia-highlight); text-decoration: none; }
+.login-pf-page a:hover { text-decoration: underline; }
+.login-pf-page :is(input, button, a, select, textarea):focus-visible {
+  outline: 2px solid var(--odelia-highlight);
+  outline-offset: 3px;
+}
+#kc-login, .login-pf-page .pf-m-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  width: 100%;
+  padding: 11px 16px;
+  color: white;
+  background: var(--odelia-primary);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: 500 14px/1.5 Inter, system-ui, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: none;
+}
+#kc-login:hover, .login-pf-page .pf-m-primary:hover {
+  background: #2576dc;
+  color: white;
+  text-decoration: none;
+}
+#kc-form-buttons { margin: 28px 0 0; }
+.login-pf-page .login-pf-settings { align-items: center; margin-top: 6px; }
+#kc-form-options .checkbox { margin: 0; }
+.login-pf-page input[type=checkbox] { accent-color: var(--odelia-primary); }
+#kc-info-wrapper {
+  background: transparent;
+  padding: 22px 0 0;
+  color: var(--odelia-muted);
+  font-size: 13px;
+}
+#kc-info { margin: 0; }
+.login-pf-page .pf-c-alert, .login-pf-page .alert {
+  color: #dce8f9;
+  background: #17223d;
+  border: 1px solid #354965;
+  border-radius: 7px;
+  box-shadow: none;
+}
+.login-pf-page .pf-m-danger, .login-pf-page .alert-error {
+  background: #321a2b;
+  border-color: #70374d;
+}
+.login-pf-page .pf-c-form__helper-text.pf-m-error,
+#input-error, #input-error-username, #input-error-password { color: #ff9ba8; }
+#kc-locale ul { background: var(--odelia-card); border-color: var(--odelia-border); }
+#kc-locale ul a { color: var(--odelia-text); }
+#kc-locale ul a:hover { background: #1a294b; }
+#kc-attempted-username { color: var(--odelia-text); }
+
+@media (max-width: 480px) {
+  .login-pf-page { padding: 36px 16px; }
+  .login-pf-page .card-pf { padding: 26px 22px; }
+  .login-pf-page #kc-header-wrapper { max-width: 320px; height: 86px; }
+  .login-pf-page .login-pf-settings { flex-wrap: wrap; gap: 12px; }
+}

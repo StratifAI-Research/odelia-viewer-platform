@@ -9,6 +9,7 @@
     <a href="https://odelia.ai/">ODELIA Project</a> ·
     <a href="https://www.stratifai.com/">StratifAI</a> ·
     <a href="https://github.com/StratifAI-Research/odelia-viewer">ODELIA Viewer</a> ·
+    <a href="#demo-video">Demo video</a> ·
     <a href="#documentation">Documentation</a>
   </p>
 
@@ -36,6 +37,12 @@ It bundles:
 - **[Grafana](https://grafana.com/)** — dashboards to collect and evaluate reader studies.
 
 
+
+## Demo video
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/775aa07b-803b-4a4d-9c49-e2dc7d230f95" controls></video>
+</div>
 
 ## Quick start
 

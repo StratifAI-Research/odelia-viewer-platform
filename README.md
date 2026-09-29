@@ -9,6 +9,7 @@
     <a href="https://odelia.ai/">ODELIA Project</a> ·
     <a href="https://www.stratifai.com/">StratifAI</a> ·
     <a href="https://github.com/StratifAI-Research/odelia-viewer">ODELIA Viewer</a> ·
+    <a href="#demo-video">Demo video</a> ·
     <a href="#documentation">Documentation</a>
   </p>
 
@@ -36,6 +37,18 @@ It bundles:
 - **[Grafana](https://grafana.com/)** — dashboards to collect and evaluate reader studies.
 
 
+
+## Demo video
+
+Watch the **3-minute walkthrough** of breast MRI review, AI predictions and attention heatmaps,
+reader feedback, the analysis workflow, and image-grounded chat.
+
+[![Watch the ODELIA demo: breast MRI alongside an AI attention heatmap](docs/media/odelia-demo-preview.png)](docs/media/odelia-demo.mp4)
+
+**[Watch or download the demo (MP4, 3:08)](docs/media/odelia-demo.mp4)** ·
+[English captions (SRT)](docs/media/odelia-demo.srt)
+
+Recorded with a research demo build; the platform is not a medical device and is not for diagnostic use.
 
 ## Quick start
 

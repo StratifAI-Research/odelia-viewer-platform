@@ -40,14 +40,9 @@ It bundles:
 
 ## Demo video
 
-<details>
-<summary>Watch demo</summary>
-
 <div align="center">
   <video src="https://github.com/user-attachments/assets/775aa07b-803b-4a4d-9c49-e2dc7d230f95" controls></video>
 </div>
-
-</details>
 
 ## Quick start
 

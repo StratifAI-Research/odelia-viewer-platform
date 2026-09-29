@@ -40,15 +40,9 @@ It bundles:
 
 ## Demo video
 
-Watch the **3-minute walkthrough** of breast MRI review, AI predictions and attention heatmaps,
-reader feedback, the analysis workflow, and image-grounded chat.
-
-[![Watch the ODELIA demo: breast MRI alongside an AI attention heatmap](docs/media/odelia-demo-preview.png)](docs/media/odelia-demo.mp4)
-
-**[Watch or download the demo (MP4, 3:08)](docs/media/odelia-demo.mp4)** ·
-[English captions (SRT)](docs/media/odelia-demo.srt)
-
-Recorded with a research demo build; the platform is not a medical device and is not for diagnostic use.
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/775aa07b-803b-4a4d-9c49-e2dc7d230f95" controls></video>
+</div>
 
 ## Quick start
 

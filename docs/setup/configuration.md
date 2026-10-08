@@ -17,6 +17,21 @@ When changing the domain or going to production, update the `ohif_viewer` client
 origins) in Keycloak and the `KC_HOSTNAME_URL` / `KC_HOSTNAME_ADMIN_URL` variables in
 `docker-compose.yml`. Details in [`production-hardening.md`](../security/production-hardening.md).
 
+## Login theme
+
+Keycloak uses the [ODELIA login theme](../../themes/odelia/README.md), matching the viewer's
+dark surfaces, blue buttons, cyan focus indicators, and Inter font. Compose mounts the theme
+read-only, and the imported realm selects it for new installations.
+
+For an existing installation, run the updated Compose configuration to add the theme mount:
+
+    docker compose up -d --no-deps keycloak
+
+Then select **odelia** under **Realm settings → Themes → Login theme** in the **ohif** realm.
+Startup import skips an existing realm, so changing the realm JSON alone does not switch its theme.
+Existing users, authentication flows, and client settings are retained. To revert the appearance,
+select the previous login theme in the same settings.
+
 ## Hugging Face access token (`HF_TOKEN`)
 
 Any model whose Hugging Face repo is **gated** — i.e. requires you to request access or accept a

@@ -9,7 +9,7 @@ import os
 import pytest
 import requests
 
-from ._roster import ROSTER, ROSTER_IDS
+from batch.roster import ROSTER, ROSTER_IDS
 
 _HOST = os.environ.get("ROSTER_HOST", "http://localhost")
 

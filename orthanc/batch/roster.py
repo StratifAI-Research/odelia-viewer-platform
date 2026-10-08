@@ -1,7 +1,8 @@
 """Roster of odelia-classification model pairs and their host ports.
 
-Mirrors the `odelia-models` compose profile (ODV-218). Backend 5560 belongs to
-chat-middleware, hence the gap.
+Mirrors the ``odelia-models`` compose profile (ODV-218). Backend 5560 belongs to
+chat-middleware, hence the gap. Promoted out of the test tree (ODV-221) so it is
+a single source shared by the integration suites and the batch tool.
 """
 
 from typing import NamedTuple

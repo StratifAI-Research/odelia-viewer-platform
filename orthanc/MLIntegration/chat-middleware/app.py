@@ -49,6 +49,7 @@ from config import init_config  # noqa: E402
 from debug_routes import router as debug_router  # noqa: E402
 from image_cache import get_image_cache  # noqa: E402
 from ollama_client import get_ollama_client  # noqa: E402
+from origin_policy import websocket_origin_allowed  # noqa: E402
 from runtime_config import get_runtime_config  # noqa: E402
 from session_manager import get_session_manager  # noqa: E402
 from shared.security_banner import print_security_banner  # noqa: E402
@@ -153,6 +154,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     Args:
         session_id: Session identifier. Use 'new' to create a new session.
     """
+    if not websocket_origin_allowed(websocket):
+        await websocket.close(code=1008)
+        return
     await handle_websocket(websocket, session_id)
 
 

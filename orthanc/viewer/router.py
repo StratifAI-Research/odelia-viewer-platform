@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -28,7 +29,9 @@ except Exception:
 # the current research behaviour. See docs/security/production-hardening.md.
 try:
     from host_allowlist import host_is_allowed
-except Exception:
+except ImportError:
+    if os.getenv("ROUTER_HOST_ALLOWLIST", "").strip():
+        raise
 
     def host_is_allowed(_url: str) -> bool:  # fallback: allow all
         return True
@@ -576,6 +579,7 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
 
                 ups_response = requests.post(
                     post_url,
+                    allow_redirects=not bool(os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()),
                     json=ups_workitem_request,
                     headers={"Content-Type": "application/json"},
                     timeout=10,
@@ -598,7 +602,12 @@ def SendToAiDicomWeb(output: Any, uri: str, **request: Any) -> None:
                             "deletion_lock": False,
                         }
                         subscribe_response = requests.post(
-                            subscribe_url, json=subscribe_body, timeout=5
+                            subscribe_url,
+                            allow_redirects=not bool(
+                                os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()
+                            ),
+                            json=subscribe_body,
+                            timeout=5,
                         )
                         if subscribe_response.status_code == 200:
                             print(
@@ -797,7 +806,11 @@ def GetAIManifest(output: Any, uri: str, **request: Any) -> None:
         manifest_url = f"{router_base_url}/manifest"
         print(f"GetAIManifest: Fetching manifest from {manifest_url}")
 
-        resp = requests.get(manifest_url, timeout=5)
+        resp = requests.get(
+            manifest_url,
+            allow_redirects=not bool(os.getenv("ROUTER_HOST_ALLOWLIST", "").strip()),
+            timeout=5,
+        )
         if resp.status_code == 200:
             output.AnswerBuffer(resp.text, "application/json")
         else:

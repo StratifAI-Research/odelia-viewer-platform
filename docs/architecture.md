@@ -23,7 +23,7 @@ PACS storage, AI routing, model inference, authentication, and monitoring.
 
 `docker compose up` starts every service below except `llamacpp-server` (which is
 profile-gated). Ports bind to `0.0.0.0` by default so others on your LAN can reach them —
-set `BIND_HOST=127.0.0.1:` to restrict to loopback (see
+set `BIND_HOST=127.0.0.1` to restrict to loopback (see
 [`restrict-to-localhost.md`](security/restrict-to-localhost.md)).
 
 | Service | Role | Published port(s) |

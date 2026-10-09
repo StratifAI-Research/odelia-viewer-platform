@@ -676,7 +676,7 @@ Notes:
   provide one, use
   [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
   as the worked example.
-- The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
+- The `host_ip: "${BIND_HOST:-}"` field on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
 - A live example of a filled-in pair is the `odelia-classification-mst` /
   `orthanc-router-odelia-mst` pair in `docker-compose.yml`; all six ODELIA

@@ -13,20 +13,22 @@ restrict every published port to `127.0.0.1` (loopback only).
 In `.env` (preferred — gitignored, so it does not leak into commits):
 
 ```bash
-BIND_HOST=127.0.0.1:
+BIND_HOST=127.0.0.1
 ```
 
 …or as a one-shot shell override:
 
 ```bash
-BIND_HOST=127.0.0.1: docker compose up -d
+BIND_HOST=127.0.0.1 docker compose up -d
 ```
 
-**The trailing colon is required** — each port mapping is interpolated as
-`${BIND_HOST:-}<host_port>:<container_port>`, so:
+Use a plain IP without a trailing colon. If upgrading from the old prefix
+syntax, change `BIND_HOST=127.0.0.1:` to `BIND_HOST=127.0.0.1` in existing
+`.env` files and shell overrides before recreating services.
 
-* `BIND_HOST` unset / empty → `8081:8081` (current LAN-shared default)
-* `BIND_HOST=127.0.0.1:`    → `127.0.0.1:8081:8081` (loopback only)
+* `BIND_HOST` unset / empty preserves the runtime's default host binding.
+* `BIND_HOST=127.0.0.1` binds to IPv4 loopback only.
+* `BIND_HOST=::1` binds to IPv6 loopback only.
 
 Verify with `docker compose config` — every published port should show
 `host_ip: 127.0.0.1` when `BIND_HOST` is set.
@@ -38,16 +40,18 @@ written as:
 
 ```yaml
 ports:
-  - '${BIND_HOST:-}8081:8081'
+  - target: 8081
+    published: "8081"
+    host_ip: "${BIND_HOST:-}"
 ```
 
-Docker Compose runs variable interpolation on port strings, so this
+Docker Compose interpolates the `host_ip` field, so this
 single env var flips every published port in the stack at once. No
 override files, no parallel definitions to drift.
 
 ## Affected ports
 
-| Service                     | Default       | With `BIND_HOST=127.0.0.1:` |
+| Service                     | Default       | With `BIND_HOST=127.0.0.1` |
 | --------------------------- | ------------- | --------------------------- |
 | `viewer` (OHIF)             | `8081`        | `127.0.0.1:8081`            |
 | `orthanc-viewer` HTTP       | `8000`        | `127.0.0.1:8000`            |
@@ -66,7 +70,7 @@ override files, no parallel definitions to drift.
 ## When NOT to use this
 
 - You want a colleague at the next desk (same LAN / VPN) to open the OHIF
-  viewer at `http://<your-ip>:8081`. `BIND_HOST=127.0.0.1:` blocks that —
+  viewer at `http://<your-ip>:8081`. `BIND_HOST=127.0.0.1` blocks that —
   leave it unset.
 - You are running in a cloud VM but already using a managed firewall /
   security group. `BIND_HOST` is belt-and-braces, not a replacement; both

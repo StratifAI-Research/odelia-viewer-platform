@@ -1,10 +1,13 @@
 """WADO-RS metadata retrieval utilities"""
 
+import os
 from collections import defaultdict
 from typing import Any
 
 import numpy as np
+import requests
 from dicomweb_client.api import DICOMwebClient
+from host_allowlist import host_is_allowed
 
 
 def retrieve_series_metadata_sorted(
@@ -28,7 +31,14 @@ def retrieve_series_metadata_sorted(
     first_retrieval = wado_rs_retrieval[0]
     base_url = first_retrieval["retrieval_url"].split("/studies/")[0]
 
-    client = DICOMwebClient(url=base_url)
+    if not host_is_allowed(base_url):
+        raise ValueError("WADO host not in ROUTER_HOST_ALLOWLIST")
+    if os.getenv("ROUTER_HOST_ALLOWLIST", "").strip():
+        session = requests.Session()
+        session.max_redirects = 0
+        client = DICOMwebClient(url=base_url, session=session)
+    else:
+        client = DICOMwebClient(url=base_url)
     instances_metadata = client.retrieve_series_metadata(
         study_instance_uid=first_retrieval["study_uid"],
         series_instance_uid=first_retrieval["series_uid"],

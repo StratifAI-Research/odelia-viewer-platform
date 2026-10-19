@@ -207,6 +207,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-agaldran:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:
@@ -261,6 +262,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-bcn-aim:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:
@@ -315,6 +317,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-divide-and-conquer:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:
@@ -369,6 +372,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-lme-abmil:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:
@@ -423,6 +427,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-mst:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:
@@ -477,6 +482,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-pimed:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:

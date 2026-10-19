@@ -12,3 +12,10 @@ __pycache__/
 venv/
 outputs/
 .env
+
+# Private model artifacts must never enter the application Git repository.
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+**/models/mst/_dinov2/

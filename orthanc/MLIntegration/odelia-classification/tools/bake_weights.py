@@ -5,8 +5,8 @@ Run from the service dir during the Docker build, after select_subunit:
 
 ``WEIGHT_PATH`` empty -> init-only image (the staged file is ignored). Otherwise
 the staged file is validated, copied into the subunit as ``weights.safetensors``,
-and its sha256 recorded in ``models-lock.json``. Strict-loading the weights into
-the model is a later ticket; here we only place + checksum.
+and its sha256 recorded in ``models-lock.json``. The subsequent build validation
+and service startup strictly load this artifact into the selected architecture.
 """
 
 from __future__ import annotations

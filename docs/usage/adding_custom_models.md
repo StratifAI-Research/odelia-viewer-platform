@@ -265,7 +265,8 @@ shared.
      -t stratifai/odelia-classification-<name> orthanc/MLIntegration
    ```
 
-   Without `WEIGHT_PATH` the service runs init-only weights and logs it.
+   Without weights, set `ALLOW_INIT_WEIGHTS=1` explicitly for an untrained preview.
+   For private Hub packages and trained builds, see [Loading model weights](loading_model_weights.md).
 3. **Wire the router+service pair**: copy the blocks from
    [`docker-compose.model-template.yml`](../../docker-compose.model-template.yml)
    into `docker-compose.yml` and fill the placeholders. The template header
@@ -898,8 +899,9 @@ preprocessing and inference each take roughly a second); `ROUNDTRIP_TIMEOUT_S`
 (default 900) is a generous ceiling for slower or first-run CPU inference, not
 the expected runtime.
 
-Assertions are structural. Weights are init-only until ODV-216, so predictions
-carry no clinical meaning and no test asserts on their values.
+Assertions are structural and do not assert prediction values. The default
+roster uses explicit untrained previews. See [Loading trained model packages](loading_model_weights.md)
+for private Hub builds, local weights and trained deployment settings.
 
 ### Requirements for a working round-trip
 

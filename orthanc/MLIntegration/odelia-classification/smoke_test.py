@@ -6,9 +6,11 @@ Runs on CPU by defaulting MODEL_DEVICE=cpu. This is the acceptance smoke test
 for the model-service block; per-model serving/E2E coverage is ODV-219 / ODV-220.
 
 Usage:
-    python smoke_test.py                       # Pimed on CPU
-    MODEL_NAME=DivideAndConquer python smoke_test.py
-    MODEL_DEVICE=cuda python smoke_test.py      # require a GPU
+    ALLOW_INIT_WEIGHTS=1 python smoke_test.py   # untrained Pimed preview on CPU
+    MODEL_NAME=DivideAndConquer python smoke_test.py  # requires baked weights
+
+For an untrained MST preview, first run:
+    python -m tools.prepare_backbone models/mst
 """
 
 import os

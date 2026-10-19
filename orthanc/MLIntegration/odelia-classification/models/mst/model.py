@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 from einops import rearrange
 from torch import nn
@@ -42,8 +44,12 @@ class _MST(nn.Module):
 
         if backbone_type != "dinov2":
             raise ValueError(f"Unknown backbone_type: {backbone_type!r}")
-        torch.hub._validate_not_a_forked_repo = lambda a, b, c: True
-        self.backbone = torch.hub.load("facebookresearch/dinov2", f"dinov2_vit{model_size}14")
+        # The build/export step vendors pinned DINOv2 source beside this module.
+        # Trained backbone weights are already in our complete state dict.
+        source = Path(__file__).parent / "_dinov2"
+        self.backbone = torch.hub.load(
+            str(source), f"dinov2_vit{model_size}14", source="local", pretrained=False
+        )
         self.backbone.mask_token = None
         emb_ch = self.backbone.num_features
         self.emb_ch = emb_ch

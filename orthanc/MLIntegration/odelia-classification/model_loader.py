@@ -1,25 +1,23 @@
-"""Model construction for the generalized ODELIA model-service block (ODV-214).
-
-Builds a supported model by name via the local ``models`` package. Weights are
-init-only here; loading a trained state_dict from HuggingFace is deferred to
-ODV-216.
-"""
+"""Construct the baked ODELIA subunit and strictly load its local weights."""
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import torch
 from config import SERVICE_VERSION, resolve_device
-from models import create_model
+from models import available_models, create_model
+from weights import load_weights
 
 logger = logging.getLogger(__name__)
 
 
 def build_model(model_name: str, num_classes: int = 3) -> tuple[torch.nn.Module, dict[str, Any]]:
-    """Build a model by name on the configured device (init weights only).
+    """Build and load a model on the configured device, without downloads.
 
     ``MODEL_DEVICE`` must be set (``cpu``/``cuda``); resolving it here fails
     loudly otherwise.
@@ -27,7 +25,25 @@ def build_model(model_name: str, num_classes: int = 3) -> tuple[torch.nn.Module,
     device = resolve_device()
     logger.info("Building model '%s' (num_classes=%d) on %s", model_name, num_classes, device)
 
+    directory = Path(__file__).parent / "models" / available_models()[model_name]
+    lock_path = Path(__file__).parent / "models-lock.json"
+    lock = json.loads(lock_path.read_text()) if lock_path.is_file() else {}
+    weights_path = directory / "weights.safetensors"
+    if not weights_path.is_file() and (
+        os.getenv("ALLOW_INIT_WEIGHTS") != "1"
+        or (directory / "release.json").exists()
+        or lock.get("weights", "init-only") != "init-only"
+    ):
+        raise FileNotFoundError(
+            f"Missing trained weights: {weights_path}. "
+            "ALLOW_INIT_WEIGHTS=1 permits an explicitly untrained development preview."
+        )
     model = create_model(model_name, num_classes=num_classes)
+    provenance = (
+        load_weights(model, directory, model_name, lock_path)
+        if weights_path.is_file()
+        else {"weights": "init-only"}
+    )
     model.eval()
     model.to(device)
 
@@ -37,8 +53,11 @@ def build_model(model_name: str, num_classes: int = 3) -> tuple[torch.nn.Module,
         "version": SERVICE_VERSION,
         "num_classes": num_classes,
         "device": device,
-        "weights": "init-only",  # ODV-216 overlays a trained state_dict
+        **provenance,
     }
+    if provenance.get("model_release"):
+        info["service_version"] = SERVICE_VERSION
+        info["version"] = provenance["model_release"]
     logger.info("Model '%s' built (%s)", model_name, model.__class__.__name__)
     return model, info
 

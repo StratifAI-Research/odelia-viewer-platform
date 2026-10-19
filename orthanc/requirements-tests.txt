@@ -33,3 +33,7 @@ einops==0.8.2
 torchvision==0.27.0
 timm==1.0.15
 dynamic-network-architectures==0.4.4
+
+# Trained artifact loading and pinned Hub staging (ODV-216).
+huggingface-hub==0.29.3
+safetensors==0.5.3

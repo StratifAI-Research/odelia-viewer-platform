@@ -76,6 +76,7 @@ services:
     environment:
       ORTHANC_URL: "http://<router>:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Development preview; set to 0 for trained deployments.
     networks:
       - odelia-network
     ports:

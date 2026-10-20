@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export DIVIDE_AND_CONQUER_PORT="${DIVIDE_AND_CONQUER_PORT:-5561}"
+DIVIDE_AND_CONQUER_PORT="${DIVIDE_AND_CONQUER_PORT:-5561}"
 ROSTER_PORTS=(5556 5558 5559 "$DIVIDE_AND_CONQUER_PORT" 5562)
 declare -A ROSTER_SLUGS=(
   [5558]=agaldran
@@ -27,6 +27,19 @@ for port in "${ROSTER_PORTS[@]}"; do
   fi
 done
 docker compose up -d "${roster_services[@]}"
+
+# Compose may obtain the host-port override from .env rather than the shell.
+# Read the actual binding before health checks and export it for pytest.
+previous_port="$DIVIDE_AND_CONQUER_PORT"
+binding="$(docker compose port odelia-classification-divide-and-conquer 5556 | head -n 1)"
+export DIVIDE_AND_CONQUER_PORT="${binding##*:}"
+if [[ ! "$DIVIDE_AND_CONQUER_PORT" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: could not resolve the MeisenMeister backend's published port" >&2
+  exit 1
+fi
+unset 'ROSTER_SLUGS[$previous_port]'
+ROSTER_SLUGS[$DIVIDE_AND_CONQUER_PORT]=divide-and-conquer
+ROSTER_PORTS=(5556 5558 5559 "$DIVIDE_AND_CONQUER_PORT" 5562)
 
 if [[ -n "${VIEWER_NETWORK:-}" ]]; then
   echo "Re-attaching roster containers to viewer network '${VIEWER_NETWORK}'..."

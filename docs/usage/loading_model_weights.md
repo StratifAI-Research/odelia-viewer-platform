@@ -71,3 +71,55 @@ Passing the synthetic forward check verifies loading and tensor compatibility.
 It does not establish the training preprocessing, class ordering, or clinical
 performance. Confirm those against the selected release before interpreting
 predictions.
+
+## GitHub Actions builds
+
+The `Trained model images` workflow downloads pinned packages and embeds their
+weights using the same Dockerfile. It runs only from `main` and uses the existing
+`release` environment, whose deployment branch policy must allow only the
+`main` branch. Pull requests continue to build untrained preview images without
+HF credentials.
+
+Configure these settings in the platform GitHub repository:
+
+- Environment secret `release/HF_TOKEN`: preferably a fine-grained HF token
+  granting read access only to the required private model repositories.
+- Existing environment secrets `release/DOCKER_HUB_USERNAME` and
+  `release/DOCKER_HUB_TOKEN`: used only when pushing the validated image.
+- Repository variable `ODELIA_TRAINED_MODELS`: a JSON build matrix. For example,
+  replace the placeholders in this configuration with the selected release:
+
+  ```json
+  {
+    "include": [
+      {
+        "model": "MST",
+        "image": "odelia-classification-mst",
+        "hf_repo": "ORGANIZATION/PRIVATE-MODEL",
+        "hf_revision": "FULL_40_CHARACTER_COMMIT_SHA"
+      }
+    ]
+  }
+  ```
+
+An unset matrix disables trained builds. Repository identifiers and commit SHAs
+are configuration, not credentials; they can appear in workflow logs and image
+provenance. Keep tokens in environment secrets.
+
+Each build first verifies checksums and strict loading, then runs full-size
+synthetic inference in a container with networking disabled. The token is passed
+to BuildKit as `hf_token`; it is neither a Docker build argument nor a runtime
+environment variable. This is the same secret mount used for local builds.
+
+Main-branch pushes publish successful builds to
+`stratifai/<image>:sha-<application-commit>-hf-<model-commit>`. Manual dispatch
+builds and validates by default; select `publish` to push it as well. These
+trained tags include both revisions and are separate from the existing
+`latest`/semantic-version promotion workflow.
+
+Trained builds do not export Actions caches, model files, or build-record
+artifacts. Their distribution artifact is the Docker image, including its
+weights. The workflow does not create or upload Hugging Face repositories.
+
+See [Docker's GitHub Actions secret mounts](https://docs.docker.com/build/ci/github-actions/secrets/)
+and [Hugging Face token permissions](https://huggingface.co/docs/hub/security-tokens).

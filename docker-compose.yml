@@ -318,7 +318,7 @@ services:
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5561:5556'
+      - '${BIND_HOST:-}${DIVIDE_AND_CONQUER_PORT:-5561}:5556'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s

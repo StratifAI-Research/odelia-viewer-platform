@@ -4,11 +4,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-ROSTER_PORTS=(5556 5558 5559 5561 5562)
+export DIVIDE_AND_CONQUER_PORT="${DIVIDE_AND_CONQUER_PORT:-5561}"
+ROSTER_PORTS=(5556 5558 5559 "$DIVIDE_AND_CONQUER_PORT" 5562)
 declare -A ROSTER_SLUGS=(
   [5558]=agaldran
   [5559]=bcn-aim
-  [5561]=divide-and-conquer
+  [$DIVIDE_AND_CONQUER_PORT]=divide-and-conquer
   [5562]=lme-abmil
   [5556]=mst
 )

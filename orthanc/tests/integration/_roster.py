@@ -4,6 +4,7 @@ Mirrors the default trained pairs plus the optional Pimed preview. Backend 5560 
 chat-middleware, hence the gap.
 """
 
+import os
 from typing import NamedTuple
 
 
@@ -27,7 +28,7 @@ ROSTER = [
         "MeisenMeister swarm August 2026",
         "orthanc-router-odelia-divide-and-conquer",
         8047,
-        5561,
+        int(os.environ.get("DIVIDE_AND_CONQUER_PORT", "5561")),
     ),
     RosterModel("LME_ABMIL", "ABMIL swarm May 2026", "orthanc-router-odelia-lme-abmil", 8048, 5562),
     RosterModel("MST", "MST swarm May 2026", "orthanc-router-mst", 8043, 5556),

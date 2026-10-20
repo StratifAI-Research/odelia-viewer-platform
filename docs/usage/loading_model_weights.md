@@ -100,6 +100,9 @@ prebuilt images through `.env` using `.env.models.example` as a template:
 
 Use the full image reference from a successful trained-model build, preferably
 pinned by registry digest. Local image tags also work on their build host.
+Set `DIVIDE_AND_CONQUER_PORT` if its default host port 5561 is already in use;
+the internal model/router address is unchanged. Export the same value when
+running the integration suites.
 No trained image references are guessed: all five variables must be set before
 Compose can start. Building/publishing these images is a separate step; the
 public source configuration does not include private HF release coordinates.

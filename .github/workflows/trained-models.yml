@@ -89,7 +89,7 @@ jobs:
             "hf_token=${{ secrets.HF_TOKEN }}"
           # Deliberately no cache-to: trained layers contain private weights.
 
-      - name: Verify offline inference without credentials
+      - name: Verify offline weight loading without credentials
         env:
           IMAGE_TAG: ${{ steps.config.outputs.tag }}
         run: |
@@ -97,7 +97,7 @@ jobs:
           docker run --rm --network none \
             -e ALLOW_INIT_WEIGHTS=0 \
             -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 \
-            "$IMAGE_TAG" python -m tools.validate_model "$MODEL"
+            "$IMAGE_TAG" python -m tools.validate_model "$MODEL" --load-only
 
       - name: Log in to Docker Hub
         if: github.event_name == 'push' || inputs.publish

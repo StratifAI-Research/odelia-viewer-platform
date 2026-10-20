@@ -32,8 +32,8 @@ docker build -f odelia-classification/Dockerfile \
 `HF_REVISION` must be a full 40-character commit SHA. Use an HF token with read
 access to the private repository. The token is read only from the BuildKit
 secret; it is not saved in the image or passed to model code. Download and
-checksum verification run in the secret-bearing step; source import, strict
-loading and a full-size synthetic forward check run in a subsequent step.
+checksum verification run in the secret-bearing step; source import and strict
+loading run in a subsequent step. Image builds do not run inference.
 
 The download replaces the selected subunit and records its repository, commit,
 release and weight checksum in `models-lock.json`. The model service reports
@@ -66,6 +66,19 @@ trained model.
 For MST, the build vendors a pinned DINOv2 source revision. The constructor uses
 that local source with `pretrained=False`; the complete model weights come from
 the selected artifact. No secondary pretrained checkpoint is downloaded.
+
+On the inference host, run a separate full-size synthetic forward check:
+
+```sh
+docker run --rm --network none \
+  -e ALLOW_INIT_WEIGHTS=0 \
+  -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 \
+  odelia-trained-model python -m tools.validate_model "$MODEL"
+```
+
+Use `--load-only` to verify strict weight loading without a forward pass, as
+the image build and CI do. Loading still requires memory for the model and its
+checkpoint, but avoids inference activation memory and compute.
 
 Passing the synthetic forward check verifies loading and tensor compatibility.
 It does not establish the training preprocessing, class ordering, or clinical
@@ -106,8 +119,11 @@ An unset matrix disables trained builds. Repository identifiers and commit SHAs
 are configuration, not credentials; they can appear in workflow logs and image
 provenance. Keep tokens in environment secrets.
 
-Each build first verifies checksums and strict loading, then runs full-size
-synthetic inference in a container with networking disabled. The token is passed
+Each build verifies checksums and strict loading, then checks weight loading
+in a container with networking disabled. Neither step runs a forward pass.
+Full inference and the Orthanc pipeline are validated separately on the
+inference host; a successful CI build does not establish inference correctness.
+The token is passed
 to BuildKit as `hf_token`; it is neither a Docker build argument nor a runtime
 environment variable. This is the same secret mount used for local builds.
 

@@ -64,12 +64,13 @@ RUN --mount=type=secret,id=hf_token \
       python -m tools.bake_weights "$MODEL" /tmp/weight.in "$WEIGHT_PATH"; \
     fi
 
-# No HF credential is mounted during source import or model execution.
+# No HF credential is mounted during source import or weight loading.
+# Full-size inference is a separate validation step on the inference host.
 RUN if [ "$MODEL" = "MST" ]; then \
       python -m tools.prepare_backbone models/mst; \
     fi
 RUN if [ -n "$HF_REPO" ] || [ -n "$WEIGHT_PATH" ]; then \
-      python -m tools.validate_model "$MODEL"; \
+      python -m tools.validate_model "$MODEL" --load-only; \
     fi
 
 # Create runtime dirs

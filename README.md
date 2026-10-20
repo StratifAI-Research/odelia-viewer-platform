@@ -51,8 +51,23 @@ It bundles:
 ```bash
 git clone https://github.com/StratifAI-Research/odelia-viewer-platform.git
 cd odelia-viewer-platform
+# Set the five trained model image references (see below).
+cp .env.models.example .env
+# Edit .env before starting.
 docker compose up -d
 ```
+
+The default viewer exposes **MST, agaldran, SwinUNETR and ABMIL swarm May 2026**,
+and **MeisenMeister swarm August 2026**. Set the five `*_IMAGE` values in `.env`
+to the corresponding prebuilt trained images. The trained-image workflow prints
+immutable revision tags; local images can also be used on the host that built
+them. These values are required because the earlier `0.1.0` preview images do not
+contain these trained releases. Image publication is separate from this source
+configuration; do not assume a release tag exists until it has been published.
+See [trained model deployment](docs/usage/loading_model_weights.md#default-viewer-deployment).
+
+When updating an existing installation, merge the example settings into its
+existing `.env` instead of replacing it. Runtime model services need no HF token.
 
 **The first start builds several images and may take a while.** \
 Check progress with `docker compose ps` and `docker compose logs -f`.

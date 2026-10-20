@@ -56,12 +56,33 @@ window.config = {
       },
     }
   ],
-  // Preconfigured AI endpoints
+  // Default trained model/router pairs; names include the weight release.
+  // Keep mst-ai and its URL stable so existing saved selections still work.
   aiEndpoints: [
     {
       id: 'mst-ai',
-      name: 'MST AI model',
+      name: 'MST swarm May 2026',
       url: 'http://orthanc-router-mst:8042/dicom-web',
+    },
+    {
+      id: 'agaldran-ai',
+      name: 'agaldran swarm May 2026',
+      url: 'http://orthanc-router-odelia-agaldran:8042/dicom-web',
+    },
+    {
+      id: 'swinunetr-ai',
+      name: 'SwinUNETR swarm May 2026',
+      url: 'http://orthanc-router-odelia-bcn-aim:8042/dicom-web',
+    },
+    {
+      id: 'abmil-ai',
+      name: 'ABMIL swarm May 2026',
+      url: 'http://orthanc-router-odelia-lme-abmil:8042/dicom-web',
+    },
+    {
+      id: 'meisenmeister-ai',
+      name: 'MeisenMeister swarm August 2026',
+      url: 'http://orthanc-router-odelia-divide-and-conquer:8042/dicom-web',
     },
   ],
   httpErrorHandler: error => {

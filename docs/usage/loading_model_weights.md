@@ -59,9 +59,9 @@ release with missing or invalid weights always fails, even when previews are
 allowed.
 
 Images built without weights require `ALLOW_INIT_WEIGHTS=1` to run. The default
-Compose model roster sets this explicitly for development previews. Set it to
-`0` in trained deployment overrides. Preview outputs do not represent a
-trained model.
+Compose roster requires trained weights (`ALLOW_INIT_WEIGHTS=0`). Pimed remains
+an explicit development preview behind the `model-previews` profile and is not
+registered in the viewer. Preview outputs do not represent a trained model.
 
 For MST, the build vendors a pinned DINOv2 source revision. The constructor uses
 that local source with `pretrained=False`; the complete model weights come from
@@ -84,6 +84,47 @@ Passing the synthetic forward check verifies loading and tensor compatibility.
 It does not establish the training preprocessing, class ordering, or clinical
 performance. Confirm those against the selected release before interpreting
 predictions.
+
+## Default viewer deployment
+
+The default Compose deployment starts five trained model/router pairs. Select
+prebuilt images through `.env` using `.env.models.example` as a template:
+
+| Viewer label | Architecture | Image variable | Router HTTP / backend port |
+| --- | --- | --- | --- |
+| MST swarm May 2026 | MST | `MST_IMAGE` | 8043 / 5556 |
+| agaldran swarm May 2026 | agaldran | `AGALDRAN_IMAGE` | 8045 / 5558 |
+| SwinUNETR swarm May 2026 | BCN_AIM | `BCN_AIM_IMAGE` | 8046 / 5559 |
+| ABMIL swarm May 2026 | LME_ABMIL | `LME_ABMIL_IMAGE` | 8048 / 5562 |
+| MeisenMeister swarm August 2026 | DivideAndConquer | `DIVIDE_AND_CONQUER_IMAGE` | 8047 / 5561 |
+
+Use the full image reference from a successful trained-model build, preferably
+pinned by registry digest. Local image tags also work on their build host.
+No trained image references are guessed: all five variables must be set before
+Compose can start. Building/publishing these images is a separate step; the
+public source configuration does not include private HF release coordinates.
+
+`config/app-config.js` pairs each viewer entry with its corresponding router.
+MST keeps `mst-ai`, `orthanc-router-mst` and `mst-classifier`, so existing saved
+selections continue to route to the trained backend. There is no second MST
+pair. Each router waits for its model's health check before starting.
+
+The viewer defaults to the newest published Docker Hub build inspected on 2026-10-20,
+pinned at digest
+`sha256:4446e20964a4e1356b6e5bbb3f0f04c7ee713072c6a361ba6149756fed25060c`.
+The latest tagged product release remains 2.2.0. This image was published on
+2026-09-01 and includes reconciliation of deployment endpoints with saved browser
+endpoints. It is older than current viewer main: subsequent publishing jobs
+failed because Docker Hub credentials were missing. Use `VIEWER_IMAGE` for a
+locally built current-main image, or `VIEWER_TAG` to select another published tag.
+Reload the viewer and reopen the AI panel to pick up added models; user-added
+endpoints are preserved. On the first migration, an existing customized MST
+label may remain, but its original router URL still reaches trained MST.
+`VIEWER_TAG` can override the pinned default.
+
+Pimed has no swarm weights and remains behind `--profile model-previews`.
+It is deliberately absent from the default viewer list. MedGemma keeps its
+existing separate configuration.
 
 ## GitHub Actions builds
 

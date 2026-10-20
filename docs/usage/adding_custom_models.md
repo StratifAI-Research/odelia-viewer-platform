@@ -272,7 +272,7 @@ shared.
    into `docker-compose.yml` and fill the placeholders. The template header
    lists every placeholder and the current host-port allocation; keep that
    table current. `MODEL_DEVICE` is required (`cpu` or `cuda`).
-   Add `profiles: [odelia-models]` to both services unless the model should
+   Add `profiles: [model-previews]` to both services unless the model should
    start with the default stack.
 4. **Add a CI leg** in `.github/workflows/docker-build-push.yml`: one
    `matrix.include` entry in the **`build-preview`** job (image
@@ -679,15 +679,15 @@ Notes:
   as the worked example.
 - The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
-- A live example of a filled-in pair is the `odelia-classification-mst` /
-  `orthanc-router-odelia-mst` pair in `docker-compose.yml`; all six ODELIA
-  roster pairs sit behind `profiles: [odelia-models]`
-  (`docker compose --profile odelia-models up`).
+- A live example is `mst-classifier` / `orthanc-router-mst` in
+  `docker-compose.yml`. The five trained pairs start by default; only Pimed
+  requires `docker compose --profile model-previews up`.
 
 ### Step 7: Register in Viewer
 
 Edit `config/app-config.js` and add your model to the `aiEndpoints` array. Out of the box
-one endpoint is registered (`mst-ai`), so you are appending to it:
+five trained endpoints are registered, so append your new endpoint while
+preserving the existing list. For example:
 
 ```javascript
   aiEndpoints: [
@@ -870,18 +870,19 @@ Both examples demonstrate:
 
 ## Testing the model roster
 
-The six `odelia-classification` pairs ship behind the `odelia-models` compose
-profile and are covered by two integration suites, neither of which runs in CI
+The five trained pairs start by default; Pimed is an optional `model-previews`
+pair. Two integration suites cover these services, neither of which runs in CI
 (CI selects `-m unit`):
 
 - `orthanc/tests/integration/test_model_roster_smoke.py` — per model: `/health`
   reports the baked model, the router serves its manifest, UPS-RS answers.
-  Needs the profile up; no study required.
+  Needs the model pairs up; no study required.
 - `orthanc/tests/integration/test_model_roster_roundtrip.py` — per model: a
   study routed through `/send-to-ai` completes its UPS workitem and writes an SR
   back into the viewer's Orthanc. Needs a study loaded.
 
-Docker needs `sudo` on the dev host. Run both suites over the whole roster:
+Configure the trained image references in `.env`, then run both suites over the
+five trained models with an account that has Docker access:
 
     ./scripts/run-roster-tests.sh
 
@@ -899,8 +900,8 @@ preprocessing and inference each take roughly a second); `ROUNDTRIP_TIMEOUT_S`
 (default 900) is a generous ceiling for slower or first-run CPU inference, not
 the expected runtime.
 
-Assertions are structural and do not assert prediction values. The default
-roster uses explicit untrained previews. See [Loading trained model packages](loading_model_weights.md)
+Round-trip assertions are structural and do not assert prediction accuracy.
+The health suite also checks that default models report trained release versions. See [Loading trained model packages](loading_model_weights.md)
 for private Hub builds, local weights and trained deployment settings.
 
 ### Requirements for a working round-trip
@@ -919,7 +920,7 @@ and the model service fetches the source series from the viewer over WADO-RS.
 Recreating a container drops a manually attached network -- re-attach after any
 `compose up` that recreates it.
 
-`scripts/run-roster-tests.sh` recreates all six pairs via `up -d`, so it drops
+`scripts/run-roster-tests.sh` recreates the five trained pairs via `up -d`, so it drops
 any manual attachment on every run. Set `VIEWER_NETWORK=<viewer-project>_odelia-network`
 and the script re-attaches both containers of each pair after `up -d` (tolerating
 the already-attached error). Leave it unset when the viewer runs in this same

@@ -2,8 +2,8 @@
 
 Proves the acceptance criterion that a routed study produces an SR back in the
 viewer's Orthanc -- once via the legacy flat path and once via the manifest-driven
-multiphase configuration. Assertions are structural: weights are init-only (ODV-216), so
-prediction values carry no information.
+multiphase configuration. Assertions check routing and result structure; they
+do not establish clinical prediction accuracy.
 """
 
 import io

@@ -1,12 +1,10 @@
 name: Trained model images
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       publish:
-        description: "Push the validated image to Docker Hub"
+        description: "Publish images and embedded weights to public Docker Hub"
         type: boolean
         default: false
 
@@ -100,14 +98,14 @@ jobs:
             "$IMAGE_TAG" python -m tools.validate_model "$MODEL" --load-only
 
       - name: Log in to Docker Hub
-        if: github.event_name == 'push' || inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Push the validated image
-        if: github.event_name == 'push' || inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           IMAGE_TAG: ${{ steps.config.outputs.tag }}
         run: docker push "$IMAGE_TAG"

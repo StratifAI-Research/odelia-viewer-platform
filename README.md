@@ -69,6 +69,10 @@ See [trained model deployment](docs/usage/loading_model_weights.md#default-viewe
 When updating an existing installation, merge the example settings into its
 existing `.env` instead of replacing it. Runtime model services need no HF token.
 
+**MST output change:** the trained swarm service returns classification results
+and DICOM SRs, without the previous MST attention-map overlays. New MST analyses
+do not generate heatmap Secondary Captures; existing results remain in Orthanc.
+
 **The first start builds several images and may take a while.** \
 Check progress with `docker compose ps` and `docker compose logs -f`.
 

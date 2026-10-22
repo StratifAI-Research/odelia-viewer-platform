@@ -851,7 +851,8 @@ curl -X POST http://localhost:5558/analyze/mri \
 
 For complete working examples, refer to the deployed models in the codebase:
 
-- **MST Classifier** (bilateral classification with attention maps): `orthanc/MLIntegration/MST-classification/`
+- **Generalized classifier** (deployed MST and other swarm models, without heatmaps): `orthanc/MLIntegration/odelia-classification/`
+- **Legacy MST classifier** (attention-map example, no longer deployed or built by CI): `orthanc/MLIntegration/MST-classification/`
 - **MedGemma** (vision-language bilateral classification): `orthanc/MLIntegration/medgemma-mri/`
 
 Both examples demonstrate:

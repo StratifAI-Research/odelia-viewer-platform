@@ -64,11 +64,6 @@ jobs:
             dockerfile: ./orthanc/router/Dockerfile
             cache_scope: odelia-orthanc-router
             cache_to: type=gha,mode=max,scope=odelia-orthanc-router
-          - image: odelia-model-mst
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/MST-classification/Dockerfile
-            cache_scope: odelia-model-mst
-            cache_to: type=gha,mode=max,scope=odelia-model-mst
           - image: odelia-model-medgemma
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
@@ -93,7 +88,7 @@ jobs:
 
       # Build phase pushes ONLY the immutable per-commit SHA tag. The mutable
       # latest/semver tags are promoted in a separate job that needs: build,
-      # so latest never advances unless all five publishing legs succeed.
+      # so latest never advances unless all four publishing legs succeed.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -109,16 +104,15 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ matrix.build_args }}
           cache-from: |
             type=gha,scope=${{ matrix.image }}
             type=gha,scope=${{ matrix.cache_scope }}
           cache-to: ${{ matrix.cache_to }}
 
   # Preview roster (ODV-218): six odelia-classification-* images with init-only
-  # weights (no trained checkpoint yet, ODV-216). Built on every push/PR to catch
+  # weights. Trained releases use trained-models.yml. Built on every push/PR to catch
   # breakage, but never pushed and never gates promote -- a broken preview model
-  # must not block latest/semver from advancing for the five publishing images.
+  # must not block latest/semver from advancing for the four publishing images.
   build-preview:
     # Skipped for releases: these images are never pushed and never gate
     # promote, so rebuilding them would only slow a release down and could
@@ -255,15 +249,15 @@ jobs:
             exit 1
           fi
           # odelia-classification-* omitted: they build in build-preview, are
-          # never pushed, and so have no SHA manifest to promote.
-          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-mst odelia-model-medgemma odelia-chat"
+          # never pushed here; trained-models.yml publishes separate model tags.
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-medgemma odelia-chat"
           tags=()
           exact=""
           if [ "$EVENT" = "workflow_dispatch" ]; then
             v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
             # Anchored and fully numeric. A loose glob would accept "2.3.0.1",
             # whose ${v%.*} is "2.3.0" -- a typo would then silently overwrite
-            # a good release across all five repositories.
+            # a good release across all four repositories.
             if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::version must be three numbers like 2.3.0 (got '${VERSION}')"
               exit 1
@@ -283,7 +277,7 @@ jobs:
           fi
 
           # Preflight every source before touching any destination, so a failure
-          # part-way cannot leave the five repositories half-promoted. A missing
+          # part-way cannot leave the four repositories half-promoted. A missing
           # manifest means main never published this commit: merge first, then
           # release. Any inspect failure here is fatal by construction.
           declare -A src_digest

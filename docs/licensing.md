@@ -26,14 +26,17 @@ several are copyleft or non-commercial, the assembled platform is **research use
 | [Inter](https://rsms.me/inter/) | Bundled login-theme font | [SIL Open Font License 1.1](../themes/odelia/login/resources/fonts/OFL.txt) |
 | [Grafana](https://grafana.com/) | Dashboards | AGPLv3 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) / [Ollama](https://ollama.com/) | Chat LLM backend | MIT |
-| [MST weights](https://huggingface.co/ODELIA-AI/MST) | MST classification model | CC-BY-NC-4.0 (non-commercial) |
+| [Original MST weights](https://huggingface.co/ODELIA-AI/MST) | Legacy MST model, no longer the default deployment | CC-BY-NC-4.0 (non-commercial) |
+| Trained swarm weights | Five default classification models, baked into selected images | Release-specific model cards and notices; separate from the original challenge weights |
 | [MedGemma](https://huggingface.co/google/medgemma-1.5-4b-it) | MedGemma model | Health AI Developer Foundation terms (gated) |
 
 Keycloak and Grafana run as **separate, unmodified Docker containers** that the stack only
 orchestrates (their source is neither bundled nor modified here), so their terms apply to those
 containers rather than reaching this repository's code. Orthanc is different: because we ship plugin
 code that runs inside it, the Orthanc images we build are a derivative work — which is why this
-repository as a whole is GPLv3 (see above). The model weights (MST, MedGemma) are downloaded at
-runtime under their own non-commercial / gated terms and are not redistributed here. The viewer is a
+repository as a whole is GPLv3 (see above). Model weights are not included in this source repository.
+The trained swarm images include their weights; publishing one publicly distributes those weights.
+Consult the selected release's notices before publishing. MedGemma still downloads its gated weights
+at runtime. The viewer is a
 fork of OHIF and preserves OHIF's MIT copyright notice (© [OHIF](https://github.com/OHIF)) in the
 [ODELIA Viewer](https://github.com/StratifAI-Research/odelia-viewer) repository.

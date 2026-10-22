@@ -112,6 +112,12 @@ MST keeps `mst-ai`, `orthanc-router-mst` and `mst-classifier`, so existing saved
 selections continue to route to the trained backend. There is no second MST
 pair. Each router waits for its model's health check before starting.
 
+The MST endpoint now uses `odelia-classification` and returns classification
+results and DICOM SRs only. It does not return attention maps, so the router no
+longer creates heatmap Secondary Captures for new MST analyses. Existing stored
+results remain available. The legacy `MST-classification` source is retained for
+reference but is no longer deployed, built or promoted by CI.
+
 The viewer defaults to the newest published Docker Hub build inspected on 2026-10-20,
 pinned at digest
 `sha256:4446e20964a4e1356b6e5bbb3f0f04c7ee713072c6a361ba6149756fed25060c`.
@@ -132,7 +138,7 @@ existing separate configuration.
 ## GitHub Actions builds
 
 The `Trained model images` workflow downloads pinned packages and embeds their
-weights using the same Dockerfile. It runs only from `main` and uses the existing
+weights using the same Dockerfile. It is started manually from `main` and uses the existing
 `release` environment, whose deployment branch policy must allow only the
 `main` branch. Pull requests continue to build untrained preview images without
 HF credentials.
@@ -171,11 +177,18 @@ The token is passed
 to BuildKit as `hf_token`; it is neither a Docker build argument nor a runtime
 environment variable. This is the same secret mount used for local builds.
 
-Main-branch pushes publish successful builds to
-`stratifai/<image>:sha-<application-commit>-hf-<model-commit>`. Manual dispatch
-builds and validates by default; select `publish` to push it as well. These
+Pushes to `main` do not trigger this workflow. In GitHub Actions, select
+`Trained model images`, choose `Run workflow` on `main`, and leave `publish`
+unchecked to build and validate only. Select `publish` explicitly to release
+the validated images to
+`stratifai/<image>:sha-<application-commit>-hf-<model-commit>`. These
 trained tags include both revisions and are separate from the existing
 `latest`/semantic-version promotion workflow.
+
+Publishing an image to public Docker Hub makes its embedded weights publicly
+accessible, even when the source HF repository is private. Treat each published
+trained image as a model release and confirm that the selected weights are
+approved for distribution in that form.
 
 Trained builds do not export Actions caches, model files, or build-record
 artifacts. Their distribution artifact is the Docker image, including its

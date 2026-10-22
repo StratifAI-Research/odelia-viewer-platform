@@ -57,10 +57,10 @@ ARG HF_REVISION=
 COPY ${WEIGHT_PATH:-pyproject.toml} /tmp/weight.in
 RUN --mount=type=secret,id=hf_token \
     if [ -n "$HF_REPO" ]; then \
-      test -z "$WEIGHT_PATH" || (echo "Choose HF_REPO or WEIGHT_PATH, not both" >&2; exit 1); \
+      test -z "$WEIGHT_PATH" || { echo "Choose HF_REPO or WEIGHT_PATH, not both" >&2; exit 1; }; \
       python -m tools.fetch_model "$MODEL" "$HF_REPO" "$HF_REVISION"; \
     else \
-      test -z "$HF_REVISION" || (echo "HF_REVISION requires HF_REPO" >&2; exit 1); \
+      test -z "$HF_REVISION" || { echo "HF_REVISION requires HF_REPO" >&2; exit 1; }; \
       python -m tools.bake_weights "$MODEL" /tmp/weight.in "$WEIGHT_PATH"; \
     fi
 

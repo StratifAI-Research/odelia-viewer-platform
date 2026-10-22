@@ -21,7 +21,7 @@ roster_services=()
 for port in "${ROSTER_PORTS[@]}"; do
   slug="${ROSTER_SLUGS[$port]}"
   if [[ "$slug" == mst ]]; then
-    roster_services+=(orthanc-router-mst mst-classifier)
+    roster_services+=(orthanc-router-mst odelia-classification-mst)
   else
     roster_services+=("orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
   fi
@@ -47,7 +47,7 @@ if [[ -n "${VIEWER_NETWORK:-}" ]]; then
     slug="${ROSTER_SLUGS[$port]}"
     containers=("odelia-orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
     if [[ "$slug" == mst ]]; then
-      containers=(odelia-orthanc-router-mst odelia-model-mst)
+      containers=(odelia-orthanc-router-mst odelia-classification-mst)
     fi
     for container in "${containers[@]}"; do
       if ! err=$(docker network connect "${VIEWER_NETWORK}" "${container}" 2>&1); then

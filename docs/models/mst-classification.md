@@ -1,6 +1,6 @@
 # Model Card: MST Swarm Classification (May 2026)
 
-The default `mst-classifier` service runs the generalized
+The default `odelia-classification-mst` service runs the generalized
 `odelia-classification` implementation with the May 2026 swarm weights.
 It returns classification results and DICOM SRs **without attention maps or
 heatmap overlays**. The endpoint address is unchanged, but new MST analyses no

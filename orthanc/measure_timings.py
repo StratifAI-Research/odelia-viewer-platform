@@ -437,7 +437,7 @@ def parse_timing_logs(profiler: TimingProfiler, container: str, logs: str) -> No
         "odelia-orthanc-router-mst": "orthanc-router-mst",
         "odelia-orthanc-router-medgemma": "orthanc-router-medgemma",
         "odelia-breast-cancer-classification": "ml-breast-cancer",
-        "odelia-mst-classifier": "ml-mst",
+        "odelia-classification-mst": "ml-mst",
         "odelia-medgemma-mri": "ml-medgemma",
     }
 
@@ -702,7 +702,7 @@ Examples:
                 "odelia-orthanc-router-mst",
                 "odelia-orthanc-router-medgemma",
                 "odelia-breast-cancer-classification",
-                "odelia-mst-classifier",
+                "odelia-classification-mst",
                 "odelia-medgemma-mri",
             ]
 

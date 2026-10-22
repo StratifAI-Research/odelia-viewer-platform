@@ -82,16 +82,16 @@ services:
       - VERBOSE_STARTUP=true
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
-      - MODEL_BACKEND_URL=http://mst-classifier:5556
+      - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
       - AI_NAME=MST swarm May 2026
     depends_on:
-      mst-classifier:
+      odelia-classification-mst:
         condition: service_healthy
 
   # Prebuilt trained image: no HF credentials or fallback weights at runtime.
-  mst-classifier:
+  odelia-classification-mst:
     image: ${MST_IMAGE:?Set MST_IMAGE to a trained MST swarm May 2026 image}
-    container_name: odelia-model-mst
+    container_name: odelia-classification-mst
     restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-mst:8042"
@@ -169,7 +169,7 @@ services:
 
   # Trained swarm roster: default-on router/service pairs registered in
   # config/app-config.js. Set each *_IMAGE in .env (see .env.models.example).
-  # MST reuses mst-classifier above; Pimed remains an opt-in untrained preview.
+  # MST reuses odelia-classification-mst above; Pimed remains an opt-in untrained preview.
   orthanc-router-odelia-agaldran:
     build:
       context: ./orthanc/router

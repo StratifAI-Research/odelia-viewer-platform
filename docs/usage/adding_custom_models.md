@@ -679,7 +679,7 @@ Notes:
   as the worked example.
 - The `${BIND_HOST:-}` prefix on each port keeps localhost-restriction
   working (see [`restrict-to-localhost.md`](../security/restrict-to-localhost.md)).
-- A live example is `mst-classifier` / `orthanc-router-mst` in
+- A live example is `odelia-classification-mst` / `orthanc-router-mst` in
   `docker-compose.yml`. The five trained pairs start by default; only Pimed
   requires `docker compose --profile model-previews up`.
 

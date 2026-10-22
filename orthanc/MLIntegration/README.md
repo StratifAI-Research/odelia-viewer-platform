@@ -10,7 +10,7 @@ into DICOM SR / Secondary Capture.
 | Path | What it is |
 | --- | --- |
 | `shared/` | Reusable library (WADO-RS retrieval, DICOM storage, config, exceptions, timing & security helpers) — installed into every service image via `pip install -e .` |
-| `odelia-classification/` | Trained swarm classification service — **deployed** as `mst-classifier` and the four other trained model services; classification results and DICOM SRs, without heatmaps |
+| `odelia-classification/` | Trained swarm classification service — **deployed** as `odelia-classification-mst` and the four other trained model services; classification results and DICOM SRs, without heatmaps |
 | `MST-classification/` | Legacy MST classifier with attention maps — retained for reference, **not deployed or built/published by CI** |
 | `medgemma-mri/` | MedGemma vision-language model, applied to breast-MRI classification — **deployed** as `medgemma-mri` |
 | `chat-middleware/` | WebSocket chat backend (Ollama / llama.cpp) — **deployed** as `chat-middleware` |

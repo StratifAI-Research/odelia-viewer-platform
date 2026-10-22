@@ -108,9 +108,10 @@ Compose can start. Building/publishing these images is a separate step; the
 public source configuration does not include private HF release coordinates.
 
 `config/app-config.js` pairs each viewer entry with its corresponding router.
-MST keeps `mst-ai`, `orthanc-router-mst` and `mst-classifier`, so existing saved
-selections continue to route to the trained backend. There is no second MST
-pair. Each router waits for its model's health check before starting.
+MST keeps `mst-ai` and `orthanc-router-mst`, so existing saved selections
+continue to route to the trained backend, now named `odelia-classification-mst`.
+There is no second MST pair. Each router waits for its model's health check before
+starting.
 
 The MST endpoint now uses `odelia-classification` and returns classification
 results and DICOM SRs only. It does not return attention maps, so the router no

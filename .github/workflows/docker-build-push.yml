@@ -130,27 +130,27 @@ jobs:
               MODEL=agaldran
             cache_scope: odelia-classification-shared
             cache_to: type=gha,mode=max,scope=odelia-classification-agaldran
-          - image: odelia-classification-bcn-aim
+          - image: odelia-classification-bcnaim
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=BCN_AIM
             cache_scope: odelia-classification-shared
-            cache_to: type=gha,mode=max,scope=odelia-classification-bcn-aim
-          - image: odelia-classification-divide-and-conquer
+            cache_to: type=gha,mode=max,scope=odelia-classification-bcnaim
+          - image: odelia-classification-divideandconquer
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=DivideAndConquer
             cache_scope: odelia-classification-shared
-            cache_to: type=gha,mode=max,scope=odelia-classification-divide-and-conquer
-          - image: odelia-classification-lme-abmil
+            cache_to: type=gha,mode=max,scope=odelia-classification-divideandconquer
+          - image: odelia-classification-lmeabmil
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
             build_args: |
               MODEL=LME_ABMIL
             cache_scope: odelia-classification-shared
-            cache_to: type=gha,mode=max,scope=odelia-classification-lme-abmil
+            cache_to: type=gha,mode=max,scope=odelia-classification-lmeabmil
           - image: odelia-classification-mst
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile

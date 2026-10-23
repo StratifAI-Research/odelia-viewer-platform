@@ -673,7 +673,7 @@ Notes:
 - The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is served by
   the router as the model's capability manifest. It is optional: without it
   the router's `/manifest` returns 404 and the viewer falls back to flat
-  series selection (`orthanc-router-medgemma` runs without one). When you do
+  series selection. When you do
   provide one, use
   [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
   as the worked example.

@@ -51,29 +51,25 @@ It bundles:
 ```bash
 git clone https://github.com/StratifAI-Research/odelia-viewer-platform.git
 cd odelia-viewer-platform
-# Set the five trained model image references (see below).
-cp .env.models.example .env
-# Edit .env before starting.
-docker compose up -d
+docker compose pull
+docker compose up -d --no-build
 ```
 
 The default viewer exposes **MST, agaldran, SwinUNETR and ABMIL swarm May 2026**,
-and **MeisenMeister swarm August 2026**. Set the five `*_IMAGE` values in `.env`
-to the corresponding prebuilt trained images. The trained-image workflow prints
-immutable revision tags; local images can also be used on the host that built
-them. These values are required because the earlier `0.1.0` preview images do not
-contain these trained releases. Image publication is separate from this source
-configuration; do not assume a release tag exists until it has been published.
-See [trained model deployment](docs/usage/loading_model_weights.md#default-viewer-deployment).
+and **MeisenMeister swarm August 2026**. Compose pins the published trained models,
+viewer, Orthanc and chat images by digest. No `.env` or Hugging Face token is
+needed for this default deployment; model weights are already in the images.
+Pins are updated manually in `docker-compose.yml` when adopting a release.
 
-When updating an existing installation, merge the example settings into its
-existing `.env` instead of replacing it. Runtime model services need no HF token.
+For optional model and viewer image overrides, see `.env.models.example` and
+[trained model deployment](docs/usage/loading_model_weights.md#default-viewer-deployment).
+Merge overrides into an existing `.env` instead of replacing it.
 
 **MST output change:** the trained swarm service returns classification results
 and DICOM SRs, without the previous MST attention-map overlays. New MST analyses
 do not generate heatmap Secondary Captures; existing results remain in Orthanc.
 
-**The first start builds several images and may take a while.** \
+**The initial image download may take a while.** \
 Check progress with `docker compose ps` and `docker compose logs -f`.
 
 Then open **<http://localhost:8081>** and sign in with the default credentials **`viewer` / `viewer`**.
@@ -114,7 +110,7 @@ Before exposing any part of this stack beyond a trusted machine, read
 | [`docs/architecture.md`](docs/architecture.md) | Services, repo layout, and how a study flows through the stack |
 | [`docs/setup/`](docs/setup/) | Configuration & `HF_TOKEN`, the Chat AI backend, and updating an existing deployment |
 | [`docs/usage/`](docs/usage/) | Upload, run AI, chat, manage users, add custom models — the how-to guides |
-| [`docs/models/`](docs/models/) | Bundled-model cards (MST, MedGemma, chat) — inputs, classes, and limits |
+| [`docs/models/`](docs/models/) | Model cards (MST, legacy MedGemma, chat) — inputs, classes, and limits |
 | [`docs/security/`](docs/security/) | Production hardening (credentials, auth, HTTPS, CORS, SSRF) and binding ports to localhost |
 | [`docs/licensing.md`](docs/licensing.md) | Per-component licenses and why the assembled stack is research-only |
 | [`docs/support.md`](docs/support.md) | Collecting logs for a support request |

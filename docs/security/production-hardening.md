@@ -105,7 +105,7 @@ Example:
 
 ```yaml
 environment:
-  ROUTER_HOST_ALLOWLIST: "orthanc-viewer,orthanc-router-mst,orthanc-router-medgemma"
+  ROUTER_HOST_ALLOWLIST: "orthanc-viewer,orthanc-router-mst,orthanc-router-odelia-agaldran,orthanc-router-odelia-bcn-aim,orthanc-router-odelia-divide-and-conquer,orthanc-router-odelia-lme-abmil"
 ```
 
 ### 6. Disable debug API on chat-middleware

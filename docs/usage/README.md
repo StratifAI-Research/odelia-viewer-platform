@@ -23,10 +23,11 @@ Get `.dcm` files into Orthanc by any of:
 4. The processed study — annotations, classification, and report — appears in your study list
    when inference finishes.
 
-Out of the box, only the **MST** endpoint is registered in
-[`config/app-config.js`](../../config/app-config.js) (`aiEndpoints`). To offer the MedGemma model in the
-panel too, add its router (`http://orthanc-router-medgemma:8042/dicom-web`) as another entry there or
-via the endpoint-management UI.
+The five trained swarm endpoints are registered in
+[`config/app-config.js`](../../config/app-config.js) (`aiEndpoints`): **MST,
+agaldran, SwinUNETR and ABMIL (May 2026)**, and **MeisenMeister (August 2026)**.
+See [the deployment roster](loading_model_weights.md#default-viewer-deployment)
+for their model/router pairs and optional image overrides.
 
 <p align="center">
   <img src="../images/ai-analysis-panel.jpg" alt="AI analysis panel" width="360"/>

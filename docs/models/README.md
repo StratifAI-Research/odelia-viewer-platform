@@ -6,17 +6,17 @@
 The default viewer exposes five trained swarm classifiers: MST, agaldran,
 SwinUNETR and ABMIL from May 2026, plus MeisenMeister from August 2026.
 See [trained model deployment](../usage/loading_model_weights.md) for the release
-configuration. The model cards below describe MST and the separate MedGemma and
-chat services:
+configuration. The model cards below describe MST, chat, and the legacy
+MedGemma MRI source (no longer deployed or published by CI):
 
 | Model | Architecture | Task | Classes | Input | Card |
 |-------|--------------|------|---------|-------|------|
 | MST Classification | DINOv2 Vision Transformer | 3-class classification | No lesion / Benign / Malignant | Breast DCE-MRI (pre+post, subtraction, or multi-phase) | [mst-classification.md](mst-classification.md) |
-| MedGemma | Vision-Language Model | 3-class classification | No lesion / Benign / Malignant | Breast MRI (single 3D series) | [medgemma-mri.md](medgemma-mri.md) |
+| MedGemma (legacy) | Vision-Language Model | 3-class classification | No lesion / Benign / Malignant | Breast MRI (single 3D series) | [medgemma-mri.md](medgemma-mri.md) |
 | Chat Middleware | Vision-Language Model (Ollama / llama.cpp) | Free-form chat | N/A | Any DICOM series | [chat-middleware.md](chat-middleware.md) |
 
 The five swarm endpoints are registered in the viewer out of the box; see
-[`usage/`](../usage/README.md#2-send-a-study-to-ai) for how to expose MedGemma too.
+[`usage/`](../usage/README.md#2-send-a-study-to-ai) for how to run them.
 
 ## Common input requirements
 
@@ -30,7 +30,7 @@ All models receive DICOM data via WADO-RS retrieval. These tags are universally 
 
 ## Critical DICOM tags by model
 
-| Tag | Keyword | MST | MedGemma | Chat |
+| Tag | Keyword | MST | MedGemma (legacy) | Chat |
 |-----|---------|-----|----------|------|
 | `(0020,0100)` | TemporalPositionIdentifier | Primary | Primary | — |
 | `(0018,1060)` | TriggerTime | Fallback | Fallback | — |
@@ -56,7 +56,7 @@ All models receive DICOM data via WADO-RS retrieval. These tags are universally 
 
 ### MedGemma
 
-- The bundled stack sets `NUM_SLICES=100` ([`docker-compose.yml`](../../docker-compose.yml)); the model samples the central 60% of the volume, but falls back to the whole volume when that window is narrower than `NUM_SLICES` (volumes under ~167 slices). The code default if unset is 5. See the [card](medgemma-mri.md#slice-extraction) for details.
+- The legacy service defaults to `NUM_SLICES=5`; it samples the central 60% of the volume, falling back to the whole volume when that window is narrower than `NUM_SLICES`. See the [card](medgemma-mri.md#slice-extraction) for details.
 - Confidence scores are **self-reported by the language model**, not calibrated probability distributions.
 - Output depends on JSON parsing of free-text generation — malformed model responses cause errors.
 - Requires a Hugging Face token and license acceptance for the gated model.

@@ -13,7 +13,7 @@ PACS storage, AI routing, model inference, authentication, and monitoring.
 ├── orthanc/                # Orthanc PACS, AI routers, and ML services
 │   ├── viewer/             #   Orthanc PACS instance + feedback API
 │   ├── router/             #   Orthanc routing instance (UPS, WADO helpers)
-│   └── MLIntegration/      #   MST, MedGemma, chat-middleware (+ shared) services
+│   └── MLIntegration/      #   swarm classifiers, chat-middleware, shared library, legacy sources
 ├── grafana/                # Grafana provisioning (datasource + feedback dashboard)
 ├── docs/                   # setup guides, model cards, hardening checklists
 └── volumes/                # persistent data (Orthanc DB, feedback DB, GGUF models)  [gitignored]
@@ -32,9 +32,8 @@ set `BIND_HOST=127.0.0.1:` to restrict to loopback (see
 | **orthanc-viewer** | Local PACS: stores studies, serves DICOMweb, receives C-STORE | Web `:8000` · DICOM `:2000` |
 | **keycloak** | OIDC authentication & user management | <http://localhost:8081/keycloak> (also `:8080` direct) — `admin` / `admin` |
 | **postgres** | Keycloak database | none (internal only) |
-| **orthanc-router-mst** / **-medgemma** | Route studies to an AI model and return DICOM results | HTTP `:8043` / `:8044` · DICOM `:4243` / `:4244` |
-| **odelia-classification-mst** | MST breast-MRI classification model | `:5556` |
-| **medgemma-mri** | MedGemma vision-language model (needs `HF_TOKEN`) | `:5557` |
+| **orthanc-router-mst**, **orthanc-router-odelia-*** | Five trained-model routers returning DICOM results | HTTP `:8043`, `:8045–8048` · DICOM `:4243`, `:4245–4248` |
+| **odelia-classification-*** | Five trained swarm breast-MRI classifiers ([roster](usage/loading_model_weights.md#default-viewer-deployment)) | `:5556`, `:5558–5559`, `:5561–5562` |
 | **chat-middleware** | WebSocket chat about a study, backed by a local LLM | `:5560` |
 | **llamacpp-server** | Optional llama.cpp chat backend (profile `llamacpp`) | `:8090` |
 | **grafana** | Dashboards over the AI feedback database | <http://localhost:3000> (`admin` / `odelia`) |
@@ -48,10 +47,9 @@ flowchart TD
   kc --- pg[(Postgres)]
   nginx -->|DICOMweb| pacs[Orthanc PACS]
   nginx -->|Send to AI| router[Orthanc Router]
-  router --> mst[MST classifier]
-  router --> mg[MedGemma]
-  mst -->|DICOM SR / SC| pacs
-  mg -->|DICOM SR / SC| pacs
+  router --> models[Five trained swarm classifiers]
+  models -->|Classification results| router
+  router -->|DICOM SR| pacs
   nginx -->|Chat AI| chat[Chat middleware]
   chat --> llm[Ollama / llama.cpp]
   pacs -.feedback.-> grafana[Grafana]

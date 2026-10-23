@@ -16,8 +16,8 @@ This component is a Python plugin for Orthanc that routes medical images to AI m
 
 The following environment variables can be used to configure the plugin:
 
-- `MODEL_BACKEND_URL`: URL of the AI model backend. The bundled stack sets this per router — e.g. `http://odelia-classification-mst:5556` or `http://medgemma-mri:5557`.
-- `AI_NAME`: Name of the AI model to include in the SR report (e.g. "MedGemma Vision-Language Model")
+- `MODEL_BACKEND_URL`: URL of the AI model backend. The bundled stack sets this per router — e.g. `http://odelia-classification-mst:5556` or `http://odelia-classification-agaldran:5556`.
+- `AI_NAME`: Name of the AI model to include in the SR report (e.g. "MST swarm May 2026")
 
 ## DICOM Output
 

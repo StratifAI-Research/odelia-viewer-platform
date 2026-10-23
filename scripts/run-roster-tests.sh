@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Bring up the odelia-models profile and run the per-model roster suites.
+# Bring up the five trained model pairs and run the per-model roster suites.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-ROSTER_PORTS=(5558 5559 5561 5562 5563 5564)
+DIVIDE_AND_CONQUER_PORT="${DIVIDE_AND_CONQUER_PORT:-5561}"
+ROSTER_PORTS=(5556 5558 5559 "$DIVIDE_AND_CONQUER_PORT" 5562)
 declare -A ROSTER_SLUGS=(
   [5558]=agaldran
   [5559]=bcn-aim
-  [5561]=divide-and-conquer
+  [$DIVIDE_AND_CONQUER_PORT]=divide-and-conquer
   [5562]=lme-abmil
-  [5563]=mst
-  [5564]=pimed
+  [5556]=mst
 )
 
 # Scope up to the roster pairs: unscoped `up` also starts every profile-less
@@ -20,16 +20,37 @@ declare -A ROSTER_SLUGS=(
 roster_services=()
 for port in "${ROSTER_PORTS[@]}"; do
   slug="${ROSTER_SLUGS[$port]}"
-  roster_services+=("orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
+  if [[ "$slug" == mst ]]; then
+    roster_services+=(orthanc-router-mst odelia-classification-mst)
+  else
+    roster_services+=("orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
+  fi
 done
-sudo docker compose --profile odelia-models up -d "${roster_services[@]}"
+docker compose up -d "${roster_services[@]}"
+
+# Compose may obtain the host-port override from .env rather than the shell.
+# Read the actual binding before health checks and export it for pytest.
+previous_port="$DIVIDE_AND_CONQUER_PORT"
+binding="$(docker compose port odelia-classification-divide-and-conquer 5556 | head -n 1)"
+export DIVIDE_AND_CONQUER_PORT="${binding##*:}"
+if [[ ! "$DIVIDE_AND_CONQUER_PORT" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: could not resolve the MeisenMeister backend's published port" >&2
+  exit 1
+fi
+unset 'ROSTER_SLUGS[$previous_port]'
+ROSTER_SLUGS[$DIVIDE_AND_CONQUER_PORT]=divide-and-conquer
+ROSTER_PORTS=(5556 5558 5559 "$DIVIDE_AND_CONQUER_PORT" 5562)
 
 if [[ -n "${VIEWER_NETWORK:-}" ]]; then
   echo "Re-attaching roster containers to viewer network '${VIEWER_NETWORK}'..."
   for port in "${ROSTER_PORTS[@]}"; do
     slug="${ROSTER_SLUGS[$port]}"
-    for container in "odelia-orthanc-router-odelia-${slug}" "odelia-classification-${slug}"; do
-      if ! err=$(sudo docker network connect "${VIEWER_NETWORK}" "${container}" 2>&1); then
+    containers=("odelia-orthanc-router-odelia-${slug}" "odelia-classification-${slug}")
+    if [[ "$slug" == mst ]]; then
+      containers=(odelia-orthanc-router-mst odelia-classification-mst)
+    fi
+    for container in "${containers[@]}"; do
+      if ! err=$(docker network connect "${VIEWER_NETWORK}" "${container}" 2>&1); then
         if [[ "${err}" == *"already exists in network"* ]]; then
           echo "  ${container}: already attached"
         else

@@ -3,8 +3,11 @@
 > **All AI models in the ODELIA Viewer Platform are for research use only.**
 > Outputs may be inaccurate and must not be used for clinical decision-making.
 
-This stack ships three AI services. Each has a model card describing its inputs,
-behaviour, and failure modes:
+The default viewer exposes five trained swarm classifiers: MST, agaldran,
+SwinUNETR and ABMIL from May 2026, plus MeisenMeister from August 2026.
+See [trained model deployment](../usage/loading_model_weights.md) for the release
+configuration. The model cards below describe MST and the separate MedGemma and
+chat services:
 
 | Model | Architecture | Task | Classes | Input | Card |
 |-------|--------------|------|---------|-------|------|
@@ -12,7 +15,7 @@ behaviour, and failure modes:
 | MedGemma | Vision-Language Model | 3-class classification | No lesion / Benign / Malignant | Breast MRI (single 3D series) | [medgemma-mri.md](medgemma-mri.md) |
 | Chat Middleware | Vision-Language Model (Ollama / llama.cpp) | Free-form chat | N/A | Any DICOM series | [chat-middleware.md](chat-middleware.md) |
 
-Only the **MST** endpoint is registered in the viewer out of the box; see
+The five swarm endpoints are registered in the viewer out of the box; see
 [`usage/`](../usage/README.md#2-send-a-study-to-ai) for how to expose MedGemma too.
 
 ## Common input requirements
@@ -46,7 +49,8 @@ All models receive DICOM data via WADO-RS retrieval. These tags are universally 
 
 ### MST Classification
 
-- Downloads model weights from Hugging Face on first run (requires network access; `HF_TOKEN` is **optional** — [ODELIA-AI/MST](https://huggingface.co/ODELIA-AI/MST) is a public repo and downloads unauthenticated).
+- Loads baked May 2026 swarm weights without runtime HF credentials or downloads.
+- Returns classification SRs without the legacy service's attention-map overlays or heatmap Secondary Captures. Existing stored results are retained.
 - Classifies a contrast-subtraction volume; the subtraction is either supplied directly or computed by the service depending on the selected input configuration (pre+post, subtraction, or multi-phase) — see the [card](mst-classification.md#input-configurations).
 - With both `SliceLocation` and `ImagePositionPatient` missing, `InstanceNumber` is the only remaining ordering key; if that is also unreliable the volume can be **silently mis-ordered**.
 

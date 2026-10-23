@@ -1,0 +1,117 @@
+name: Trained model images
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish images and embedded weights to public Docker Hub"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trained-models-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  trained:
+    # ODELIA_TRAINED_MODELS is repository configuration, not a checked-in
+    # release catalog. No secret-bearing build runs on a pull-request ref.
+    if: github.ref == 'refs/heads/main' && vars.ODELIA_TRAINED_MODELS != ''
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(vars.ODELIA_TRAINED_MODELS || '{"include":[]}') }}
+    env:
+      MODEL: ${{ matrix.model }}
+      HF_REPO: ${{ matrix.hf_repo }}
+      HF_REVISION: ${{ matrix.hf_revision }}
+      IMAGE: ${{ matrix.image }}
+      # Keep trained layers out of public Actions caches and downloadable
+      # build records. The approved distribution artifact is the Docker image.
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate pinned build configuration
+        id: config
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::Set HF_TOKEN in the main-only release environment"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          allowed = {"MST", "BCN_AIM", "DivideAndConquer", "LME_ABMIL", "agaldran", "Pimed"}
+          if os.environ["MODEL"] not in allowed:
+              raise SystemExit("Unknown MODEL in ODELIA_TRAINED_MODELS")
+          if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+", os.environ["HF_REPO"]):
+              raise SystemExit("HF_REPO must be owner/repository")
+          if not re.fullmatch(r"[0-9a-f]{40}", os.environ["HF_REVISION"]):
+              raise SystemExit("HF_REVISION must be a full immutable commit SHA")
+          if not re.fullmatch(r"odelia-classification-[a-z0-9-]+", os.environ["IMAGE"]):
+              raise SystemExit("IMAGE must be an odelia-classification-* repository name")
+          tag = f"stratifai/{os.environ['IMAGE']}:sha-{os.environ['GITHUB_SHA']}-hf-{os.environ['HF_REVISION']}"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"tag={tag}\n")
+          PY
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image with the pinned private model
+        uses: docker/build-push-action@v7
+        with:
+          context: ./orthanc/MLIntegration
+          file: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.config.outputs.tag }}
+          build-args: |
+            MODEL=${{ matrix.model }}
+            HF_REPO=${{ matrix.hf_repo }}
+            HF_REVISION=${{ matrix.hf_revision }}
+          secrets: |
+            "hf_token=${{ secrets.HF_TOKEN }}"
+          # Deliberately no cache-to: trained layers contain private weights.
+
+      - name: Verify offline weight loading without credentials
+        env:
+          IMAGE_TAG: ${{ steps.config.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -e ALLOW_INIT_WEIGHTS=0 \
+            -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 \
+            "$IMAGE_TAG" python -m tools.validate_model "$MODEL" --load-only
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Push the validated image
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          IMAGE_TAG: ${{ steps.config.outputs.tag }}
+        run: docker push "$IMAGE_TAG"
+
+      - name: Record the image reference
+        env:
+          IMAGE_TAG: ${{ steps.config.outputs.tag }}
+        run: |
+          printf 'Validated image: `%s`\n' "$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"

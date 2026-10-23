@@ -5,27 +5,19 @@ Run from the service dir during the Docker build, after select_subunit:
 
 ``WEIGHT_PATH`` empty -> init-only image (the staged file is ignored). Otherwise
 the staged file is validated, copied into the subunit as ``weights.safetensors``,
-and its sha256 recorded in ``models-lock.json``. Strict-loading the weights into
-the model is a later ticket; here we only place + checksum.
+and its sha256 recorded in ``models-lock.json``. The subsequent build validation
+and service startup strictly load this artifact into the selected architecture.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import sys
 from pathlib import Path
 
 from models.loader_util import available_models
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+from weights import sha256
 
 
 def main(argv: list[str]) -> int:
@@ -54,7 +46,7 @@ def main(argv: list[str]) -> int:
         dest = Path("models") / keep / "weights.safetensors"
         shutil.copyfile(staged, dest)
         lock["weights"] = "weights.safetensors"
-        lock["weights_sha256"] = _sha256(dest)
+        lock["weights_sha256"] = sha256(dest)
         print(f"Baked weights for {model}: sha256 {lock['weights_sha256'][:12]}…")
     else:
         lock["weights"] = "init-only"

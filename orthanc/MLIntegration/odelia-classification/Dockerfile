@@ -1,9 +1,11 @@
-# Dockerfile for the generalized ODELIA model service (ODV-214).
+# syntax=docker/dockerfile:1
+# Dockerfile for the generalized ODELIA model service (ODV-216).
 #
 # One image = one model. MODEL selects the vendored subunit; the others are
 # pruned so the runtime serves exactly one, with no runtime model selection.
 # WEIGHT_PATH (optional) bakes + checks a trained weights file; unset => an
-# init-only image. Strict-loading baked weights into the model is a later ticket.
+# init-only image (runtime requires ALLOW_INIT_WEIGHTS=1 for that preview).
+# HF_REPO + HF_REVISION fetch a private pinned subunit using a BuildKit secret.
 #
 # Build from the MLIntegration/ directory:
 #   docker build -f odelia-classification/Dockerfile \
@@ -44,21 +46,32 @@ ARG MODEL
 RUN test -n "$MODEL" || (echo "ERROR: MODEL build-arg is required" >&2 && exit 1)
 RUN python -m tools.select_subunit "$MODEL"
 
-# MST builds a DINOv2 backbone at construction; pre-cache it so runtime is
-# network-free (TORCH_HOME is baked into the image).
-ENV TORCH_HOME=/app/odelia-service/.torch
-RUN if [ "$MODEL" = "MST" ]; then \
-      python -c "import torch; torch.hub._validate_not_a_forked_repo = lambda a, b, c: True; torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')"; \
-    fi
-
 # WEIGHT_PATH: path (relative to the build context) to a .safetensors weights
 # file to bake into the subunit. Unset => init-only image. Declared here,
 # immediately before use, so it does not key any layer above.
 ARG WEIGHT_PATH=
+ARG HF_REPO=
+ARG HF_REVISION=
 # Bake + check weights when provided (the staged file is ignored when WEIGHT_PATH
 # is empty). Default source keeps the COPY valid for init-only builds.
 COPY ${WEIGHT_PATH:-pyproject.toml} /tmp/weight.in
-RUN python -m tools.bake_weights "$MODEL" /tmp/weight.in "$WEIGHT_PATH"
+RUN --mount=type=secret,id=hf_token \
+    if [ -n "$HF_REPO" ]; then \
+      test -z "$WEIGHT_PATH" || { echo "Choose HF_REPO or WEIGHT_PATH, not both" >&2; exit 1; }; \
+      python -m tools.fetch_model "$MODEL" "$HF_REPO" "$HF_REVISION"; \
+    else \
+      test -z "$HF_REVISION" || { echo "HF_REVISION requires HF_REPO" >&2; exit 1; }; \
+      python -m tools.bake_weights "$MODEL" /tmp/weight.in "$WEIGHT_PATH"; \
+    fi
+
+# No HF credential is mounted during source import or weight loading.
+# Full-size inference is a separate validation step on the inference host.
+RUN if [ "$MODEL" = "MST" ]; then \
+      python -m tools.prepare_backbone models/mst; \
+    fi
+RUN if [ -n "$HF_REPO" ] || [ -n "$WEIGHT_PATH" ]; then \
+      python -m tools.validate_model "$MODEL" --load-only; \
+    fi
 
 # Create runtime dirs
 RUN mkdir -p images

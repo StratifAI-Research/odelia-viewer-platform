@@ -1,6 +1,6 @@
-"""Per-model serving smoke for the odelia-models compose profile (ODV-219).
+"""Per-model serving smoke for the default trained roster and optional preview.
 
-Needs the profile up; no study required. Marked integration automatically by
+Needs the model pairs up; no study required. Marked integration automatically by
 tests/conftest.py, so CI (-m unit) does not run it.
 """
 
@@ -29,6 +29,10 @@ def test_service_health_reports_its_model(model):
     health = r.json()
     assert health["status"] == "healthy"
     assert health["model_info"]["model_name"] == model.model_name
+    if model.model_name != "Pimed":
+        assert health["model_info"]["weights"] == "trained"
+        expected_release = "2026-08" if model.model_name == "DivideAndConquer" else "2026-05"
+        assert health["model_info"]["version"] == expected_release
 
 
 @pytest.mark.parametrize("model", ROSTER, ids=ROSTER_IDS)

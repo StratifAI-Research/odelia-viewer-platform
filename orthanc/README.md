@@ -6,7 +6,7 @@ A demo project showcasing DICOM study routing between Orthanc servers: studies u
 
 - **Viewer Orthanc** (`orthanc-viewer`, http://localhost:8000) — the Orthanc instance the ODELIA viewer reads from. You upload studies here, and AI results are written back here.
 - **AI Router** (`orthanc-router-mst` at http://localhost:8043, `orthanc-router-medgemma` at http://localhost:8044) — one Orthanc instance per model. When you send a study for processing, the router has the model pull the images via DICOMweb, then wraps the model's JSON output into DICOM SR / Secondary Capture (SC) and uploads it back to the Viewer Orthanc. The study itself is never copied to the router; only a UPS work-item is.
-- **AI model service** (`mst-classifier` on port 5556, `medgemma-mri` on port 5557) — a Flask microservice that runs the model and returns JSON. It has no DICOM web UI.
+- **AI model service** (`odelia-classification-mst` on port 5556, `medgemma-mri` on port 5557) — a Flask microservice that runs the model and returns JSON. It has no DICOM web UI.
 - **ODELIA Viewer** (http://localhost:8081) — the web viewer. Its AI panel triggers processing and displays the results.
 
 ## Quick Test Guide

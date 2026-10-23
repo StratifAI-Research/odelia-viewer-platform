@@ -54,7 +54,7 @@ override files, no parallel definitions to drift.
 | `orthanc-viewer` DICOM      | `2000`        | `127.0.0.1:2000`            |
 | `orthanc-router-mst` DICOM  | `4243`        | `127.0.0.1:4243`            |
 | `orthanc-router-mst` HTTP   | `8043`        | `127.0.0.1:8043`            |
-| `mst-classifier`            | `5556`        | `127.0.0.1:5556`            |
+| `odelia-classification-mst` | `5556`        | `127.0.0.1:5556`            |
 | `orthanc-router-medgemma` DICOM | `4244`    | `127.0.0.1:4244`            |
 | `orthanc-router-medgemma` HTTP  | `8044`    | `127.0.0.1:8044`            |
 | `medgemma-mri`              | `5557`        | `127.0.0.1:5557`            |

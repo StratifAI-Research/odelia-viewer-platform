@@ -26,8 +26,11 @@ git diff HEAD@{1} -- docker-compose.yml config/   # check for new vars, ports, r
 > upstream changes to `docker-compose.yml` or `config/`.
 
 **4. Rebuild and restart.** Services built from source (`orthanc-viewer`, `orthanc-router-*`,
-`mst-classifier`, `medgemma-mri`, `chat-middleware`) need a rebuild; pre-built images
-(`viewer`, `grafana`, `keycloak`, `postgres`) just need a pull. The optional `llamacpp-server` is
+`medgemma-mri`, `chat-middleware`) need a rebuild. The five trained classifiers
+use prebuilt images selected by `*_IMAGE` in `.env` (merge `.env.models.example`
+into existing settings). Pull those images if they are in a registry; locally
+built tags need no pull. Other prebuilt images (`viewer`, `grafana`, `keycloak`,
+`postgres`) just need a pull. The optional `llamacpp-server` is
 pulled with its profile: `docker compose --profile llamacpp pull llamacpp-server`.
 
 ```bash

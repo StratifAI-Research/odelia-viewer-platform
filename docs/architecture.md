@@ -33,7 +33,7 @@ set `BIND_HOST=127.0.0.1:` to restrict to loopback (see
 | **keycloak** | OIDC authentication & user management | <http://localhost:8081/keycloak> (also `:8080` direct) — `admin` / `admin` |
 | **postgres** | Keycloak database | none (internal only) |
 | **orthanc-router-mst** / **-medgemma** | Route studies to an AI model and return DICOM results | HTTP `:8043` / `:8044` · DICOM `:4243` / `:4244` |
-| **mst-classifier** | MST breast-MRI classification model | `:5556` |
+| **odelia-classification-mst** | MST breast-MRI classification model | `:5556` |
 | **medgemma-mri** | MedGemma vision-language model (needs `HF_TOKEN`) | `:5557` |
 | **chat-middleware** | WebSocket chat about a study, backed by a local LLM | `:5560` |
 | **llamacpp-server** | Optional llama.cpp chat backend (profile `llamacpp`) | `:8090` |

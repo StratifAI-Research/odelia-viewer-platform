@@ -101,5 +101,6 @@ def assert_forward_contract(model: nn.Module, model_name: str) -> tuple[int, ...
         raise AssertionError(
             f"{model_name}: contract violation — expected (1, 3) logits, got {shape}"
         )
-    torch.softmax(out, dim=1)
+    if not torch.isfinite(out).all() or not torch.isfinite(torch.softmax(out, dim=1)).all():
+        raise AssertionError(f"{model_name}: contract violation — nonfinite logits/probabilities")
     return shape

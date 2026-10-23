@@ -134,7 +134,7 @@ def test_parse_timing_logs_profile_marker_also_works(tmp_path):
     from measure_timings import TimingProfiler, parse_timing_logs
     prof = TimingProfiler(trace_id='p4', output_dir=str(tmp_path))
     logs = "PROFILE: weight_load: 1200.00ms\n"
-    parse_timing_logs(prof, 'odelia-mst-classifier', logs)
+    parse_timing_logs(prof, 'odelia-classification-mst', logs)
     assert len(prof.measurements) == 1
     assert prof.measurements[0]['duration_ms'] == 1200.0
 

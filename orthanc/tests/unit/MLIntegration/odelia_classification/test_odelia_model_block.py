@@ -117,6 +117,7 @@ def test_challenge_model_builds_and_forwards(monkeypatch, name):
     from model_loader import build_model
     from models import assert_forward_contract
 
+    monkeypatch.setenv("ALLOW_INIT_WEIGHTS", "1")
     model, info = build_model(name)
     assert info["model_name"] == name
     assert info["weights"] == "init-only"
@@ -132,6 +133,7 @@ def test_mst_builds_and_forwards(monkeypatch):
     DINOv2 integration is exercised by smoke_test.py (and ODV-219).
     """
     monkeypatch.setenv("MODEL_DEVICE", "cpu")
+    monkeypatch.setenv("ALLOW_INIT_WEIGHTS", "1")
 
     class _FakeDino(torch.nn.Module):
         def __init__(self) -> None:
@@ -155,6 +157,7 @@ def test_mst_builds_and_forwards(monkeypatch):
 def test_model_info_carries_architecture_and_version(monkeypatch):
     """SR provenance reads architecture/version from model_info."""
     monkeypatch.setenv("MODEL_DEVICE", "cpu")
+    monkeypatch.setenv("ALLOW_INIT_WEIGHTS", "1")
 
     from config import SERVICE_VERSION
     from model_loader import build_model

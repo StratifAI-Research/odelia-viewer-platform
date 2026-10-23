@@ -52,8 +52,8 @@ class ModelService:
     def initialize_model(self) -> None:
         """Build the model on startup and run the pre-flight contract check.
 
-        Weights are init-only here; strict-loading a baked state_dict is a later
-        ticket. Pre-flight (a synthetic forward) fails loudly before the service
+        Baked weights are checksum-verified and strictly loaded before pre-flight.
+        Pre-flight (a synthetic forward) fails loudly before the service
         accepts traffic if the model can't honor the inference contract.
         """
         try:
@@ -80,8 +80,8 @@ class ModelService:
         """Synthetic forward at startup: prove the tensor contract holds.
 
         Checks construction + the fixed inference contract (input -> (1, 3)
-        logits) on the real device. Strict weight-loading is validated in a
-        later ticket. ``SKIP_PREFLIGHT`` bypasses this for debugging only.
+        logits) on the real device, after strict weight loading.
+        ``SKIP_PREFLIGHT`` bypasses this for debugging only.
         """
         if os.getenv("SKIP_PREFLIGHT", "").strip():
             logger.warning("SKIP_PREFLIGHT set - skipping startup contract check")

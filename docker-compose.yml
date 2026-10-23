@@ -5,7 +5,7 @@ services:
   # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
   # See docs/restrict-to-localhost.md.
   viewer:
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.2.0}
+    image: ${VIEWER_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-latest@sha256:4446e20964a4e1356b6e5bbb3f0f04c7ee713072c6a361ba6149756fed25060c}}
     container_name: odelia-viewer
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf
@@ -57,7 +57,7 @@ services:
       - ORTHANC_FEEDBACK_DB_DIR=/var/lib/odelia-feedback
       - ORTHANC_FEEDBACK_ENABLE_WAL=1
 
-  # Orthanc Router service for MST AI model
+  # Trained MST swarm May 2026; keep the existing router address for saved clients.
   orthanc-router-mst:
     build:
       context: ./orthanc/router
@@ -69,7 +69,7 @@ services:
       - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
       - ./volumes/orthanc-router-mst-db/:/var/lib/orthanc/db/
       - ./orthanc/router/server.py:/python/server.py
-      - ./orthanc/MLIntegration/MST-classification/manifest.json:/etc/orthanc/manifest.json:ro
+      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
     restart: unless-stopped
     networks:
       - odelia-network
@@ -82,25 +82,35 @@ services:
       - VERBOSE_STARTUP=true
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
-      - MODEL_BACKEND_URL=http://mst-classifier:5556
+      - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
+      - AI_NAME=MST swarm May 2026
     depends_on:
-      - mst-classifier
+      odelia-classification-mst:
+        condition: service_healthy
 
-  # MST Classification Model
-  mst-classifier:
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: MST-classification/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-model-mst:${TAG:-0.1.0}
-    container_name: odelia-model-mst
+  # Prebuilt trained image: no HF credentials or fallback weights at runtime.
+  odelia-classification-mst:
+    image: ${MST_IMAGE:?Set MST_IMAGE to a trained MST swarm May 2026 image}
+    container_name: odelia-classification-mst
+    restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-mst:8042"
-      IMAGE_FOLDER: "/app/mst-service/images"
-      MODEL_PATH: "/app/mst-service/mst_model"
+      IMAGE_FOLDER: "/app/odelia-service/images"
+      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "0"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     networks:
       - odelia-network
     ports:
       - '${BIND_HOST:-}5556:5556'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   # Orthanc Router service for MedGemma AI model
   orthanc-router-medgemma:
@@ -157,15 +167,10 @@ services:
 #              count: 1
 #              capabilities: [gpu]
 
-  # ODELIA classification roster (ODV-218): one router+service pair per model,
-  # instantiated from docker-compose.model-template.yml. All pairs are behind
-  # profile odelia-models (nothing default-on): docker compose --profile odelia-models up
-  # Note: none of these routers is registered in config/app-config.js aiEndpoints
-  # yet (viewer registration is ODV-220), so the profile boots containers the
-  # viewer UI cannot target. After editing aiEndpoints, clear the browser's
-  # localStorage or the viewer keeps the cached endpoint list.
+  # Trained swarm roster: default-on router/service pairs registered in
+  # config/app-config.js. Set each *_IMAGE in .env (see .env.models.example).
+  # MST reuses odelia-classification-mst above; Pimed remains an opt-in untrained preview.
   orthanc-router-odelia-agaldran:
-    profiles: [odelia-models]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -190,23 +195,22 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-agaldran:5556
-      - AI_NAME=ODELIA agaldran init weights preview
+      - AI_NAME=agaldran swarm May 2026
     depends_on:
       odelia-classification-agaldran:
         condition: service_healthy
 
   odelia-classification-agaldran:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: odelia-classification/Dockerfile
-      args:
-        MODEL: agaldran
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-agaldran:${TAG:-0.1.0}
+    image: ${AGALDRAN_IMAGE:?Set AGALDRAN_IMAGE to a trained agaldran swarm May 2026 image}
     container_name: odelia-classification-agaldran
+    restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-agaldran:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "0"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     networks:
       - odelia-network
     ports:
@@ -219,7 +223,6 @@ services:
       start_period: 90s
 
   orthanc-router-odelia-bcn-aim:
-    profiles: [odelia-models]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -244,23 +247,22 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-bcn-aim:5556
-      - AI_NAME=ODELIA BCN_AIM init weights preview
+      - AI_NAME=SwinUNETR swarm May 2026
     depends_on:
       odelia-classification-bcn-aim:
         condition: service_healthy
 
   odelia-classification-bcn-aim:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: odelia-classification/Dockerfile
-      args:
-        MODEL: BCN_AIM
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-bcn-aim:${TAG:-0.1.0}
+    image: ${BCN_AIM_IMAGE:?Set BCN_AIM_IMAGE to a trained SwinUNETR swarm May 2026 image}
     container_name: odelia-classification-bcn-aim
+    restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-bcn-aim:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "0"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     networks:
       - odelia-network
     ports:
@@ -273,7 +275,6 @@ services:
       start_period: 90s
 
   orthanc-router-odelia-divide-and-conquer:
-    profiles: [odelia-models]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -298,27 +299,26 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-divide-and-conquer:5556
-      - AI_NAME=ODELIA DivideAndConquer init weights preview
+      - AI_NAME=MeisenMeister swarm August 2026
     depends_on:
       odelia-classification-divide-and-conquer:
         condition: service_healthy
 
   odelia-classification-divide-and-conquer:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: odelia-classification/Dockerfile
-      args:
-        MODEL: DivideAndConquer
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-divide-and-conquer:${TAG:-0.1.0}
+    image: ${DIVIDE_AND_CONQUER_IMAGE:?Set DIVIDE_AND_CONQUER_IMAGE to a trained MeisenMeister swarm August 2026 image}
     container_name: odelia-classification-divide-and-conquer
+    restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-divide-and-conquer:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "0"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     networks:
       - odelia-network
     ports:
-      - '${BIND_HOST:-}5561:5556'
+      - '${BIND_HOST:-}${DIVIDE_AND_CONQUER_PORT:-5561}:5556'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
       interval: 10s
@@ -327,7 +327,6 @@ services:
       start_period: 90s
 
   orthanc-router-odelia-lme-abmil:
-    profiles: [odelia-models]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -352,23 +351,22 @@ services:
       - ORTHANC__PYTHON_SCRIPT=/python/server.py
       - ORTHANC__PYTHON_VERBOSE=true
       - MODEL_BACKEND_URL=http://odelia-classification-lme-abmil:5556
-      - AI_NAME=ODELIA LME_ABMIL init weights preview
+      - AI_NAME=ABMIL swarm May 2026
     depends_on:
       odelia-classification-lme-abmil:
         condition: service_healthy
 
   odelia-classification-lme-abmil:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: odelia-classification/Dockerfile
-      args:
-        MODEL: LME_ABMIL
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-lme-abmil:${TAG:-0.1.0}
+    image: ${LME_ABMIL_IMAGE:?Set LME_ABMIL_IMAGE to a trained ABMIL swarm May 2026 image}
     container_name: odelia-classification-lme-abmil
+    restart: unless-stopped
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-lme-abmil:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "0"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     networks:
       - odelia-network
     ports:
@@ -380,62 +378,8 @@ services:
       retries: 5
       start_period: 90s
 
-  orthanc-router-odelia-mst:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/router
-      dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
-    hostname: orthanc-router-odelia-mst
-    container_name: odelia-orthanc-router-odelia-mst
-    volumes:
-      - ./config/orthanc-router.json:/etc/orthanc/orthanc.json:ro
-      - ./volumes/orthanc-router-odelia-mst-db/:/var/lib/orthanc/db/
-      - ./orthanc/router/server.py:/python/server.py
-      - ./orthanc/MLIntegration/odelia-classification/manifest.json:/etc/orthanc/manifest.json:ro
-    restart: unless-stopped
-    networks:
-      - odelia-network
-    ports:
-      - '${BIND_HOST:-}4249:4242' # DICOM
-      - '${BIND_HOST:-}8049:8042' # HTTP
-    environment:
-      - ORTHANC__NAME=orthanc-router-odelia-mst
-      - VERBOSE_ENABLED=true
-      - VERBOSE_STARTUP=true
-      - ORTHANC__PYTHON_SCRIPT=/python/server.py
-      - ORTHANC__PYTHON_VERBOSE=true
-      - MODEL_BACKEND_URL=http://odelia-classification-mst:5556
-      - AI_NAME=ODELIA MST init weights preview
-    depends_on:
-      odelia-classification-mst:
-        condition: service_healthy
-
-  odelia-classification-mst:
-    profiles: [odelia-models]
-    build:
-      context: ./orthanc/MLIntegration
-      dockerfile: odelia-classification/Dockerfile
-      args:
-        MODEL: MST
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-mst:${TAG:-0.1.0}
-    container_name: odelia-classification-mst
-    environment:
-      ORTHANC_URL: "http://orthanc-router-odelia-mst:8042"
-      MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
-    networks:
-      - odelia-network
-    ports:
-      - '${BIND_HOST:-}5563:5556'
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5556/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 90s
-
   orthanc-router-odelia-pimed:
-    profiles: [odelia-models]
+    profiles: [model-previews]
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
@@ -466,7 +410,7 @@ services:
         condition: service_healthy
 
   odelia-classification-pimed:
-    profiles: [odelia-models]
+    profiles: [model-previews]
     build:
       context: ./orthanc/MLIntegration
       dockerfile: odelia-classification/Dockerfile
@@ -477,6 +421,7 @@ services:
     environment:
       ORTHANC_URL: "http://orthanc-router-odelia-pimed:8042"
       MODEL_DEVICE: "${MODEL_DEVICE:-cpu}"
+      ALLOW_INIT_WEIGHTS: "1" # Explicit preview; trained overrides set this to 0.
     networks:
       - odelia-network
     ports:

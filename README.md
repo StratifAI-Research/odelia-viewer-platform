@@ -110,7 +110,7 @@ Before exposing any part of this stack beyond a trusted machine, read
 | [`docs/architecture.md`](docs/architecture.md) | Services, repo layout, and how a study flows through the stack |
 | [`docs/setup/`](docs/setup/) | Configuration & `HF_TOKEN`, the Chat AI backend, and updating an existing deployment |
 | [`docs/usage/`](docs/usage/) | Upload, run AI, chat, manage users, add custom models — the how-to guides |
-| [`docs/models/`](docs/models/) | Model cards (MST, legacy MedGemma, chat) — inputs, classes, and limits |
+| [`docs/models/`](docs/models/) | Trained-model overview and MST/chat model cards — inputs, classes, and limits |
 | [`docs/security/`](docs/security/) | Production hardening (credentials, auth, HTTPS, CORS, SSRF) and binding ports to localhost |
 | [`docs/licensing.md`](docs/licensing.md) | Per-component licenses and why the assembled stack is research-only |
 | [`docs/support.md`](docs/support.md) | Collecting logs for a support request |

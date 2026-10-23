@@ -131,9 +131,10 @@ Make sure it matches your deployment:
 * **Never** set `CHAT_CORS_DEV_ALLOW_ALL=1` outside local dev — it is a
   development escape hatch that allows `*` (with credentials disabled).
 
-The Flask AI services (MST-classification, medgemma-mri) use
-`flask_cors.CORS(app)` with no whitelist; lock these down if they will
-be reachable from a browser.
+The five trained classifiers use the shared
+[`odelia-classification` Flask application](../../orthanc/MLIntegration/odelia-classification/app_refactored.py),
+which enables `flask_cors.CORS(app)` with no whitelist. Lock this down if the
+model services will be reachable from a browser.
 
 ---
 

@@ -1,8 +1,9 @@
-# Model Card: MedGemma (Vision-Language Model)
+# Legacy Model Card: MedGemma MRI
 
 > Legacy `medgemma-mri` source, retained for reference. This service applies the
 > general-purpose MedGemma model to breast-MRI classification, but is no longer
-> included in the default deployment or CI image publishing.
+> included in the default deployment or CI image publishing. For the active
+> Chat AI backend, see [chat setup](../setup/setup_chat.md).
 
 ## Model Details
 
@@ -93,6 +94,9 @@ The instruction prompt sets the role as a radiologist analyzing breast MRI. The 
 
 Confidence scores are **self-reported by the language model**, not derived from calibrated probability distributions. They should not be interpreted as true statistical confidence.
 
-## Authentication
+## Authentication for custom deployments
 
-Requires a valid HuggingFace token (`HF_TOKEN` environment variable). The MedGemma license must be accepted at https://huggingface.co/google/medgemma-1.5-4b-it before first use.
+Running this legacy service separately requires a valid HuggingFace token
+(`HF_TOKEN` environment variable). The default Compose stack does not run it or
+pass it credentials. The MedGemma license must be accepted at
+https://huggingface.co/google/medgemma-1.5-4b-it before first use.

@@ -27,8 +27,14 @@ git diff HEAD@{1} -- docker-compose.yml config/   # check for new vars, ports, r
 
 **4. Pull and restart.** The default services use published images; model weights
 are embedded and no HF token is needed. Image digests are updated manually in
-`docker-compose.yml`. Existing `*_IMAGE`, `VIEWER_IMAGE`, `VIEWER_TAG`, and `TAG`
-overrides take precedence: remove or update them to adopt the new pins.
+`docker-compose.yml`. Existing model `*_IMAGE`, `VIEWER_IMAGE`, `VIEWER_TAG`,
+`ORTHANC_VIEWER_IMAGE`, `ORTHANC_ROUTER_IMAGE`, `CHAT_IMAGE`, and `TAG` overrides
+take precedence: remove or update them to adopt the new pins.
+
+Published defaults always use `stratifai`; `DOCKER_HUB_USERNAME` now affects only
+locally built model previews. For a custom registry or namespace, set the full
+`*_IMAGE` reference for each service you replace. `TAG` selects a shared tag for
+Orthanc/chat under `stratifai`; a full image override takes precedence over it.
 
 ```bash
 docker compose pull

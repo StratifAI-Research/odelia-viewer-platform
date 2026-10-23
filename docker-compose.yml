@@ -5,7 +5,7 @@ services:
   # or the shell. Empty default preserves LAN-shared 0.0.0.0 binding.
   # See docs/restrict-to-localhost.md.
   viewer:
-    image: ${VIEWER_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-viewer:${VIEWER_TAG:-2.3.0@sha256:8fee8d3ab400342e3c31ba9648dda4b7bf698657c8a7ae0ab7060222bd416647}}
+    image: ${VIEWER_IMAGE:-stratifai/odelia-viewer:${VIEWER_TAG:-2.3.0@sha256:8fee8d3ab400342e3c31ba9648dda4b7bf698657c8a7ae0ab7060222bd416647}}
     container_name: odelia-viewer
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf
@@ -28,7 +28,7 @@ services:
     build:
       context: ./orthanc/viewer
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-viewer:${TAG:-latest@sha256:3b0ce82ddc4bfb19e3e84e36a80719fc0ab8fcdb44caa2c81f61d623caf63fb1}
+    image: ${ORTHANC_VIEWER_IMAGE:-stratifai/odelia-orthanc-viewer:${TAG:-latest@sha256:3b0ce82ddc4bfb19e3e84e36a80719fc0ab8fcdb44caa2c81f61d623caf63fb1}}
     hostname: orthanc-viewer
     container_name: odelia-orthanc-viewer
     volumes:
@@ -62,7 +62,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-mst
     container_name: odelia-orthanc-router-mst
     volumes:
@@ -90,7 +90,7 @@ services:
 
   # Prebuilt trained image: no HF credentials or fallback weights at runtime.
   odelia-classification-mst:
-    image: ${MST_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-mst@sha256:4e0ffc4c72db7cbe87ec64aa90c131bbd8df224fbfb76ea41c4e5a39d35592ab}
+    image: ${MST_IMAGE:-stratifai/odelia-classification-mst@sha256:4e0ffc4c72db7cbe87ec64aa90c131bbd8df224fbfb76ea41c4e5a39d35592ab}
     container_name: odelia-classification-mst
     restart: unless-stopped
     environment:
@@ -119,7 +119,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-odelia-agaldran
     container_name: odelia-orthanc-router-odelia-agaldran
     volumes:
@@ -146,7 +146,7 @@ services:
         condition: service_healthy
 
   odelia-classification-agaldran:
-    image: ${AGALDRAN_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-agaldran@sha256:aa7bf977110dc0ad6c006b3dc416449ea1ff172e7c8c697420bee947b7a198fa}
+    image: ${AGALDRAN_IMAGE:-stratifai/odelia-classification-agaldran@sha256:aa7bf977110dc0ad6c006b3dc416449ea1ff172e7c8c697420bee947b7a198fa}
     container_name: odelia-classification-agaldran
     restart: unless-stopped
     environment:
@@ -171,7 +171,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-odelia-bcn-aim
     container_name: odelia-orthanc-router-odelia-bcn-aim
     volumes:
@@ -198,7 +198,7 @@ services:
         condition: service_healthy
 
   odelia-classification-bcn-aim:
-    image: ${BCN_AIM_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-bcnaim@sha256:72607655e1bfa934be58cca85a867440f5c60498a48c5194e656c65f0aa72e9e}
+    image: ${BCN_AIM_IMAGE:-stratifai/odelia-classification-bcnaim@sha256:72607655e1bfa934be58cca85a867440f5c60498a48c5194e656c65f0aa72e9e}
     container_name: odelia-classification-bcn-aim
     restart: unless-stopped
     environment:
@@ -223,7 +223,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-odelia-divide-and-conquer
     container_name: odelia-orthanc-router-odelia-divide-and-conquer
     volumes:
@@ -250,7 +250,7 @@ services:
         condition: service_healthy
 
   odelia-classification-divide-and-conquer:
-    image: ${DIVIDE_AND_CONQUER_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-divideandconquer@sha256:e3f05d99df32708c5c43b3d22487c734986a833c5a3a2d706910ad7097cd62dc}
+    image: ${DIVIDE_AND_CONQUER_IMAGE:-stratifai/odelia-classification-divideandconquer@sha256:e3f05d99df32708c5c43b3d22487c734986a833c5a3a2d706910ad7097cd62dc}
     container_name: odelia-classification-divide-and-conquer
     restart: unless-stopped
     environment:
@@ -275,7 +275,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-odelia-lme-abmil
     container_name: odelia-orthanc-router-odelia-lme-abmil
     volumes:
@@ -302,7 +302,7 @@ services:
         condition: service_healthy
 
   odelia-classification-lme-abmil:
-    image: ${LME_ABMIL_IMAGE:-${DOCKER_HUB_USERNAME:-stratifai}/odelia-classification-lmeabmil@sha256:5962c7a81c5a88ef14ee3da40786dce126c4ffa8885684b471ac6a166c34ab64}
+    image: ${LME_ABMIL_IMAGE:-stratifai/odelia-classification-lmeabmil@sha256:5962c7a81c5a88ef14ee3da40786dce126c4ffa8885684b471ac6a166c34ab64}
     container_name: odelia-classification-lme-abmil
     restart: unless-stopped
     environment:
@@ -328,7 +328,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: orthanc-router-odelia-pimed
     container_name: odelia-orthanc-router-odelia-pimed
     volumes:
@@ -385,7 +385,7 @@ services:
     build:
       context: ./orthanc/MLIntegration
       dockerfile: chat-middleware/Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-chat:${TAG:-latest@sha256:4e2d44a56136c385bc0e61aeb216b916afe8fc2a4e61b021cb0fd154ea25922f}
+    image: ${CHAT_IMAGE:-stratifai/odelia-chat:${TAG:-latest@sha256:4e2d44a56136c385bc0e61aeb216b916afe8fc2a4e61b021cb0fd154ea25922f}}
     container_name: odelia-chat
     environment:
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"

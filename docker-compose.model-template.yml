@@ -39,7 +39,7 @@ services:
     build:
       context: ./orthanc/router
       dockerfile: Dockerfile
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/odelia-orthanc-router:${TAG:-0.1.0}
+    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
     hostname: <router>
     container_name: odelia-<router>
     volumes:

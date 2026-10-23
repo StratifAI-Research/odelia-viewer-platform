@@ -123,8 +123,12 @@ reference but is no longer deployed, built or promoted by CI.
 
 The viewer image is also pinned by digest in `docker-compose.yml`. Use
 `VIEWER_IMAGE` for a full image reference or `VIEWER_TAG` for a different tag
-(optionally including `@sha256:...`). `TAG` overrides the Orthanc and chat image
-defaults; it does not change the trained models or viewer. Reload the viewer
+(optionally including `@sha256:...`). All published defaults use the `stratifai`
+namespace. Set `ORTHANC_VIEWER_IMAGE`, `ORTHANC_ROUTER_IMAGE`, or `CHAT_IMAGE`
+to a full reference to use another registry or namespace for those services.
+`TAG` selects an Orthanc/chat tag under `stratifai` when no full image override
+is set; it does not change the trained models or viewer. `DOCKER_HUB_USERNAME`
+affects only locally built model previews. Reload the viewer
 and reopen the AI panel to pick up added models; user-added endpoints are
 preserved. An existing customized MST label may remain, but its original router
 URL still reaches trained MST.
@@ -143,9 +147,10 @@ HF credentials.
 
 Configure these settings in the platform GitHub repository:
 
-- Repository secret `HF_TOKEN` (or an environment secret in `release`):
-  preferably a fine-grained HF token
-  granting read access only to the required private model repositories.
+- Environment secret `release/HF_TOKEN`: a fine-grained HF token granting read
+  access only to the required private model repositories. Store it only in the
+  `release` environment, not as a repository or organization secret, so the
+  environment's `main`-only deployment policy controls access.
 - Existing environment secrets `release/DOCKER_HUB_USERNAME` and
   `release/DOCKER_HUB_TOKEN`: used only when pushing the validated image.
 - Repository variable `ODELIA_TRAINED_MODELS`: a JSON build matrix. For example,
@@ -166,7 +171,7 @@ Configure these settings in the platform GitHub repository:
 
 An unset matrix disables trained builds. Repository identifiers and commit SHAs
 are configuration, not credentials; they can appear in workflow logs and image
-provenance. Keep tokens in GitHub Actions secrets.
+provenance. Keep tokens in the `release` environment secrets.
 
 Each build verifies checksums and strict loading, then checks weight loading
 in a container with networking disabled. Neither step runs a forward pass.

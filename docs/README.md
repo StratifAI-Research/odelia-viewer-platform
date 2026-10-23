@@ -18,7 +18,7 @@ Start with the [project README](../README.md) and its [quick start](../README.md
 ## Understand
 
 - [architecture.md](architecture.md) — services, repo layout, and how a study flows through the stack
-- [models/](models/) — bundled-model cards (MST, MedGemma, chat) and their inputs, classes, and limits
+- [models/](models/) — trained-model overview and MST/chat model cards, inputs, classes, and limits
 
 ## Secure
 

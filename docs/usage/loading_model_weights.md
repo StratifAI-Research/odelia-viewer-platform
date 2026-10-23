@@ -87,8 +87,9 @@ predictions.
 
 ## Default viewer deployment
 
-The default Compose deployment starts five trained model/router pairs. Select
-prebuilt images through `.env` using `.env.models.example` as a template:
+The default Compose deployment starts five trained model/router pairs using
+published images pinned by digest. No `.env` or HF token is required. To select
+a different release, optionally override its image using `.env.models.example`:
 
 | Viewer label | Architecture | Image variable | Router HTTP / backend port |
 | --- | --- | --- | --- |
@@ -103,9 +104,10 @@ pinned by registry digest. Local image tags also work on their build host.
 Set `DIVIDE_AND_CONQUER_PORT` if its default host port 5561 is already in use;
 the internal model/router address is unchanged. Export the same value when
 running the integration suites.
-No trained image references are guessed: all five variables must be set before
-Compose can start. Building/publishing these images is a separate step; the
-public source configuration does not include private HF release coordinates.
+Unset or empty image variables use the pinned defaults. Update the digests in
+`docker-compose.yml` manually when adopting new releases. Building/publishing
+these images is a separate step; the public source configuration does not
+include private HF release coordinates.
 
 `config/app-config.js` pairs each viewer entry with its corresponding router.
 MST keeps `mst-ai` and `orthanc-router-mst`, so existing saved selections
@@ -119,22 +121,21 @@ longer creates heatmap Secondary Captures for new MST analyses. Existing stored
 results remain available. The legacy `MST-classification` source is retained for
 reference but is no longer deployed, built or promoted by CI.
 
-The viewer defaults to the newest published Docker Hub build inspected on 2026-10-20,
-pinned at digest
-`sha256:4446e20964a4e1356b6e5bbb3f0f04c7ee713072c6a361ba6149756fed25060c`.
-The latest tagged product release remains 2.2.0. This image was published on
-2026-09-01 and includes reconciliation of deployment endpoints with saved browser
-endpoints. It is older than current viewer main: subsequent publishing jobs
-failed because Docker Hub credentials were missing. Use `VIEWER_IMAGE` for a
-locally built current-main image, or `VIEWER_TAG` to select another published tag.
-Reload the viewer and reopen the AI panel to pick up added models; user-added
-endpoints are preserved. On the first migration, an existing customized MST
-label may remain, but its original router URL still reaches trained MST.
-`VIEWER_TAG` can override the pinned default.
+The viewer image is also pinned by digest in `docker-compose.yml`. Use
+`VIEWER_IMAGE` for a full image reference or `VIEWER_TAG` for a different tag
+(optionally including `@sha256:...`). All published defaults use the `stratifai`
+namespace. Set `ORTHANC_VIEWER_IMAGE`, `ORTHANC_ROUTER_IMAGE`, or `CHAT_IMAGE`
+to a full reference to use another registry or namespace for those services.
+`TAG` selects an Orthanc/chat tag under `stratifai` when no full image override
+is set; it does not change the trained models or viewer. `DOCKER_HUB_USERNAME`
+affects only locally built model previews. Reload the viewer
+and reopen the AI panel to pick up added models; user-added endpoints are
+preserved. An existing customized MST label may remain, but its original router
+URL still reaches trained MST.
 
 Pimed has no swarm weights and remains behind `--profile model-previews`.
-It is deliberately absent from the default viewer list. MedGemma keeps its
-existing separate configuration.
+It is absent from the default viewer list. The legacy MedGemma MRI service and
+router are no longer deployed or published by CI; their source remains available.
 
 ## GitHub Actions builds
 
@@ -146,8 +147,10 @@ HF credentials.
 
 Configure these settings in the platform GitHub repository:
 
-- Environment secret `release/HF_TOKEN`: preferably a fine-grained HF token
-  granting read access only to the required private model repositories.
+- Environment secret `release/HF_TOKEN`: a fine-grained HF token granting read
+  access only to the required private model repositories. Store it only in the
+  `release` environment, not as a repository or organization secret, so the
+  environment's `main`-only deployment policy controls access.
 - Existing environment secrets `release/DOCKER_HUB_USERNAME` and
   `release/DOCKER_HUB_TOKEN`: used only when pushing the validated image.
 - Repository variable `ODELIA_TRAINED_MODELS`: a JSON build matrix. For example,
@@ -168,7 +171,7 @@ Configure these settings in the platform GitHub repository:
 
 An unset matrix disables trained builds. Repository identifiers and commit SHAs
 are configuration, not credentials; they can appear in workflow logs and image
-provenance. Keep tokens in environment secrets.
+provenance. Keep tokens in the `release` environment secrets.
 
 Each build verifies checksums and strict loading, then checks weight loading
 in a container with networking disabled. Neither step runs a forward pass.

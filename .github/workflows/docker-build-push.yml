@@ -64,11 +64,6 @@ jobs:
             dockerfile: ./orthanc/router/Dockerfile
             cache_scope: odelia-orthanc-router
             cache_to: type=gha,mode=max,scope=odelia-orthanc-router
-          - image: odelia-model-medgemma
-            context: ./orthanc/MLIntegration
-            dockerfile: ./orthanc/MLIntegration/medgemma-mri/Dockerfile
-            cache_scope: odelia-model-medgemma
-            cache_to: type=gha,mode=max,scope=odelia-model-medgemma
           - image: odelia-chat
             context: ./orthanc/MLIntegration
             dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
@@ -112,7 +107,7 @@ jobs:
   # Preview roster (ODV-218): six odelia-classification-* images with init-only
   # weights. Trained releases use trained-models.yml. Built on every push/PR to catch
   # breakage, but never pushed and never gates promote -- a broken preview model
-  # must not block latest/semver from advancing for the four publishing images.
+  # must not block latest/semver from advancing for the three publishing images.
   build-preview:
     # Skipped for releases: these images are never pushed and never gate
     # promote, so rebuilding them would only slow a release down and could
@@ -250,14 +245,14 @@ jobs:
           fi
           # odelia-classification-* omitted: they build in build-preview, are
           # never pushed here; trained-models.yml publishes separate model tags.
-          images="odelia-orthanc-viewer odelia-orthanc-router odelia-model-medgemma odelia-chat"
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-chat"
           tags=()
           exact=""
           if [ "$EVENT" = "workflow_dispatch" ]; then
             v="${VERSION#v}"             # tolerate a typed-in "v2.3.0"
             # Anchored and fully numeric. A loose glob would accept "2.3.0.1",
             # whose ${v%.*} is "2.3.0" -- a typo would then silently overwrite
-            # a good release across all four repositories.
+            # a good release across all three repositories.
             if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::version must be three numbers like 2.3.0 (got '${VERSION}')"
               exit 1

@@ -1,7 +1,9 @@
-# Model Card: MedGemma (Vision-Language Model)
+# Legacy Model Card: MedGemma MRI
 
-> Deployed as the `medgemma-mri` service, which applies the general-purpose MedGemma
-> vision-language model to breast-MRI classification.
+> Legacy `medgemma-mri` source, retained for reference. This service applies the
+> general-purpose MedGemma model to breast-MRI classification, but is no longer
+> included in the default deployment or CI image publishing. For the active
+> Chat AI backend, see [chat setup](../setup/setup_chat.md).
 
 ## Model Details
 
@@ -49,13 +51,13 @@ Research-only analysis of breast MRI using a general-purpose medical vision-lang
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Number of slices | `100` (bundled default) | Set via `NUM_SLICES` in [`docker-compose.yml`](../../docker-compose.yml); the code default if unset is `5` |
+| Number of slices | `5` (code default) | Override with `NUM_SLICES` in a custom deployment |
 | Region | Central 60%, with whole-volume fallback | Indices 20%–80% of the depth; if `NUM_SLICES` does not fit inside that window, sampling expands to the whole volume |
 | Spacing | Even | Evenly spaced within the selected region |
 
 The whole-volume fallback triggers when the central-60% window is narrower than
 `NUM_SLICES` — i.e. when the volume has fewer than ~`NUM_SLICES / 0.6` slices. With the
-bundled `NUM_SLICES=100`, volumes under ~167 slices are sampled across their full depth,
+example setting `NUM_SLICES=100`, volumes under ~167 slices are sampled across their full depth,
 while larger volumes still sample 100 evenly-spaced slices from the central 60%. If the
 volume has fewer than `NUM_SLICES` slices in total, every slice is used.
 
@@ -92,6 +94,9 @@ The instruction prompt sets the role as a radiologist analyzing breast MRI. The 
 
 Confidence scores are **self-reported by the language model**, not derived from calibrated probability distributions. They should not be interpreted as true statistical confidence.
 
-## Authentication
+## Authentication for custom deployments
 
-Requires a valid HuggingFace token (`HF_TOKEN` environment variable). The MedGemma license must be accepted at https://huggingface.co/google/medgemma-1.5-4b-it before first use.
+Running this legacy service separately requires a valid HuggingFace token
+(`HF_TOKEN` environment variable). The default Compose stack does not run it or
+pass it credentials. The MedGemma license must be accepted at
+https://huggingface.co/google/medgemma-1.5-4b-it before first use.

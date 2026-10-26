@@ -673,7 +673,7 @@ Notes:
 - The `<manifest-path>` mount at `/etc/orthanc/manifest.json` is served by
   the router as the model's capability manifest. It is optional: without it
   the router's `/manifest` returns 404 and the viewer falls back to flat
-  series selection (`orthanc-router-medgemma` runs without one). When you do
+  series selection. When you do
   provide one, use
   [`odelia-classification/manifest.json`](../../orthanc/MLIntegration/odelia-classification/manifest.json)
   as the worked example.
@@ -849,18 +849,21 @@ curl -X POST http://localhost:5558/analyze/mri \
 
 ## Reference Examples
 
-For complete working examples, refer to the deployed models in the codebase:
+The deployed service provides the current integration example:
 
 - **Generalized classifier** (deployed MST and other swarm models, without heatmaps): `orthanc/MLIntegration/odelia-classification/`
-- **Legacy MST classifier** (attention-map example, no longer deployed or built by CI): `orthanc/MLIntegration/MST-classification/`
-- **MedGemma** (vision-language bilateral classification): `orthanc/MLIntegration/medgemma-mri/`
 
-Both examples demonstrate:
+It demonstrates:
+
 - Complete Flask service structure
 - WADO-RS retrieval usage
 - Shared utilities integration
 - Response formatting
 - Docker containerization
+
+Legacy source is retained for reference, but is no longer deployed or published
+by CI: `orthanc/MLIntegration/MST-classification/` (attention-map example) and
+`orthanc/MLIntegration/medgemma-mri/` ([MedGemma MRI model card](../models/medgemma-mri.md)).
 
 ## Additional Resources
 

@@ -5,19 +5,20 @@ A demo project showcasing DICOM study routing between Orthanc servers: studies u
 ## Terms
 
 - **Viewer Orthanc** (`orthanc-viewer`, http://localhost:8000) — the Orthanc instance the ODELIA viewer reads from. You upload studies here, and AI results are written back here.
-- **AI Router** (`orthanc-router-mst` at http://localhost:8043, `orthanc-router-medgemma` at http://localhost:8044) — one Orthanc instance per model. When you send a study for processing, the router has the model pull the images via DICOMweb, then wraps the model's JSON output into DICOM SR / Secondary Capture (SC) and uploads it back to the Viewer Orthanc. The study itself is never copied to the router; only a UPS work-item is.
-- **AI model service** (`odelia-classification-mst` on port 5556, `medgemma-mri` on port 5557) — a Flask microservice that runs the model and returns JSON. It has no DICOM web UI.
+- **AI Router** (`orthanc-router-mst` at http://localhost:8043, `orthanc-router-odelia-agaldran` at http://localhost:8045) — one Orthanc instance per model. When you send a study for processing, the router has the model pull the images via DICOMweb, then wraps the model's JSON output into DICOM SR / Secondary Capture (SC) and uploads it back to the Viewer Orthanc. The study itself is never copied to the router; only a UPS work-item is.
+- **AI model service** (`odelia-classification-mst` on port 5556, `odelia-classification-agaldran` on host port 5558) — a Flask microservice that runs the model and returns JSON. It has no DICOM web UI.
 - **ODELIA Viewer** (http://localhost:8081) — the web viewer. Its AI panel triggers processing and displays the results.
 
 ## Quick Test Guide
 
 ### 0. Start containers
 
-This directory was historically a standalone repo (`orthanc-routing-example`); it is now part of the deployment. Build and run from the deployment root:
+This directory was historically a standalone repo (`orthanc-routing-example`); it is now part of the deployment. Pull and run from the deployment root:
 
 ```bash
 cd ..   # if you are inside orthanc/
-docker compose up --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
 ### 1. Upload studies to the Viewer Orthanc
@@ -48,7 +49,7 @@ Open the study in the ODELIA viewer (http://localhost:8081) and use the AI panel
 ![Send to AI Panel](screenshots/send_to_ai_panel.jpg)
 *AI processing panel in the ODELIA Viewer*
 
-Under the hood, the viewer creates a UPS work-item on the selected AI router, which orchestrates inference (calling the model service) and writes the results back to the Viewer Orthanc. The bundled `config/app-config.js` registers the MST router (`orthanc-router-mst`) in the panel by default; the MedGemma router is deployed too but must be added to `aiEndpoints` before it appears as a target.
+Under the hood, the viewer creates a UPS work-item on the selected AI router, which orchestrates inference (calling the model service) and writes the results back to the Viewer Orthanc. The bundled `config/app-config.js` registers all five trained swarm routers in the panel; see the [deployment roster](../docs/usage/loading_model_weights.md#default-viewer-deployment).
 
 ---
 

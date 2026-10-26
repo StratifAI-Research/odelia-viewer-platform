@@ -7,7 +7,7 @@ own machine, start with [`production-hardening.md`](../security/production-harde
 
 | File | Controls |
 | --- | --- |
-| [`docker-compose.yml`](../../docker-compose.yml) | Services, ports, images, and environment variables (`HF_TOKEN`, `BIND_HOST`, chat backend, Keycloak hostnames) |
+| [`docker-compose.yml`](../../docker-compose.yml) | Services, ports, images, and environment variables (image overrides, `BIND_HOST`, chat backend, Keycloak hostnames) |
 | [`config/app-config.js`](../../config/app-config.js) | OHIF viewer settings — DICOMweb data source, AI endpoints, OIDC |
 | [`config/nginx.conf`](../../config/nginx.conf) | Reverse-proxy routes (`/`, `/pacs/`, `/keycloak/`, chat, …); set `server_name` for a real domain |
 | [`config/ohif-keycloak-realm.json`](../../config/ohif-keycloak-realm.json) | Keycloak `ohif` realm, imported on first start |
@@ -34,26 +34,11 @@ select the previous login theme in the same settings.
 
 ## Hugging Face access token (`HF_TOKEN`)
 
-Any model whose Hugging Face repo is **gated** — i.e. requires you to request access or accept a
-license before downloading — needs a Hugging Face access token, supplied as `HF_TOKEN`. The
-services pass it to the Hugging Face download. Ungated models need no token, and neither does the
-chat backend (it loads models from Ollama / local GGUF — see [`setup_chat.md`](setup_chat.md)).
-
-Setup — example: the gated MedGemma model used by the breast-MRI classification service
-(`google/medgemma-1.5-4b-it`):
-
-1. Create a **Read** access token in your Hugging Face account settings. *(A fine-grained token must
-   also enable "Read access to contents of all public gated repos you can access", or the download
-   fails with a 403 that `transformers` misreports as "We couldn't connect to https://huggingface.co".)*
-2. Request access / accept the license for the model you intend to use, while logged in to Hugging
-   Face — for MedGemma, [google/medgemma-1.5-4b-it](https://huggingface.co/google/medgemma-1.5-4b-it).
-3. Provide the token via a gitignored `.env` next to `docker-compose.yml`, then restart:
-
-   ```bash
-   echo 'HF_TOKEN=hf_your_token_here' >> .env
-   docker compose up -d
-   ```
-
+The five default trained models include weights in their Docker images and need
+no runtime HF token. Building a new image from a private HF repository requires
+a token with read access, passed as a BuildKit secret. For local builds and GitHub
+Actions configuration, see [loading trained model packages](../usage/loading_model_weights.md).
+The chat backend uses Ollama or local GGUF files; see [`setup_chat.md`](setup_chat.md).
 
 ## Chat AI backend
 

@@ -55,9 +55,6 @@ override files, no parallel definitions to drift.
 | `orthanc-router-mst` DICOM  | `4243`        | `127.0.0.1:4243`            |
 | `orthanc-router-mst` HTTP   | `8043`        | `127.0.0.1:8043`            |
 | `odelia-classification-mst` | `5556`        | `127.0.0.1:5556`            |
-| `orthanc-router-medgemma` DICOM | `4244`    | `127.0.0.1:4244`            |
-| `orthanc-router-medgemma` HTTP  | `8044`    | `127.0.0.1:8044`            |
-| `medgemma-mri`              | `5557`        | `127.0.0.1:5557`            |
 | `chat-middleware`           | `5560`        | `127.0.0.1:5560`            |
 | `llamacpp-server` (profile) | `8090`        | `127.0.0.1:8090`            |
 | `grafana`                   | `3000`        | `127.0.0.1:3000`            |

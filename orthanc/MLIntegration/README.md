@@ -12,7 +12,7 @@ into DICOM SR / Secondary Capture.
 | `shared/` | Reusable library (WADO-RS retrieval, DICOM storage, config, exceptions, timing & security helpers) — installed into every service image via `pip install -e .` |
 | `odelia-classification/` | Trained swarm classification service — **deployed** as `odelia-classification-mst` and the four other trained model services; classification results and DICOM SRs, without heatmaps |
 | `MST-classification/` | Legacy MST classifier with attention maps — retained for reference, **not deployed or built/published by CI** |
-| `medgemma-mri/` | MedGemma vision-language model, applied to breast-MRI classification — **deployed** as `medgemma-mri` |
+| `medgemma-mri/` | Legacy MedGemma breast-MRI service — retained for reference, **not deployed or built/published by CI** |
 | `chat-middleware/` | WebSocket chat backend (Ollama / llama.cpp) — **deployed** as `chat-middleware` |
 | `breast-cancer-classification/` | Bilateral breast-cancer classifier (port 5555) — present in the tree but **not deployed** by the current `docker-compose.yml`; remains the default `MODEL_BACKEND_URL` target in the router |
 | `pyproject.toml` | Packaging for the `shared` module (`mlintegration` wrapper) |

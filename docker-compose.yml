@@ -4,9 +4,9 @@
 # images locally, see docker-compose.override.example.yml; to build the
 # platform images from this checkout, see docker-compose.dev.yml.
 x-images:
-  orthanc-viewer: &orthanc-viewer-image stratifai/odelia-orthanc-viewer@sha256:3b0ce82ddc4bfb19e3e84e36a80719fc0ab8fcdb44caa2c81f61d623caf63fb1
-  orthanc-router: &orthanc-router-image stratifai/odelia-orthanc-router@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317
-  chat: &chat-image stratifai/odelia-chat@sha256:4e2d44a56136c385bc0e61aeb216b916afe8fc2a4e61b021cb0fd154ea25922f
+  orthanc-viewer: &orthanc-viewer-image stratifai/odelia-orthanc-viewer:2.3.0
+  orthanc-router: &orthanc-router-image stratifai/odelia-orthanc-router:2.3.0
+  chat: &chat-image stratifai/odelia-chat:2.3.0
   viewer: &viewer-image stratifai/odelia-viewer:2.3.0@sha256:8fee8d3ab400342e3c31ba9648dda4b7bf698657c8a7ae0ab7060222bd416647
   mst: &mst-image stratifai/odelia-classification-mst@sha256:4e0ffc4c72db7cbe87ec64aa90c131bbd8df224fbfb76ea41c4e5a39d35592ab
   agaldran: &agaldran-image stratifai/odelia-classification-agaldran@sha256:aa7bf977110dc0ad6c006b3dc416449ea1ff172e7c8c697420bee947b7a198fa

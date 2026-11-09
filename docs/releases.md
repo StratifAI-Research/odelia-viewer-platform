@@ -34,7 +34,8 @@ viewer 2.3.1. Each platform release's notes name the exact viewer version.
   ```
 
   `v2.3.0` means you are on that release. `v2.3.0-4-g1a2b3c4` means you are four commits
-  past it on `main`. When you run a release, `TAG` in `.env` names the same version.
+  past it on `main`. `docker compose config --images` lists the exact images your
+  checkout runs.
 
 ## A release or `main`
 
@@ -48,36 +49,28 @@ viewer 2.3.1. Each platform release's notes name the exact viewer version.
 
 Back up first, as described in [Updating an existing deployment](setup/updating.md).
 Commit or `git stash` any local changes to tracked files such as `config/`, and re-apply
-them after the checkout. Then stop the stack and check out the release:
+them after the checkout. Then:
 
 ```bash
 docker compose down
 git fetch --tags
 git checkout v2.3.0
-```
-
-Set the same version in `.env`, creating the file if it does not exist, so every later
-`docker compose` command uses it:
-
-```bash
-TAG=2.3.0
-```
-
-Then pull and start:
-
-```bash
 docker compose pull
-docker compose up -d --no-build --remove-orphans
+docker compose up -d --remove-orphans
 ```
 
-`TAG` selects the release's own images (Orthanc and chat). The viewer, the AI models and
-the other services are pinned in the checked-out `docker-compose.yml`, and several
-services also load configuration files from the checkout. That is why the checkout and
-`TAG` must name the same version. `--remove-orphans` removes the containers of services
-a release has retired; their data is kept.
+The checked-out `docker-compose.yml` names every image the release runs, under
+`x-images` at the top: the platform's own images at that version, plus the viewer and
+the AI models pinned by digest. Several services also load configuration files from the
+checkout, which is why a release runs from its own checkout. `--remove-orphans` removes
+the containers of services a release has retired; their data is kept.
+
+A `docker-compose.override.yml` in your checkout takes precedence over the release's
+images. Remove it to run exactly the release; see `docker-compose.override.example.yml`
+for running other images on purpose.
 
 To move to a newer release, repeat these steps with its version. To go back to following
-`main`, run `git switch main`, remove `TAG` from `.env`, and follow
+`main`, run `git switch main` and follow
 [Updating an existing deployment](setup/updating.md).
 
 ## The "new version available" notice
@@ -110,10 +103,12 @@ To check less or more often, set `checkIntervalHours` there instead (1 to 168, d
 
 ## How releases are made
 
-Releases are built and published by the project's CI from the `main` branch. A version
-always refers to one commit, and its images are never replaced once published. Images
-are built for linux/amd64 only. Trained AI model images are released separately; each
-platform release pins specific ones by digest, and its notes say which models are
-included.
+A release is a reviewed pull request that bumps the version. When it is merged, the
+project's CI publishes the images it built from that commit under the version number,
+then creates the git tag and the release notes. A version always refers to one commit,
+and its images are never replaced once published. On Docker Hub, `latest` is always the
+newest release. Images are built for linux/amd64 only. Trained AI model images are
+released separately; each platform release pins specific ones by digest, and its notes
+say which models are included.
 
 Maintainers: the release steps are in [`.github/RELEASING.md`](../.github/RELEASING.md).

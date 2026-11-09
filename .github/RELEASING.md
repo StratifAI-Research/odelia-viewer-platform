@@ -3,10 +3,9 @@
 Maintainer steps for publishing a new version. For what versions mean to the people
 running the platform, see [Versions and releases](../docs/releases.md).
 
-The ODELIA Viewer and the platform are released separately, from their own repositories,
-with a manual **Docker Build and Push** run on `main` in each. Pushing a git tag does not
-release anything. Docker Hub credentials are secrets of the `release` environment, which
-only `main` can use.
+The platform and the [ODELIA Viewer](https://github.com/StratifAI-Research/odelia-viewer)
+release the same way: **merge a PR that bumps the version.** The Build and release
+workflow in each repository does the rest. There is no release button.
 
 ## Version numbers
 
@@ -16,7 +15,7 @@ do not (`2.3.0`).
 - **MAJOR.MINOR is shared.** A release that changes both the viewer and the platform
   raises the minor number in both, e.g. 2.3.x → 2.4.0.
 - **PATCH counts independently** in each repository.
-- **The platform release notes name the viewer version** the platform ships.
+- **A platform release names the viewer it ships** in its notes.
 
 | Change | Viewer | Platform |
 | --- | --- | --- |
@@ -24,125 +23,80 @@ do not (`2.3.0`).
 | Viewer fix | 2.3.0 → 2.3.1 | next patch, pinning viewer 2.3.1 |
 | Feature release touching both | 2.3.x → 2.4.0 | 2.3.x → 2.4.0 |
 
-Versions are always three numbers. A published version is never moved: if something is
-wrong with it, release the next patch.
+A published version never changes. If something is wrong with it, release the next
+patch.
 
-## What every merge to `main` does
+## What the workflow does
 
-- **Platform:** builds `odelia-orthanc-viewer`, `odelia-orthanc-router` and `odelia-chat`,
-  pushes each as `sha-<commit>`, then moves `latest` once all three succeed. The
-  `odelia-classification-*` preview images are built to catch breakage but never pushed.
-- **Viewer:** builds and pushes `stratifai/odelia-viewer:latest`.
+| Event | What happens |
+| --- | --- |
+| Pull request | Builds the images; checks the version bump (see below). Pushes nothing. |
+| Merge to `main` | Builds the images and pushes them as `sha-<commit>`. |
+| Merge that changes the version | Also tags those same images `X.Y.Z` and `latest`, then creates the `vX.Y.Z` git tag and the GitHub Release. Nothing is rebuilt. |
 
-Deployments do not change: `docker-compose.yml` pins images by version and digest, not
-`latest`.
-
-## Release order when the viewer changed
-
-1. Release the viewer image (viewer steps 1–3 below).
-2. Release the platform with the new viewer pinned.
-3. Publish the viewer's GitHub Release (viewer step 4).
-
-The viewer shows a "new version available" notice when the viewer repository gets a new
-GitHub Release, and the notice tells users to contact their administrator. Publishing it
-last means administrators already have a platform release to upgrade to.
-
-## Release the viewer
-
-In [StratifAI-Research/odelia-viewer](https://github.com/StratifAI-Research/odelia-viewer):
-
-**1. Set the version.** Open a PR that sets `productVersion` in
-`platform/app/package.json`, e.g. `2.3.1`, and merge it.
-
-**2. Tag the merge commit.**
-
-```bash
-git fetch origin
-git tag -a v2.3.1 -m "ODELIA Viewer 2.3.1" origin/main
-git push origin v2.3.1
-```
-
-**3. Build the release image.** Actions → Docker Build and Push → Run workflow on `main`
-with `release_tag` set to `v2.3.1`, or:
-
-```bash
-gh workflow run docker-build-push.yml -R StratifAI-Research/odelia-viewer --ref main -f release_tag=v2.3.1
-```
-
-The run checks that the tag equals `v` + `productVersion` and points at the tip of
-`main`, then builds and pushes `stratifai/odelia-viewer:2.3.1`, `:2.3` and `:2`.
-
-**4. Publish the GitHub Release** once the image is on Docker Hub and, if the viewer
-ships with a platform release, after that release:
-
-```bash
-gh release create v2.3.1 -R StratifAI-Research/odelia-viewer --verify-tag --title v2.3.1 --generate-notes
-```
-
-The workflow does not create it. Without it, users are never told about the new version.
+On Docker Hub, `sha-<commit>` and `X.Y.Z` never change; `latest` always means the
+newest release.
 
 ## Release the platform
 
-In this repository:
+Open one PR in this repository that:
 
-**1. Prepare `main`.** In one PR:
+1. Sets `VERSION` to the new version, e.g. `2.3.1`.
+2. Sets the three platform images under `x-images` in `docker-compose.yml` to the same
+   version, and the router image in `docker-compose.model-template.yml`.
+3. When shipping a new viewer or trained model, moves its pin under `x-images`. Look up
+   a viewer's digest with:
 
-- If the viewer changed, pin it. Look up its digest and use `2.3.1@sha256:<digest>` as
-  the `VIEWER_TAG` default in `docker-compose.yml` and in the `.env.models.example`
-  example:
+   ```bash
+   docker buildx imagetools inspect stratifai/odelia-viewer:2.3.1 --format '{{.Manifest.Digest}}'
+   ```
 
-  ```bash
-  docker buildx imagetools inspect stratifai/odelia-viewer:2.3.1 --format '{{.Manifest.Digest}}'
-  ```
+4. Optionally adds release notes as `.github/release-notes/v2.3.1.md`. Without them,
+   the notes list the PRs merged since the previous release, grouped by label as
+   configured in [`release.yml`](release.yml), under a line naming the viewer.
 
-- Optionally write `.github/release-notes/vX.Y.Z.md`. Without it, the notes are
-  generated from the titles of PRs merged since the previous release, grouped by label
-  as configured in [`release.yml`](release.yml). Write one when PR titles do not tell
-  operators what to do.
+The PR check fails if the version is already released or older than the latest
+release, if the compose files do not use that version, or if the pinned viewer is not
+on Docker Hub or has different first two numbers. Once it is approved, merge it.
 
-**2. Wait for `main` to build.** The Docker Build and Push run for the merge commit must
-succeed; it pushes the `sha-<commit>` images the release reuses.
+## Release the viewer
 
-**3. Run the release.** Actions → Docker Build and Push → Run workflow on `main` with
-`version` set to `2.3.1` (no `v`), or:
+In odelia-viewer, open a PR that bumps `productVersion` in `platform/app/package.json`
+and optionally adds `.github/release-notes/vX.Y.Z.md`. Merge it. The GitHub Release,
+which makes installed viewers show "new version available", is created only after the
+image is on Docker Hub.
 
-```bash
-gh workflow run docker-build-push.yml --ref main -f version=2.3.1
-```
+When the viewer changed, release it first, then merge the platform PR that pins it. The
+platform's PR check refuses a viewer that is not published yet. Users on an older viewer
+may see the notice before the platform release exists, so merge the platform PR soon
+after.
 
-The run releases whatever commit is at the tip of `main`, so do not merge anything in
-between. It does not rebuild. It tags that commit's three `sha-<commit>` images as
-`2.3.1`, creates the git tag `v2.3.1` on the commit, and creates the GitHub Release.
+## When a release fails
 
-**4. Adopt it in Compose (optional).** The release does not change `docker-compose.yml`.
-Operators run a release by checking out its tag and setting `TAG`, as described in
-[Run a specific release](../docs/releases.md#run-a-specific-release). To make the
-default deployment on `main` use the release, pin `2.3.1@sha256:<digest>` for the three
-platform images in `docker-compose.yml` and `docker-compose.model-template.yml` in a
-follow-up PR.
-
-## When a release run fails
-
-Rerunning the same version for the same commit is safe: steps that already finished are
-skipped. Do not create platform `v*` tags by hand; the workflow creates them, and the
-`release-tags-immutable` ruleset blocks moving or deleting them.
+- **Re-run it.** Open the failed run and choose Re-run failed jobs. Steps that already
+  finished are skipped.
+- **If the cause needs a fix on `main`,** merge the fix, then choose Actions → Build and
+  release → Run workflow on `main`. It releases the current `main` commit under the
+  version that has not been released yet.
+- **Do not create `v*` tags by hand.** The workflow creates them, and the
+  `release-tags-immutable` ruleset blocks moving or deleting them.
 
 | Message | What to do |
 | --- | --- |
-| `version must be three numbers like 2.3.0` | Enter `X.Y.Z`. |
-| `cannot resolve stratifai/<image>:sha-<commit>` | The `main` build for that commit is still running or failed. Wait for it or fix it, then rerun. |
-| `git tag vX.Y.Z already exists on <sha>, not <sha>` | The version belongs to another commit. Release the next patch. |
-| `stratifai/<image>:X.Y.Z already exists and points at different content` | Same: release the next patch. |
-| `a GitHub Release vX.Y.Z exists but its git tag is gone` | Restore or delete that GitHub Release, then rerun. |
-| Viewer: `Release tag must match the stable productVersion` | `release_tag` must be `v` + `productVersion`. |
-| Viewer: `Release tag must point to the main commit selected for this run` | Something merged after the tag was created. Bump `productVersion` to the next patch, merge, tag that commit and run again. |
+| `VERSION must be three numbers like 2.3.1` | Use `X.Y.Z`. |
+| `vX.Y.Z is already released` or `must be newer than the latest release` | Choose the next version. |
+| `docker-compose files must use X.Y.Z for the platform images` | Update `x-images` and the model template to the new version. |
+| `platform X.Y.Z must ship a X.Y.x viewer` | Pin a viewer with the same first two numbers. |
+| `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first. |
+| `cannot resolve stratifai/<image>:sha-<commit>` | The build of that commit failed. Fix it on `main`, then use Run workflow. |
+| `… already exists with different content` | That version is taken on Docker Hub. Release the next patch. |
 
 ## Trained model images
 
 Trained models are released on their own and are not tied to platform versions. Actions
 → Trained model images builds each model listed in the repository variable
-`ODELIA_TRAINED_MODELS` with its pinned Hugging Face weights, checks that the weights load
-without network access, and pushes `stratifai/<image>:sha-<commit>-hf-<revision>` only
-when `publish` is ticked. Pin the new digest in `docker-compose.yml` and
-`.env.models.example` in a PR. See
+`ODELIA_TRAINED_MODELS` with its pinned Hugging Face weights, checks that the weights
+load without network access, and pushes `stratifai/<image>:sha-<commit>-hf-<revision>`
+only when `publish` is ticked. A tag that is already published is never pushed again.
+Pin the new digest under `x-images` in the next platform release PR. See
 [Loading trained model packages](../docs/usage/loading_model_weights.md).

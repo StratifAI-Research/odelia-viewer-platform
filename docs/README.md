@@ -8,6 +8,7 @@ Start with the [project README](../README.md) and its [quick start](../README.md
 - [setup/configuration.md](setup/configuration.md) — key config files and the Hugging Face `HF_TOKEN`
 - [setup/setup_chat.md](setup/setup_chat.md) — set up the Chat AI backend (Ollama or llama.cpp), in order
 - [setup/updating.md](setup/updating.md) — back up, pull, rebuild, and restart an existing deployment
+- [releases.md](releases.md) — what version numbers mean, running a specific release, and the update notice
 
 ## Use
 

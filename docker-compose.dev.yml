@@ -1,0 +1,32 @@
+# Build the platform's own images from this checkout instead of pulling the
+# released ones:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# The images are tagged :dev and never pushed. Without this file Compose only
+# pulls the images listed under x-images in docker-compose.yml.
+x-router-build: &router-build
+  build:
+    context: ./orthanc/router
+    dockerfile: Dockerfile
+  image: odelia-orthanc-router:dev
+
+services:
+  orthanc-viewer:
+    build:
+      context: ./orthanc/viewer
+      dockerfile: Dockerfile
+    image: odelia-orthanc-viewer:dev
+
+  orthanc-router-mst: *router-build
+  orthanc-router-odelia-agaldran: *router-build
+  orthanc-router-odelia-bcn-aim: *router-build
+  orthanc-router-odelia-divide-and-conquer: *router-build
+  orthanc-router-odelia-lme-abmil: *router-build
+  orthanc-router-odelia-pimed: *router-build
+
+  chat-middleware:
+    build:
+      context: ./orthanc/MLIntegration
+      dockerfile: chat-middleware/Dockerfile
+    image: odelia-chat:dev

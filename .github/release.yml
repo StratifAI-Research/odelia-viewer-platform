@@ -1,5 +1,5 @@
 # Controls the notes GitHub generates for a release (see the `record` job in
-# docker-build-push.yml). A hand-written .github/release-notes/vX.Y.Z.md takes
+# build-and-release.yml). A hand-written .github/release-notes/vX.Y.Z.md takes
 # precedence over anything configured here.
 changelog:
   exclude:

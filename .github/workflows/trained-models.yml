@@ -108,7 +108,19 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           IMAGE_TAG: ${{ steps.config.outputs.tag }}
-        run: docker push "$IMAGE_TAG"
+        run: |
+          set -euo pipefail
+          # A published model tag is never replaced: re-running would push a
+          # rebuilt image under the same name. Pin the one already published.
+          if out=$(docker buildx imagetools inspect "$IMAGE_TAG" 2>&1); then
+            echo "::error::$IMAGE_TAG is already published; pin its digest instead of pushing again"
+            exit 1
+          fi
+          case "$out" in
+            *"not found"*|*MANIFEST_UNKNOWN*|*"manifest unknown"*) ;;
+            *) echo "::error::cannot determine whether $IMAGE_TAG exists: $out"; exit 1 ;;
+          esac
+          docker push "$IMAGE_TAG"
 
       - name: Record the image reference
         env:

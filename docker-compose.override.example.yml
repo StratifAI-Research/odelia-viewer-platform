@@ -1,0 +1,20 @@
+# Run other images than the ones this checkout pins, for example a test build
+# or a different trained model release. Copy this file to
+# docker-compose.override.yml (gitignored); Compose merges it automatically.
+# Delete that file to go back to the pinned images.
+#
+# Keep only the services you change and replace every <placeholder>. Use full
+# image references, preferably with a digest.
+services:
+  # A viewer build from odelia-viewer main; CI publishes each one as sha-<commit>.
+  viewer:
+    image: stratifai/odelia-viewer:sha-<commit>
+
+  # Another trained model build, from the Trained model images workflow.
+  odelia-classification-mst:
+    image: stratifai/odelia-classification-mst@sha256:<digest>
+
+  # The platform's own images: orthanc-viewer, chat-middleware and every
+  # orthanc-router-* service (they all share one router image).
+  chat-middleware:
+    image: stratifai/odelia-chat:sha-<commit>

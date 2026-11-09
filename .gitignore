@@ -19,3 +19,6 @@ outputs/
 *.ckpt
 *.safetensors
 **/models/mst/_dinov2/
+
+# Local image overrides (see docker-compose.override.example.yml).
+docker-compose.override.yml

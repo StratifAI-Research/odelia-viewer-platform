@@ -88,24 +88,26 @@ predictions.
 ## Default viewer deployment
 
 The default Compose deployment starts five trained model/router pairs using
-published images pinned by digest. No `.env` or HF token is required. To select
-a different release, optionally override its image using `.env.models.example`:
+published images pinned by digest under `x-images` in `docker-compose.yml`. No
+`.env` or HF token is required. To select a different release, override the
+model's service in `docker-compose.override.yml` (see
+`docker-compose.override.example.yml`):
 
-| Viewer label | Architecture | Image variable | Router HTTP / backend port |
+| Viewer label | Architecture | Compose service | Router HTTP / backend port |
 | --- | --- | --- | --- |
-| MST swarm May 2026 | MST | `MST_IMAGE` | 8043 / 5556 |
-| agaldran swarm May 2026 | agaldran | `AGALDRAN_IMAGE` | 8045 / 5558 |
-| SwinUNETR swarm May 2026 | BCN_AIM | `BCN_AIM_IMAGE` | 8046 / 5559 |
-| ABMIL swarm May 2026 | LME_ABMIL | `LME_ABMIL_IMAGE` | 8048 / 5562 |
-| MeisenMeister swarm August 2026 | DivideAndConquer | `DIVIDE_AND_CONQUER_IMAGE` | 8047 / 5561 |
+| MST swarm May 2026 | MST | `odelia-classification-mst` | 8043 / 5556 |
+| agaldran swarm May 2026 | agaldran | `odelia-classification-agaldran` | 8045 / 5558 |
+| SwinUNETR swarm May 2026 | BCN_AIM | `odelia-classification-bcn-aim` | 8046 / 5559 |
+| ABMIL swarm May 2026 | LME_ABMIL | `odelia-classification-lme-abmil` | 8048 / 5562 |
+| MeisenMeister swarm August 2026 | DivideAndConquer | `odelia-classification-divide-and-conquer` | 8047 / 5561 |
 
 Use the full image reference from a successful trained-model build, preferably
 pinned by registry digest. Local image tags also work on their build host.
 Set `DIVIDE_AND_CONQUER_PORT` if its default host port 5561 is already in use;
 the internal model/router address is unchanged. Export the same value when
 running the integration suites.
-Unset or empty image variables use the pinned defaults. Update the digests in
-`docker-compose.yml` manually when adopting new releases. Building/publishing
+Without an override the pinned digests are used. A platform release PR moves
+those pins when it adopts new model images. Building/publishing
 these images is a separate step; the public source configuration does not
 include private HF release coordinates.
 
@@ -121,14 +123,9 @@ longer creates heatmap Secondary Captures for new MST analyses. Existing stored
 results remain available. The legacy `MST-classification` source is retained for
 reference but is no longer deployed, built or promoted by CI.
 
-The viewer image is also pinned by digest in `docker-compose.yml`. Use
-`VIEWER_IMAGE` for a full image reference or `VIEWER_TAG` for a different tag
-(optionally including `@sha256:...`). All published defaults use the `stratifai`
-namespace. Set `ORTHANC_VIEWER_IMAGE`, `ORTHANC_ROUTER_IMAGE`, or `CHAT_IMAGE`
-to a full reference to use another registry or namespace for those services.
-`TAG` selects an Orthanc/chat tag under `stratifai` when no full image override
-is set; it does not change the trained models or viewer. `DOCKER_HUB_USERNAME`
-affects only locally built model previews. Reload the viewer
+The viewer, Orthanc, router and chat images are listed under `x-images` too,
+and are overridden the same way: set the service's `image` in
+`docker-compose.override.yml`. Reload the viewer
 and reopen the AI panel to pick up added models; user-added endpoints are
 preserved. An existing customized MST label may remain, but its original router
 URL still reaches trained MST.
@@ -186,8 +183,8 @@ Pushes to `main` do not trigger this workflow. In GitHub Actions, select
 unchecked to build and validate only. Select `publish` explicitly to release
 the validated images to
 `stratifai/<image>:sha-<application-commit>-hf-<model-commit>`. These
-trained tags include both revisions and are separate from the existing
-`latest`/semantic-version promotion workflow.
+trained tags include both revisions and are separate from the platform's own
+releases. A tag that is already published is never pushed again.
 
 Publishing an image to public Docker Hub makes its embedded weights publicly
 accessible, even when the source HF repository is private. Treat each published

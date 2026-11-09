@@ -19,7 +19,7 @@ Heatmap support has not been ported to the generalized service.
 | **Architecture** | DINOv2-based Vision Transformer |
 | **Task** | 3-class classification per breast: No lesion / Benign / Malignant |
 | **Output** | Per-breast class probabilities and classification SR; no heatmap overlays |
-| **Weights** | May 2026 swarm release, baked into the selected `MST_IMAGE` |
+| **Weights** | May 2026 swarm release, baked into the pinned `odelia-classification-mst` image |
 | **Original model** | [ODELIA-AI/MST on Hugging Face](https://huggingface.co/ODELIA-AI/MST); the swarm checkpoint is a separate release |
 | **Weight terms** | Consult the selected swarm package's model card and notices; do not infer its terms from the original challenge model |
 | **Service port** | 5556 |

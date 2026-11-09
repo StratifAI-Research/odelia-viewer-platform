@@ -18,7 +18,7 @@ This directory was historically a standalone repo (`orthanc-routing-example`); i
 ```bash
 cd ..   # if you are inside orthanc/
 docker compose pull
-docker compose up -d --no-build
+docker compose up -d
 ```
 
 ### 1. Upload studies to the Viewer Orthanc

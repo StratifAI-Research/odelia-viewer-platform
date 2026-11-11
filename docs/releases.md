@@ -36,19 +36,25 @@ might ship viewer 2.4.0. Each platform release's notes name the exact viewer ver
   past it on `main`. `docker compose config --images` lists the exact images your
   checkout runs.
 
-## A release or `main`
+## What changed
 
-- **A release** stays exactly as it is until you choose to update. Use one when results
-  must be reproducible, for example for the length of a reader study, and record the
-  version with your results.
-- **`main`** has the latest reviewed changes, including ones not yet in a release.
-  [Updating an existing deployment](setup/updating.md) follows `main`.
+[`CHANGELOG.md`](../CHANGELOG.md) lists every release, newest first, with what changed
+and anything you need to do when updating. The same text is on the
+[Releases page](https://github.com/StratifAI-Research/odelia-viewer-platform/releases).
 
-## Run a specific release
+## `main` is always the newest release
 
-Back up first, as described in [Updating an existing deployment](setup/updating.md).
-Commit or `git stash` any local changes to tracked files such as `config/`, and re-apply
-them after the checkout. Then:
+[Updating an existing deployment](setup/updating.md) pulls `main`. Every change that
+reaches your site through that pull is released together with matching images, so
+`main` always equals the newest release. When results must be reproducible, for example
+for the length of a reader study, note the version you ran with your results and don't
+update until the study ends.
+
+## Go back to an older release
+
+To go back to an earlier version, back up first, as described in
+[Updating an existing deployment](setup/updating.md). Commit or `git stash` any local
+changes to tracked files such as `config/`, and re-apply them after the checkout. Then:
 
 ```bash
 docker compose down
@@ -68,8 +74,7 @@ A `docker-compose.override.yml` in your checkout takes precedence over the relea
 images. Remove it to run exactly the release; see `docker-compose.override.example.yml`
 for running other images on purpose.
 
-To move to a newer release, repeat these steps with its version. To go back to following
-`main`, run `git switch main` and follow
+To return to the newest release, run `git switch main` and follow
 [Updating an existing deployment](setup/updating.md).
 
 ## The "new version available" notice

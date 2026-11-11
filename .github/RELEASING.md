@@ -4,8 +4,26 @@ Maintainer steps for publishing a new version. For what versions mean to the peo
 running the platform, see [Versions and releases](../docs/releases.md).
 
 The platform and the [ODELIA Viewer](https://github.com/StratifAI-Research/odelia-viewer)
-release the same way: **merge a PR that bumps the version.** The Build and release
-workflow in each repository does the rest. There is no release button.
+release the same way: **merge a PR that bumps the version and adds a changelog
+section.** The Build and release workflow in each repository does the rest. There is no
+release button.
+
+Sites update with `git pull origin main`, so `main` of the platform must always be a
+release. That is enforced by the rule in the next section.
+
+## When a platform PR must be a release
+
+Sites take `docker-compose.yml` and the files it mounts into containers straight from
+the checkout, but get new images only with a release. A PR that changes any of those
+files must therefore bump `VERSION`, or a site would run new files inside old images.
+Today that is `docker-compose.yml`, `config/`, the scripts and `orthanc.json` in
+`orthanc/viewer/`, `orthanc/router/server.py`, the model `manifest.json`,
+`themes/odelia` and `grafana/provisioning`. CI reads the list from compose itself, so a
+new mount is covered automatically.
+
+Changes that only reach sites inside an image (chat code, Dockerfiles, Python
+dependencies, Dependabot updates) and changes to docs, CI or tests need no bump. They
+ship with the next release.
 
 ## Version numbers
 
@@ -33,7 +51,7 @@ patch.
 | --- | --- |
 | Pull request | Builds the images; checks the version bump (see below). Uploads nothing. |
 | Merge to `main` | Builds the images to catch breakage. Uploads nothing. |
-| Merge that changes the version | Builds the images and uploads them as `sha-<commit>`, then tags those same images `X.Y.Z` and `latest` and creates the `vX.Y.Z` git tag and the GitHub Release. |
+| Merge that changes the version | Builds the images and uploads them as `sha-<commit>`, then tags those same images `X.Y.Z` and `latest` and creates the `vX.Y.Z` git tag and the GitHub Release. Its text is the version's changelog section. |
 
 Only releases reach Docker Hub, because sites only run releases. There, `sha-<commit>`
 and `X.Y.Z` never change, and `latest` always means the newest release. To try
@@ -54,19 +72,22 @@ Open one PR in this repository that:
    docker buildx imagetools inspect stratifai/odelia-viewer:2.3.1 --format '{{.Manifest.Digest}}'
    ```
 
-4. Optionally adds release notes as `.github/release-notes/v2.3.1.md`. Without them,
-   the notes list the PRs merged since the previous release, grouped by label as
-   configured in [`release.yml`](release.yml), under a line naming the viewer.
+4. Adds a `## 2.3.1` section at the top of [`CHANGELOG.md`](../CHANGELOG.md) saying what
+   changed and anything admins need to do. It becomes the GitHub Release text. If it
+   doesn't name the viewer the release ships, a line naming it is added.
 
 The PR check fails if the version is already released or older than the latest
-release, if the compose files do not use that version, if the pinned viewer or a
-pinned trained model is not on Docker Hub, or if the viewer's tag and digest point at
-different images. Once it is approved, merge it.
+release, if the changelog section is missing, not at the top or empty, if the compose
+files do not use that version, if the pinned viewer or a pinned trained model is not on
+Docker Hub, or if the viewer's tag and digest point at different images. Once it is
+approved, merge it.
 
 ## Release the viewer
 
 In odelia-viewer, open a PR that bumps `productVersion` in `platform/app/package.json`
-and optionally adds `.github/release-notes/vX.Y.Z.md`. Merge it. The GitHub Release,
+and adds a `## X.Y.Z` section at the top of `ODELIA-CHANGELOG.md` (the repository's
+`CHANGELOG.md` belongs to OHIF upstream). Merge it. The GitHub Release, whose text is that
+section,
 which makes installed viewers show "new version available", is created only after the
 image is on Docker Hub.
 
@@ -93,6 +114,8 @@ after.
 | `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first, or fix the pin. |
 | `stratifai/odelia-classification-…@sha256:… is not on Docker Hub` | Publish the model image first, or fix the digest. |
 | `stratifai/odelia-viewer:X.Y.Z is sha256:… on Docker Hub, but docker-compose.yml pins sha256:…` | The digest belongs to another image. Look up that tag's digest again. |
+| `this PR changes files sites run from the checkout (…)` | Make the PR a release: bump `VERSION`, the platform images in `x-images`, and add a changelog section. |
+| `CHANGELOG.md must start with a section "## X.Y.Z"` or `… section in CHANGELOG.md is empty` | Add the new version's section at the top of `CHANGELOG.md` and describe the change. |
 | `cannot resolve stratifai/<image>:sha-<commit>` | The release build did not upload. Re-run the failed jobs, or fix it on `main` and use Run workflow. |
 | `… already exists with different content` | That version is taken on Docker Hub. Release the next patch. |
 

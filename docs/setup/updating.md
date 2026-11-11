@@ -25,8 +25,9 @@ git diff HEAD@{1} -- docker-compose.yml config/   # check for new vars, ports, r
 > Re-apply any local customizations (e.g. image overrides, production hostnames) — a pull may surface
 > upstream changes to `docker-compose.yml` or `config/`.
 
-To run a fixed release instead of the latest `main`, see
-[Run a specific release](../releases.md#run-a-specific-release).
+`main` always equals the newest release; [`CHANGELOG.md`](../../CHANGELOG.md) lists what
+changed. To go back to an older release, see
+[Go back to an older release](../releases.md#go-back-to-an-older-release).
 
 **4. Pull and restart.** The stack runs the published images listed under `x-images`
 in `docker-compose.yml`; model weights are embedded and no HF token is needed. A

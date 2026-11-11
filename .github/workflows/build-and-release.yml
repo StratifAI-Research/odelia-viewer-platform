@@ -62,6 +62,35 @@ jobs:
           fi
           [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "VERSION must be three numbers like 2.3.1 (got '$v')"
 
+          # Sites run main: they take docker-compose.yml and the files it mounts
+          # straight from the checkout, and get new images only with a release. So a
+          # PR that changes any of those must be a release, or a site would run new
+          # files inside old images. Compose lists its own mounts, so a new mount is
+          # covered without editing this list.
+          if [ "$EVENT" = "pull_request" ] && [ "$v" = "$prev" ]; then
+            mounts=$(docker compose config --format json \
+              | jq -r --arg root "$PWD/" '.services[].volumes[]? | select(.type == "bind") | .source | ltrimstr($root)' \
+              | grep -v '^volumes/' | sort -u || true)
+            [ -n "$mounts" ] || fail "could not list the files docker-compose.yml mounts"
+            hits=$(git diff --name-only HEAD^1 HEAD | while read -r f; do
+              if [ "$f" = "docker-compose.yml" ]; then echo "$f"; continue; fi
+              while read -r m; do
+                if [ "$f" = "$m" ] || [[ "$f" == "$m/"* ]]; then echo "$f"; break; fi
+              done <<<"$mounts"
+            done)
+            [ -z "$hits" ] || fail "this PR changes files sites run from the checkout (${hits//$'\n'/, }); bump VERSION and add a CHANGELOG.md section"
+          fi
+
+          # A new version needs its section at the top of CHANGELOG.md: that
+          # section becomes the release's notes on GitHub.
+          section() { awk -v v="$1" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' CHANGELOG.md; }
+          if [ "$v" != "$prev" ]; then
+            [ -f CHANGELOG.md ] || fail "add CHANGELOG.md with a section \"## $v\""
+            top=$(grep -m1 -E '^## ' CHANGELOG.md | sed 's/^## //' || true)
+            [ "$top" = "$v" ] || fail "CHANGELOG.md must start with a section \"## $v\" (its newest is \"${top:-none}\")"
+            section "$v" | grep -q '[^[:space:]]' || fail "the \"## $v\" section in CHANGELOG.md is empty"
+          fi
+
           # The checkout of a release must run exactly that release's images.
           refs=$(grep -ohE 'stratifai/odelia-(orthanc-viewer|orthanc-router|chat)[:@][^[:space:]"]*' \
             docker-compose.yml docker-compose.model-template.yml | sort -u || true)
@@ -381,14 +410,15 @@ jobs:
             echo "Release $tag already exists; nothing to do."
             exit 0
           fi
-          # --target creates the tag on the commit whose images were published.
-          # Hand-written notes win; otherwise GitHub lists the PRs merged since
-          # the previous release, grouped as configured in .github/release.yml.
-          notes=".github/release-notes/${tag}.md"
-          if [ -f "$notes" ]; then
-            gh release create "$tag" --target "$SHA" --title "$tag" --notes-file "$notes"
-          else
-            viewer=$(grep -ohE 'stratifai/odelia-viewer:[^@[:space:]"]+' docker-compose.yml | head -n1)
-            gh release create "$tag" --target "$SHA" --title "$tag" --generate-notes \
-              --notes "Ships ODELIA Viewer ${viewer#*:}."
+          # The notes are this version's section of CHANGELOG.md, which the version
+          # check made sure exists, plus the viewer the release ships if the
+          # section does not name it. --target creates the tag on the commit whose
+          # images were published.
+          awk -v v="$VERSION" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          viewer=$(grep -ohE 'stratifai/odelia-viewer:[^@[:space:]"]+' docker-compose.yml | head -n1)
+          viewer=${viewer#*:}
+          if ! grep -qF "ODELIA Viewer ${viewer}" "$RUNNER_TEMP/notes.md"; then
+            printf '\nShips ODELIA Viewer %s.\n' "$viewer" >> "$RUNNER_TEMP/notes.md"
           fi
+          gh release create "$tag" --target "$SHA" --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"

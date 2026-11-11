@@ -76,6 +76,7 @@ Then open **<http://localhost:8081>** and sign in with the default credentials *
 To use the **chat** feature:
 [`docs/setup/setup_chat.md`](docs/setup/setup_chat.md).
 To update an existing deployment: [`docs/setup/updating.md`](docs/setup/updating.md).
+What changed in each release: [`CHANGELOG.md`](CHANGELOG.md).
 
 
 

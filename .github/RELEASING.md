@@ -86,15 +86,14 @@ approved, merge it.
 
 In odelia-viewer, open a PR that bumps `productVersion` in `platform/app/package.json`
 and adds a `## X.Y.Z` section at the top of `ODELIA-CHANGELOG.md` (the repository's
-`CHANGELOG.md` belongs to OHIF upstream). Merge it. The GitHub Release, whose text is that
-section,
-which makes installed viewers show "new version available", is created only after the
-image is on Docker Hub.
+`CHANGELOG.md` belongs to OHIF upstream). Merge it. CI creates the GitHub Release, whose
+text is that section, only after the image is on Docker Hub.
 
 When the viewer changed, release it first, then merge the platform PR that pins it. The
-platform's PR check refuses a viewer that is not published yet. Users on an older viewer
-may see the notice before the platform release exists, so merge the platform PR soon
-after.
+platform's PR check refuses a viewer that is not published yet. Installed viewers tell
+users about new **platform** releases, comparing them with the `VERSION` file the
+platform serves as `platform-version.txt`. Viewer 2.3.0 still announces viewer releases,
+so while it is pinned, merge the platform PR soon after a viewer release.
 
 ## When a release fails
 

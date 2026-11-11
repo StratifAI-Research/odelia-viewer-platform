@@ -26,6 +26,8 @@ services:
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf
       - ./config/app-config.js:/usr/share/nginx/html/app-config.js
+      # The viewer's update notice compares this with the newest platform release.
+      - ./VERSION:/usr/share/nginx/html/platform-version.txt:ro
  #     - ./logs/nginx:/var/log/nginx
     ports:
       - '${BIND_HOST:-}8081:8081'

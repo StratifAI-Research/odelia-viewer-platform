@@ -79,19 +79,21 @@ To return to the newest release, run `git switch main` and follow
 
 ## The "new version available" notice
 
-When a newer ODELIA Viewer is released, the patient list shows a dialog titled **A new
-ODELIA Viewer version is available**, with the installed and the new version. Each user
-chooses **Dismiss** or **Release notes** to continue, and does not see the dialog again
-until the next release.
+When a newer platform version is released, the patient list shows a dialog titled **A
+new ODELIA version is available**, with the platform version the site runs and the new
+one. Each user chooses **Dismiss** or **Release notes** to continue, and does not see the
+dialog again until the next release.
 
 - **Users:** the viewer keeps working as before. Let your administrator know.
-- **Administrators:** viewer updates arrive through platform releases. Install the newest
-  platform release; its notes name the viewer version it ships.
+- **Administrators:** update as described in [Updating an existing deployment](setup/updating.md).
+  The dialog stops once the site runs the new release.
 
-The notice covers the viewer only. A platform release that does not change the viewer
-shows no notice, so watch the repository's releases as described above.
+The viewer knows which platform version it runs from `platform-version.txt`: the
+platform's `VERSION` file, served next to `app-config.js`. Settings → About shows it too.
+Viewer 2.3.0, which platform 2.3.0 ships, still announces viewer releases instead; the
+platform-based notice arrives with the next viewer release.
 
-Each browser asks GitHub's public API for the latest viewer release once a day. The
+Each browser asks GitHub's public API for the latest platform release once a day. The
 request carries no study or user data. Without internet access the check fails silently
 and no notice appears. To turn the check off, add this to `window.config` in
 `config/app-config.js`:

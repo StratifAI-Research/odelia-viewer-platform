@@ -19,9 +19,8 @@ Versions have three numbers, such as `2.3.1`:
 | Middle | 2.3.1 → 2.4.0 | New features, usually in the viewer as well. Read the release notes before updating. |
 | First | 2.4.0 → 3.0.0 | Larger changes. Read the release notes before updating. |
 
-The platform and the ODELIA Viewer share the first two numbers: platform 2.3.x ships
-viewer 2.3.x. The last number counts separately in each, so platform 2.3.2 might ship
-viewer 2.3.1. Each platform release's notes name the exact viewer version.
+The platform and the ODELIA Viewer have their own version numbers, so platform 2.3.2
+might ship viewer 2.4.0. Each platform release's notes name the exact viewer version.
 
 ## Which version am I running?
 

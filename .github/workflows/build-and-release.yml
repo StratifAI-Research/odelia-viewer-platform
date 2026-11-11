@@ -68,15 +68,15 @@ jobs:
           bad=$(grep -vE ":${v//./\\.}\$" <<<"$refs" || true)
           [ -z "$bad" ] || fail "docker-compose files must use $v for the platform images, not: ${bad//$'\n'/, }"
 
-          # The viewer must be published and share MAJOR.MINOR with the platform.
+          # The viewer and the trained models are pinned from elsewhere. Each pin must
+          # exist on Docker Hub, or `docker compose pull` fails at every site.
           viewer=$(grep -ohE 'stratifai/odelia-viewer:[^[:space:]"]+' docker-compose.yml | sort -u || true)
           [ -n "$viewer" ] && [ "$(wc -l <<<"$viewer")" = 1 ] \
             || fail "expected exactly one viewer image in docker-compose.yml"
-          viewer_version=${viewer#*:}
-          viewer_version=${viewer_version%%@*}
-          [ "${viewer_version%.*}" = "${v%.*}" ] \
-            || fail "platform $v must ship a ${v%.*}.x viewer, not $viewer_version"
-          docker buildx imagetools inspect "$viewer" >/dev/null || fail "$viewer is not on Docker Hub"
+          models=$(grep -ohE 'stratifai/odelia-classification-[a-z0-9-]+[:@][^[:space:]"]+' docker-compose.yml | sort -u || true)
+          for ref in $viewer $models; do
+            docker buildx imagetools inspect "$ref" >/dev/null || fail "$ref is not on Docker Hub"
+          done
 
           # A new version must be unused and newer than every release so far,
           # which also keeps `latest` from ever moving backwards.

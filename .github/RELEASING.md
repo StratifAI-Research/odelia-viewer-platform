@@ -12,16 +12,17 @@ workflow in each repository does the rest. There is no release button.
 Both repositories use `MAJOR.MINOR.PATCH`. Git tags carry a `v` (`v2.3.0`); Docker tags
 do not (`2.3.0`).
 
-- **MAJOR.MINOR is shared.** A release that changes both the viewer and the platform
-  raises the minor number in both, e.g. 2.3.x → 2.4.0.
-- **PATCH counts independently** in each repository.
+- **Each repository counts on its own.** The viewer and platform numbers are not tied
+  together: platform 2.3.2 may ship viewer 2.4.0.
 - **A platform release names the viewer it ships** in its notes.
+- **The reviewer of a platform PR that moves the viewer pin checks that the stack works**
+  with that viewer. If the platform needs changes for it, they go into the same PR.
 
 | Change | Viewer | Platform |
 | --- | --- | --- |
 | Platform-only fix | unchanged | 2.3.0 → 2.3.1 |
 | Viewer fix | 2.3.0 → 2.3.1 | next patch, pinning viewer 2.3.1 |
-| Feature release touching both | 2.3.x → 2.4.0 | 2.3.x → 2.4.0 |
+| Viewer feature that needs platform changes | 2.3.x → 2.4.0 | next version, with the changes and the new pin |
 
 A published version never changes. If something is wrong with it, release the next
 patch.
@@ -56,8 +57,8 @@ Open one PR in this repository that:
    configured in [`release.yml`](release.yml), under a line naming the viewer.
 
 The PR check fails if the version is already released or older than the latest
-release, if the compose files do not use that version, or if the pinned viewer is not
-on Docker Hub or has different first two numbers. Once it is approved, merge it.
+release, if the compose files do not use that version, or if the pinned viewer or a
+pinned trained model is not on Docker Hub. Once it is approved, merge it.
 
 ## Release the viewer
 
@@ -86,8 +87,8 @@ after.
 | `VERSION must be three numbers like 2.3.1` | Use `X.Y.Z`. |
 | `vX.Y.Z is already released` or `must be newer than the latest release` | Choose the next version. |
 | `docker-compose files must use X.Y.Z for the platform images` | Update `x-images` and the model template to the new version. |
-| `platform X.Y.Z must ship a X.Y.x viewer` | Pin a viewer with the same first two numbers. |
-| `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first. |
+| `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first, or fix the pin. |
+| `stratifai/odelia-classification-…@sha256:… is not on Docker Hub` | Publish the model image first, or fix the digest. |
 | `cannot resolve stratifai/<image>:sha-<commit>` | The build of that commit failed. Fix it on `main`, then use Run workflow. |
 | `… already exists with different content` | That version is taken on Docker Hub. Release the next patch. |
 

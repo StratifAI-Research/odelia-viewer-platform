@@ -57,8 +57,9 @@ Open one PR in this repository that:
    configured in [`release.yml`](release.yml), under a line naming the viewer.
 
 The PR check fails if the version is already released or older than the latest
-release, if the compose files do not use that version, or if the pinned viewer or a
-pinned trained model is not on Docker Hub. Once it is approved, merge it.
+release, if the compose files do not use that version, if the pinned viewer or a
+pinned trained model is not on Docker Hub, or if the viewer's tag and digest point at
+different images. Once it is approved, merge it.
 
 ## Release the viewer
 
@@ -89,6 +90,7 @@ after.
 | `docker-compose files must use X.Y.Z for the platform images` | Update `x-images` and the model template to the new version. |
 | `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first, or fix the pin. |
 | `stratifai/odelia-classification-…@sha256:… is not on Docker Hub` | Publish the model image first, or fix the digest. |
+| `stratifai/odelia-viewer:X.Y.Z is sha256:… on Docker Hub, but docker-compose.yml pins sha256:…` | The digest belongs to another image. Look up that tag's digest again. |
 | `cannot resolve stratifai/<image>:sha-<commit>` | The build of that commit failed. Fix it on `main`, then use Run workflow. |
 | `… already exists with different content` | That version is taken on Docker Hub. Release the next patch. |
 

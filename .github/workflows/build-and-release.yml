@@ -77,6 +77,16 @@ jobs:
           for ref in $viewer $models; do
             docker buildx imagetools inspect "$ref" >/dev/null || fail "$ref is not on Docker Hub"
           done
+          # With a tag and a digest, Docker runs the digest and ignores the tag, so a
+          # pin could name one viewer version and run another. They must agree.
+          if [[ "$viewer" == *@sha256:* ]]; then
+            viewer_tag=${viewer%@*}
+            pinned=${viewer##*@}
+            actual=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$viewer_tag" 2>&1) \
+              || fail "cannot resolve $viewer_tag: $actual"
+            [ "$actual" = "$pinned" ] \
+              || fail "$viewer_tag is $actual on Docker Hub, but docker-compose.yml pins $pinned"
+          fi
 
           # A new version must be unused and newer than every release so far,
           # which also keeps `latest` from ever moving backwards.
@@ -367,7 +377,7 @@ jobs:
           if [ -f "$notes" ]; then
             gh release create "$tag" --target "$SHA" --title "$tag" --notes-file "$notes"
           else
-            viewer=$(grep -ohE 'stratifai/odelia-viewer:[0-9]+\.[0-9]+\.[0-9]+' docker-compose.yml | head -n1)
+            viewer=$(grep -ohE 'stratifai/odelia-viewer:[^@[:space:]"]+' docker-compose.yml | head -n1)
             gh release create "$tag" --target "$SHA" --title "$tag" --generate-notes \
               --notes "Ships ODELIA Viewer ${viewer#*:}."
           fi

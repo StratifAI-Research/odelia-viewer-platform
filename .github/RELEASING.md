@@ -31,12 +31,14 @@ patch.
 
 | Event | What happens |
 | --- | --- |
-| Pull request | Builds the images; checks the version bump (see below). Pushes nothing. |
-| Merge to `main` | Builds the images and pushes them as `sha-<commit>`. |
-| Merge that changes the version | Also tags those same images `X.Y.Z` and `latest`, then creates the `vX.Y.Z` git tag and the GitHub Release. Nothing is rebuilt. |
+| Pull request | Builds the images; checks the version bump (see below). Uploads nothing. |
+| Merge to `main` | Builds the images to catch breakage. Uploads nothing. |
+| Merge that changes the version | Builds the images and uploads them as `sha-<commit>`, then tags those same images `X.Y.Z` and `latest` and creates the `vX.Y.Z` git tag and the GitHub Release. |
 
-On Docker Hub, `sha-<commit>` and `X.Y.Z` never change; `latest` always means the
-newest release.
+Only releases reach Docker Hub, because sites only run releases. There, `sha-<commit>`
+and `X.Y.Z` never change, and `latest` always means the newest release. To try
+unreleased code, build it locally: `docker-compose.dev.yml` for the platform images,
+`docker build` in odelia-viewer for the viewer.
 
 ## Release the platform
 
@@ -91,7 +93,7 @@ after.
 | `stratifai/odelia-viewer:… is not on Docker Hub` | Release the viewer first, or fix the pin. |
 | `stratifai/odelia-classification-…@sha256:… is not on Docker Hub` | Publish the model image first, or fix the digest. |
 | `stratifai/odelia-viewer:X.Y.Z is sha256:… on Docker Hub, but docker-compose.yml pins sha256:…` | The digest belongs to another image. Look up that tag's digest again. |
-| `cannot resolve stratifai/<image>:sha-<commit>` | The build of that commit failed. Fix it on `main`, then use Run workflow. |
+| `cannot resolve stratifai/<image>:sha-<commit>` | The release build did not upload. Re-run the failed jobs, or fix it on `main` and use Run workflow. |
 | `… already exists with different content` | That version is taken on Docker Hub. Release the next patch. |
 
 ## Trained model images

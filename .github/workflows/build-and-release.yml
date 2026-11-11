@@ -1,10 +1,11 @@
 name: Build and release
 
-# Every push to main builds the platform images and publishes them as
-# sha-<commit>. A push that changes VERSION is a release: the same images also
-# get the X.Y.Z and latest tags, and the commit gets the vX.Y.Z git tag and a
-# GitHub Release. Pull requests only build. There is no release button --
-# merging the version bump is the release, so the PR approval is the gate.
+# Every run builds the platform images to catch breakage, but only a release
+# uploads anything: sites run releases, so other builds have no use on Docker
+# Hub. A push to main that changes VERSION is a release: it uploads the images
+# as sha-<commit>, tags them X.Y.Z and latest, and gives the commit the vX.Y.Z
+# git tag and a GitHub Release. There is no release button -- merging the
+# version bump is the release, so the PR approval is the gate.
 #
 # The odelia-viewer repository runs the same workflow for the viewer image.
 
@@ -14,8 +15,8 @@ on:
   pull_request:
     branches: [main]
   # Recovery only. If a release run failed in a way a re-run cannot fix, fix the
-  # cause on main and run this: it releases the current main commit under the
-  # version in VERSION, provided that version has not been released yet.
+  # cause on main and run this: it builds and releases the current main commit
+  # under the version in VERSION, provided that version has not been released.
   workflow_dispatch:
 
 permissions:
@@ -123,18 +124,15 @@ jobs:
           echo "Version $v, release: $release"
 
   build:
-    # Skipped on the recovery button: it releases images main already built.
-    if: github.event_name != 'workflow_dispatch'
+    # The recovery button builds only when there is something left to release.
+    needs: version
+    if: github.event_name != 'workflow_dispatch' || needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     # Docker Hub credentials are environment secrets on `release`, which is
     # restricted to the main branch, so no other ref can supply the code that
-    # runs with the token.
-    #
-    # Conditional because this job also runs on pull requests, where it only
-    # builds (push: false). A PR ref is not main, so requesting the environment
-    # there would be denied and fail the job; an empty name means "no
-    # environment", which is what a PR build wants.
-    environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
+    # runs with the token. Only a release run asks for them; every other run
+    # builds without credentials (an empty name means "no environment").
+    environment: ${{ needs.version.outputs.release == 'true' && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -163,15 +161,29 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub (main only)
-        if: github.event_name != 'pull_request'
+      - name: Log in to DockerHub (releases only)
+        if: needs.version.outputs.release == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      # Only the per-commit tag is pushed here. A release gives these exact
-      # images their version tag in `publish`, without rebuilding.
+      # A release commit is built and uploaded once. If an earlier attempt of
+      # this release already uploaded the image, keep it: a rebuild would differ
+      # from what a version tag may already point at, and publish would refuse.
+      - name: Check for an earlier upload of this commit
+        id: uploaded
+        if: needs.version.outputs.release == 'true'
+        env:
+          REF: stratifai/${{ matrix.image }}:sha-${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$REF" >/dev/null 2>&1; then
+            echo "$REF is already uploaded; not rebuilding it."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A release uploads only the per-commit tag here. `publish` gives these
+      # exact images their version tag once all three are uploaded.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -179,12 +191,13 @@ jobs:
           tags: |
             type=sha,format=long
 
-      - name: Build (and push sha-<commit> on main)
+      - name: Build (and push sha-<commit> for a release)
+        if: steps.uploaded.outputs.exists != 'true'
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ needs.version.outputs.release == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
@@ -281,15 +294,10 @@ jobs:
           cache-to: ${{ matrix.cache_to }}
 
   # Gives this commit's images their version tag and moves `latest` to them.
-  # Nothing is rebuilt: a release ships exactly the images main built.
+  # Nothing is rebuilt: a release ships exactly the images this run built.
   publish:
     needs: [version, build]
-    # `needs` alone would skip this whenever build is skipped, which is the
-    # recovery-button case. Run unless build actually failed.
-    if: >-
-      !cancelled()
-      && needs.version.outputs.release == 'true'
-      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     environment: release
     # Releases never interleave, and a queued one is never cancelled.
@@ -323,7 +331,7 @@ jobs:
           for img in $images; do
             src="stratifai/${img}:sha-${SHA}"
             d=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$src" 2>&1) \
-              || fail "cannot resolve ${src} (has main finished building this commit?): $d"
+              || fail "cannot resolve ${src} (did the build job upload it?): $d"
             digest[$img]=$d
             dst="stratifai/${img}:${VERSION}"
             # A published version never moves. Re-running the same release is

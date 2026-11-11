@@ -124,6 +124,8 @@ jobs:
           echo "Version $v, release: $release"
 
   build:
+    # A short, stable check name: the ruleset on main requires these by name.
+    name: build (${{ matrix.image }})
     # The recovery button builds only when there is something left to release.
     needs: version
     if: github.event_name != 'workflow_dispatch' || needs.version.outputs.release == 'true'
@@ -210,6 +212,7 @@ jobs:
   # breakage, but never pushed and never gates publish -- a broken preview model
   # must not block a release of the three platform images.
   build-preview:
+    name: build-preview (${{ matrix.image }})
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:

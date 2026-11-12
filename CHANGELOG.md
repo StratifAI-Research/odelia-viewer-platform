@@ -4,6 +4,20 @@ What changed in each release of the ODELIA Viewer Platform, newest first. Every 
 bump adds a section here, and that section becomes the release's notes on GitHub. See
 `.github/RELEASING.md`.
 
+## 2.3.1
+
+Ships [ODELIA Viewer 2.3.1](https://github.com/StratifAI-Research/odelia-viewer/releases/tag/v2.3.1).
+
+- **VolumeRenderer (OpenGL/NVIDIA):** fix division by zero for axis-aligned rays
+  in the vtk volume shader and disable multisample anti-aliasing to avoid
+  intermittent black frames.
+- **4D loading:** load the active phase first so it can display sooner.
+- **Update notice:** report new platform releases, matching the stack installed
+  at each site.
+
+No database migration or configuration changes are required when updating from
+2.3.0. Backend source and trained-model pins are unchanged.
+
 ## 2.3.0
 
 First versioned release of the ODELIA Viewer Platform: the self-hostable stack for

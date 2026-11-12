@@ -37,7 +37,7 @@
 services:
   <router>:
     # Same router image as the other routers in docker-compose.yml (*orthanc-router-image).
-    image: stratifai/odelia-orthanc-router:2.3.0
+    image: stratifai/odelia-orthanc-router:2.3.1
     hostname: <router>
     container_name: odelia-<router>
     volumes:

@@ -1,0 +1,424 @@
+name: Build and release
+
+# Every run builds the platform images to catch breakage, but only a release
+# uploads anything: sites run releases, so other builds have no use on Docker
+# Hub. A push to main that changes VERSION is a release: it uploads the images
+# as sha-<commit>, tags them X.Y.Z and latest, and gives the commit the vX.Y.Z
+# git tag and a GitHub Release. There is no release button -- merging the
+# version bump is the release, so the PR approval is the gate.
+#
+# The odelia-viewer repository runs the same workflow for the viewer image.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Recovery only. If a release run failed in a way a re-run cannot fix, fix the
+  # cause on main and run this: it builds and releases the current main commit
+  # under the version in VERSION, provided that version has not been released.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per main commit, so a later push can never cancel or replace the
+  # run that releases an earlier one. Pull requests cancel their stale runs.
+  group: build-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Reads VERSION and decides whether this run releases. On pull requests it
+  # fails early when a bumped version is already taken or older than a release,
+  # so a bad bump is caught in review instead of after the merge.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          # The parent commit is enough to tell whether VERSION changed. On a
+          # pull request HEAD is the merge commit, whose first parent is main.
+          fetch-depth: 2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          v=$(git show HEAD:VERSION 2>/dev/null | tr -d '[:space:]' || true)
+          prev=$(git show HEAD^1:VERSION 2>/dev/null | tr -d '[:space:]' || true)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ -z "$v" ]; then
+            echo "No VERSION file; nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "VERSION must be three numbers like 2.3.1 (got '$v')"
+
+          # Sites run main: they take docker-compose.yml and the files it mounts
+          # straight from the checkout, and get new images only with a release. So a
+          # PR that changes any of those must be a release, or a site would run new
+          # files inside old images. Compose lists its own mounts, so a new mount is
+          # covered without editing this list.
+          if [ "$EVENT" = "pull_request" ] && [ "$v" = "$prev" ]; then
+            mounts=$(docker compose config --format json \
+              | jq -r --arg root "$PWD/" '.services[].volumes[]? | select(.type == "bind") | .source | ltrimstr($root)' \
+              | grep -v '^volumes/' | sort -u || true)
+            [ -n "$mounts" ] || fail "could not list the files docker-compose.yml mounts"
+            hits=$(git diff --name-only HEAD^1 HEAD | while read -r f; do
+              if [ "$f" = "docker-compose.yml" ]; then echo "$f"; continue; fi
+              while read -r m; do
+                if [ "$f" = "$m" ] || [[ "$f" == "$m/"* ]]; then echo "$f"; break; fi
+              done <<<"$mounts"
+            done)
+            [ -z "$hits" ] || fail "this PR changes files sites run from the checkout (${hits//$'\n'/, }); bump VERSION and add a CHANGELOG.md section"
+          fi
+
+          # A new version needs its section at the top of CHANGELOG.md: that
+          # section becomes the release's notes on GitHub.
+          section() { awk -v v="$1" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' CHANGELOG.md; }
+          if [ "$v" != "$prev" ]; then
+            [ -f CHANGELOG.md ] || fail "add CHANGELOG.md with a section \"## $v\""
+            top=$(grep -m1 -E '^## ' CHANGELOG.md | sed 's/^## //' || true)
+            [ "$top" = "$v" ] || fail "CHANGELOG.md must start with a section \"## $v\" (its newest is \"${top:-none}\")"
+            section "$v" | grep -q '[^[:space:]]' || fail "the \"## $v\" section in CHANGELOG.md is empty"
+          fi
+
+          # The checkout of a release must run exactly that release's images.
+          refs=$(grep -ohE 'stratifai/odelia-(orthanc-viewer|orthanc-router|chat)[:@][^[:space:]"]*' \
+            docker-compose.yml docker-compose.model-template.yml | sort -u || true)
+          [ -n "$refs" ] || fail "no platform images found in the docker-compose files"
+          bad=$(grep -vE ":${v//./\\.}\$" <<<"$refs" || true)
+          [ -z "$bad" ] || fail "docker-compose files must use $v for the platform images, not: ${bad//$'\n'/, }"
+
+          # The viewer and the trained models are pinned from elsewhere. Each pin must
+          # exist on Docker Hub, or `docker compose pull` fails at every site.
+          viewer=$(grep -ohE 'stratifai/odelia-viewer:[^[:space:]"]+' docker-compose.yml | sort -u || true)
+          [ -n "$viewer" ] && [ "$(wc -l <<<"$viewer")" = 1 ] \
+            || fail "expected exactly one viewer image in docker-compose.yml"
+          models=$(grep -ohE 'stratifai/odelia-classification-[a-z0-9-]+[:@][^[:space:]"]+' docker-compose.yml | sort -u || true)
+          for ref in $viewer $models; do
+            docker buildx imagetools inspect "$ref" >/dev/null || fail "$ref is not on Docker Hub"
+          done
+          # With a tag and a digest, Docker runs the digest and ignores the tag, so a
+          # pin could name one viewer version and run another. They must agree.
+          if [[ "$viewer" == *@sha256:* ]]; then
+            viewer_tag=${viewer%@*}
+            pinned=${viewer##*@}
+            actual=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$viewer_tag" 2>&1) \
+              || fail "cannot resolve $viewer_tag: $actual"
+            [ "$actual" = "$pinned" ] \
+              || fail "$viewer_tag is $actual on Docker Hub, but docker-compose.yml pins $pinned"
+          fi
+
+          # A new version must be unused and newer than every release so far,
+          # which also keeps `latest` from ever moving backwards.
+          newest=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/v##' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          tag_sha=$(git ls-remote origin "refs/tags/v$v" "refs/tags/v$v^{}" | tail -n1 | cut -f1)
+          check_new() {
+            [ -z "$tag_sha" ] || fail "v$v is already released; bump VERSION"
+            if [ -n "$newest" ] && [ "$(printf '%s\n%s\n' "$newest" "$v" | sort -V | tail -n1)" != "$v" ]; then
+              fail "VERSION $v must be newer than the latest release $newest"
+            fi
+          }
+          release=false
+          case "$EVENT" in
+            pull_request)
+              [ "$v" = "$prev" ] || check_new ;;
+            push)
+              if [ "$v" != "$prev" ]; then
+                # A re-run of a release that already tagged this commit may finish.
+                [ "$tag_sha" = "$GITHUB_SHA" ] || check_new
+                release=true
+              fi ;;
+            workflow_dispatch)
+              if [ -z "$tag_sha" ]; then
+                check_new
+                release=true
+              elif [ "$tag_sha" = "$GITHUB_SHA" ]; then
+                release=true
+              else
+                echo "v$v is already released on $tag_sha; nothing to do."
+              fi ;;
+          esac
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "Version $v, release: $release"
+
+  build:
+    # A short, stable check name: the ruleset on main requires these by name.
+    name: build (${{ matrix.image }})
+    # The recovery button builds only when there is something left to release.
+    needs: version
+    if: github.event_name != 'workflow_dispatch' || needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # Docker Hub credentials are environment secrets on `release`, which is
+    # restricted to the main branch, so no other ref can supply the code that
+    # runs with the token. Only a release run asks for them; every other run
+    # builds without credentials (an empty name means "no environment").
+    environment: ${{ needs.version.outputs.release == 'true' && 'release' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # cache_scope equals `image` for every leg here (none write a shared
+        # scope), so cache-from lists the same scope twice. Kept on every
+        # entry anyway for uniformity with build-preview, where cache_scope
+        # differs from image for the shared classification legs.
+        include:
+          - image: odelia-orthanc-viewer
+            context: ./orthanc/viewer
+            dockerfile: ./orthanc/viewer/Dockerfile
+            cache_scope: odelia-orthanc-viewer
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-viewer
+          - image: odelia-orthanc-router
+            context: ./orthanc/router
+            dockerfile: ./orthanc/router/Dockerfile
+            cache_scope: odelia-orthanc-router
+            cache_to: type=gha,mode=max,scope=odelia-orthanc-router
+          - image: odelia-chat
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/chat-middleware/Dockerfile
+            cache_scope: odelia-chat
+            cache_to: type=gha,mode=max,scope=odelia-chat
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to DockerHub (releases only)
+        if: needs.version.outputs.release == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # A release commit is built and uploaded once. If an earlier attempt of
+      # this release already uploaded the image, keep it: a rebuild would differ
+      # from what a version tag may already point at, and publish would refuse.
+      - name: Check for an earlier upload of this commit
+        id: uploaded
+        if: needs.version.outputs.release == 'true'
+        env:
+          REF: stratifai/${{ matrix.image }}:sha-${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$REF" >/dev/null 2>&1; then
+            echo "$REF is already uploaded; not rebuilding it."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A release uploads only the per-commit tag here. `publish` gives these
+      # exact images their version tag once all three are uploaded.
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: stratifai/${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+
+      - name: Build (and push sha-<commit> for a release)
+        if: steps.uploaded.outputs.exists != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ needs.version.outputs.release == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: ${{ matrix.cache_to }}
+
+  # Preview roster (ODV-218): six odelia-classification-* images with init-only
+  # weights. Trained releases use trained-models.yml. Built on every push/PR to catch
+  # breakage, but never pushed and never gates publish -- a broken preview model
+  # must not block a release of the three platform images.
+  build-preview:
+    name: build-preview (${{ matrix.image }})
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: odelia-classification-agaldran
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=agaldran
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-agaldran
+          - image: odelia-classification-bcnaim
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=BCN_AIM
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-bcnaim
+          - image: odelia-classification-divideandconquer
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=DivideAndConquer
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-divideandconquer
+          - image: odelia-classification-lmeabmil
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=LME_ABMIL
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-lmeabmil
+          - image: odelia-classification-mst
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=MST
+            cache_scope: odelia-classification-shared
+            cache_to: type=gha,mode=max,scope=odelia-classification-mst
+          - image: odelia-classification-pimed
+            context: ./orthanc/MLIntegration
+            dockerfile: ./orthanc/MLIntegration/odelia-classification/Dockerfile
+            build_args: |
+              MODEL=Pimed
+            cache_scope: odelia-classification-shared
+            # Sole writer of the shared scope. The writer is arbitrary -- the
+            # reusable layers are everything before `RUN test -n "$MODEL"`,
+            # the first instruction after ARG MODEL comes into scope, which is
+            # where the cache first diverges; the DINOv2 pre-cache step runs
+            # after that point and is irrelevant to this choice.
+            cache_to: |
+              type=gha,mode=max,scope=odelia-classification-pimed
+              type=gha,mode=max,scope=odelia-classification-shared
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: stratifai/${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+
+      - name: Build (never pushed -- init-only preview roster)
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=gha,scope=${{ matrix.cache_scope }}
+          # Shared classification cache only helps runs AFTER a requirements.txt
+          # change lands, since the six matrix jobs run in parallel this run.
+          cache-to: ${{ matrix.cache_to }}
+
+  # Gives this commit's images their version tag and moves `latest` to them.
+  # Nothing is rebuilt: a release ships exactly the images this run built.
+  publish:
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    # Releases never interleave, and a queued one is never cancelled.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Tag this commit's images as the release and latest
+        env:
+          SHA: ${{ github.sha }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # The `release` environment already admits only main. This costs
+          # nothing and catches that policy being widened by mistake.
+          [ "$GITHUB_REF" = "refs/heads/main" ] || fail "refusing to publish from $GITHUB_REF"
+          images="odelia-orthanc-viewer odelia-orthanc-router odelia-chat"
+
+          # Check every image before writing any, so a failure part-way cannot
+          # leave the repositories half-released.
+          declare -A digest
+          for img in $images; do
+            src="stratifai/${img}:sha-${SHA}"
+            d=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$src" 2>&1) \
+              || fail "cannot resolve ${src} (did the build job upload it?): $d"
+            digest[$img]=$d
+            dst="stratifai/${img}:${VERSION}"
+            # A published version never moves. Re-running the same release is
+            # fine; pointing it at different content is refused.
+            if out=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$dst" 2>&1); then
+              [ "$out" = "$d" ] || fail "${dst} already exists with different content; release a new version"
+            else
+              # Only a genuine absence is safe to proceed from. An auth failure,
+              # rate limit or network error must not be read as "tag is free".
+              case "$out" in
+                *"not found"*|*MANIFEST_UNKNOWN*|*"manifest unknown"*) ;;
+                *) fail "cannot determine whether ${dst} exists: ${out}" ;;
+              esac
+            fi
+          done
+
+          for img in $images; do
+            echo "stratifai/${img}:sha-${SHA} -> ${VERSION}, latest"
+            docker buildx imagetools create \
+              -t "stratifai/${img}:${VERSION}" -t "stratifai/${img}:latest" \
+              "stratifai/${img}:sha-${SHA}"
+          done
+
+  # Tags the commit and publishes the release notes. A separate job because it
+  # is the only one with contents: write, and it runs only once the images exist.
+  record:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Create the git tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to do."
+            exit 0
+          fi
+          # The notes are this version's section of CHANGELOG.md, which the version
+          # check made sure exists, plus the viewer the release ships if the
+          # section does not name it. --target creates the tag on the commit whose
+          # images were published.
+          awk -v v="$VERSION" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          viewer=$(grep -ohE 'stratifai/odelia-viewer:[^@[:space:]"]+' docker-compose.yml | head -n1)
+          viewer=${viewer#*:}
+          if ! grep -qF "ODELIA Viewer ${viewer}" "$RUNNER_TEMP/notes.md"; then
+            printf '\nShips ODELIA Viewer %s.\n' "$viewer" >> "$RUNNER_TEMP/notes.md"
+          fi
+          gh release create "$tag" --target "$SHA" --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"

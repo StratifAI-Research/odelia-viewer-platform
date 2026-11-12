@@ -15,7 +15,7 @@
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"/></a>
-    <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/docker-build-push.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/docker-build-push.yml/badge.svg" alt="Docker Build & Push"/></a>
+    <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/build-and-release.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/build-and-release.yml/badge.svg" alt="Build and release"/></a>
     <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-tests.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-tests.yml/badge.svg" alt="Python tests"/></a>
     <a href="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-lint.yml"><img src="https://github.com/StratifAI-Research/odelia-viewer-platform/actions/workflows/python-lint.yml/badge.svg" alt="Python lint"/></a>
     <img src="https://img.shields.io/badge/use-research%20only-orange" alt="Research use only"/>
@@ -52,18 +52,17 @@ It bundles:
 git clone https://github.com/StratifAI-Research/odelia-viewer-platform.git
 cd odelia-viewer-platform
 docker compose pull
-docker compose up -d --no-build
+docker compose up -d
 ```
 
 The default viewer exposes **MST, agaldran, SwinUNETR and ABMIL swarm May 2026**,
-and **MeisenMeister swarm August 2026**. Compose pins the published trained models,
-viewer, Orthanc and chat images by digest. No `.env` or Hugging Face token is
-needed for this default deployment; model weights are already in the images.
-Pins are updated manually in `docker-compose.yml` when adopting a release.
+and **MeisenMeister swarm August 2026**. Every image the stack runs is listed once,
+under `x-images` at the top of `docker-compose.yml`. No `.env` or Hugging Face token
+is needed for this default deployment; model weights are already in the images.
 
-For optional model and viewer image overrides, see `.env.models.example` and
+To run other images, for example a test build or another trained model release, see
+`docker-compose.override.example.yml` and
 [trained model deployment](docs/usage/loading_model_weights.md#default-viewer-deployment).
-Merge overrides into an existing `.env` instead of replacing it.
 
 **MST output change:** the trained swarm service returns classification results
 and DICOM SRs, without the previous MST attention-map overlays. New MST analyses
@@ -77,6 +76,7 @@ Then open **<http://localhost:8081>** and sign in with the default credentials *
 To use the **chat** feature:
 [`docs/setup/setup_chat.md`](docs/setup/setup_chat.md).
 To update an existing deployment: [`docs/setup/updating.md`](docs/setup/updating.md).
+What changed in each release: [`CHANGELOG.md`](CHANGELOG.md).
 
 
 

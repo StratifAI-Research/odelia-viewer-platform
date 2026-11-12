@@ -36,10 +36,8 @@
 
 services:
   <router>:
-    build:
-      context: ./orthanc/router
-      dockerfile: Dockerfile
-    image: ${ORTHANC_ROUTER_IMAGE:-stratifai/odelia-orthanc-router:${TAG:-latest@sha256:9ab29a10df7f8c27ae91cb1740a7b75ee1dcb91496cc41846fca485e346bb317}}
+    # Same router image as the other routers in docker-compose.yml (*orthanc-router-image).
+    image: stratifai/odelia-orthanc-router:2.3.0
     hostname: <router>
     container_name: odelia-<router>
     volumes:
@@ -71,7 +69,7 @@ services:
       dockerfile: odelia-classification/Dockerfile
       args:
         MODEL: <model-arg>
-    image: ${DOCKER_HUB_USERNAME:-stratifai}/<svc>:${TAG:-0.1.0}
+    image: <svc>:local # built from this checkout until it has a published image
     container_name: <svc>
     environment:
       ORTHANC_URL: "http://<router>:8042"

@@ -39,7 +39,9 @@ might ship viewer 2.4.0. Each platform release's notes name the exact viewer ver
 ## What changed
 
 [`CHANGELOG.md`](../CHANGELOG.md) lists every release, newest first, with what changed
-and anything you need to do when updating. The same text is on the
+and anything you need to do when updating (under **Upgrade notes**). Changes merged since
+the last release are listed under **Unreleased**; they reach your site with the next
+release. The same text, without the headings that say N/A, is on the
 [Releases page](https://github.com/StratifAI-Research/odelia-viewer-platform/releases).
 
 ## `main` is always the newest release

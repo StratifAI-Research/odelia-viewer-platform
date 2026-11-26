@@ -78,17 +78,14 @@ jobs:
                 if [ "$f" = "$m" ] || [[ "$f" == "$m/"* ]]; then echo "$f"; break; fi
               done <<<"$mounts"
             done)
-            [ -z "$hits" ] || fail "this PR changes files sites run from the checkout (${hits//$'\n'/, }); bump VERSION and add a CHANGELOG.md section"
+            [ -z "$hits" ] || fail "this PR changes files sites run from the checkout (${hits//$'\n'/, }); make it a release: bump VERSION and turn [Unreleased] in CHANGELOG.md into the new version"
           fi
 
-          # A new version needs its section at the top of CHANGELOG.md: that
-          # section becomes the release's notes on GitHub.
-          section() { awk -v v="$1" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' CHANGELOG.md; }
+          # A new version needs its section in CHANGELOG.md, directly below an
+          # empty [Unreleased]: that section becomes the release's notes on GitHub.
+          # The script prints what is wrong.
           if [ "$v" != "$prev" ]; then
-            [ -f CHANGELOG.md ] || fail "add CHANGELOG.md with a section \"## $v\""
-            top=$(grep -m1 -E '^## ' CHANGELOG.md | sed 's/^## //' || true)
-            [ "$top" = "$v" ] || fail "CHANGELOG.md must start with a section \"## $v\" (its newest is \"${top:-none}\")"
-            section "$v" | grep -q '[^[:space:]]' || fail "the \"## $v\" section in CHANGELOG.md is empty"
+            python3 .github/scripts/change_control.py release-check "$v"
           fi
 
           # The checkout of a release must run exactly that release's images.
@@ -410,12 +407,11 @@ jobs:
             echo "Release $tag already exists; nothing to do."
             exit 0
           fi
-          # The notes are this version's section of CHANGELOG.md, which the version
-          # check made sure exists, plus the viewer the release ships if the
-          # section does not name it. --target creates the tag on the commit whose
-          # images were published.
-          awk -v v="$VERSION" '/^## / { if (found) exit; if ($0 == "## " v) { found = 1; next } } found' \
-            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          # The notes are this version's section of CHANGELOG.md without its empty
+          # headings (the version check made sure the section exists), plus the
+          # viewer the release ships if the section does not name it. --target
+          # creates the tag on the commit whose images were published.
+          python3 .github/scripts/change_control.py notes "$VERSION" > "$RUNNER_TEMP/notes.md"
           viewer=$(grep -ohE 'stratifai/odelia-viewer:[^@[:space:]"]+' docker-compose.yml | head -n1)
           viewer=${viewer#*:}
           if ! grep -qF "ODELIA Viewer ${viewer}" "$RUNNER_TEMP/notes.md"; then

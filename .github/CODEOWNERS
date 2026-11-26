@@ -1,8 +1,11 @@
 # Changes to CI must be approved by a release manager, because this code runs in
 # the workflows that hold the Docker Hub publishing credentials. A composite
 # action under .github/actions/ runs with exactly the privileges of the workflow
-# that calls it, so it needs the same review as the workflow file itself.
+# that calls it, so it needs the same review as the workflow file itself. The
+# same holds for scripts under .github/scripts/: the release job runs one with
+# permission to create tags and releases.
 # Everything else in the repository follows the normal single-approval rule.
 /.github/workflows/   @SAI-Firas @SAI-Omar @mueller-franzes
 /.github/actions/     @SAI-Firas @SAI-Omar @mueller-franzes
+/.github/scripts/     @SAI-Firas @SAI-Omar @mueller-franzes
 /.github/CODEOWNERS   @SAI-Firas @SAI-Omar @mueller-franzes

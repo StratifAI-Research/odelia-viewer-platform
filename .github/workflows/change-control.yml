@@ -1,0 +1,43 @@
+name: Change control
+
+# Every pull request is a change request: its description answers the questions in
+# .github/pull_request_template.md, and its release-note box must match what it adds
+# to CHANGELOG.md. This checks both, and that CHANGELOG.md keeps its format. It does
+# not judge the answers; reviewers do. The job summary shows the answers and which
+# approval the change needs. Draft pull requests only get warnings.
+#
+# odelia-viewer runs the same workflow and script.
+
+on:
+  pull_request:
+    branches: [main]
+    # `edited`: a fixed description re-runs the check without a new commit.
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: change-control-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  change-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          # HEAD is the merge commit; its first parent is main, to compare with.
+          fetch-depth: 2
+
+      - name: Test the checker
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+      - name: Check the description and the changelog
+        # The description is untrusted text: passed in the environment, never
+        # pasted into the script.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: python3 .github/scripts/change_control.py check-pr
